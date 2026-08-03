@@ -131,6 +131,10 @@ def _fingerprint_payload(cfg: dict[str, Any], device_id: str, sv: str) -> dict:
         "languages": [x.strip() for x in languages if x.strip()] or ["en-US"],
         "time_origin": round(time.time() * 1000 - elapsed, 1),
         "page_elapsed_ms": elapsed,
+        # 真浏览器 auth.openai.com 的 localStorage 有 Statsig 键（指纹计算 Object.keys(localStorage) 读取）
+        "statsig_id": str(b.get("statsig_id", "444584300") or "444584300"),
+        "statsig_stable_id": str(__import__("uuid").uuid4()),
+        "statsig_session_id": str(__import__("uuid").uuid4()),
         "js_heap_size_limit": int(b.get("js_heap_size_limit", 4395630592) or 4395630592),
         # TZ 默认空 = 用机器时区（与本机 browser_sentinel 一致）；设 cfg.browser.timezone 可对齐代理地区
         "timezone": str(b.get("timezone", "") or ""),

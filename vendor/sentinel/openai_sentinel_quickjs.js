@@ -256,10 +256,13 @@ function installRuntime(payload) {
   // time_origin 由调用方按「一次注册」固定传入（A3：真浏览器是页面加载常数，同注册两 token 必须一致）。
   // performance.now() = Date.now() - timeOrigin：真语义，从 ~0 起单调递增。
   const _timeOrigin = Number(payload.time_origin || (Date.now() - 300));
+  // perf_scale>1 时加速性能时钟：turnstile 程序有 ABSCOND(|now-prev|>2000ms)→加载 blob1 慢路径，
+  // vm 执行太快永不触发。加速时钟用于验证该分支是否影响 t 长度。
+  const _perfScale = Number(payload.perf_scale || 1) || 1;
   const performance = {
     now: () => {
       const v = Date.now() - _timeOrigin;
-      return v > 0 ? v : 0;
+      return v > 0 ? v * _perfScale : 0;
     },
     timeOrigin: _timeOrigin,
     memory: { jsHeapSizeLimit: Number(payload.js_heap_size_limit || 4395630592) },
@@ -373,7 +376,19 @@ function installRuntime(payload) {
   };
   globalThis.screen = screen;
   globalThis.performance = performance;
-  globalThis.localStorage = createStorage();
+  // 真浏览器 auth.openai.com 的 localStorage 有 Statsig 键（turnstile 指纹计算 Object.keys(localStorage) 读取）
+  const _ls = createStorage();
+  try {
+    const _sid = String(payload.statsig_id || "444584300");
+    _ls.setItem("statsig.stable_id." + _sid, JSON.stringify(String(payload.statsig_stable_id || "")));
+    _ls.setItem("statsig.session_id." + _sid, JSON.stringify({
+      sessionID: String(payload.statsig_session_id || ""),
+      startTime: Number(_timeOrigin),
+      lastSeen: Number(_timeOrigin),
+      isLoggedIn: false,
+    }));
+  } catch (e) { /* 尽力 */ }
+  globalThis.localStorage = _ls;
   globalThis.sessionStorage = createStorage();
   // __sentinel_*/SentinelSDK 是真浏览器全局（backend-api 加载器创建，可枚举），保持忠实
   globalThis.__sentinel_init_pending = [];
@@ -687,19 +702,28 @@ async function run(payload, sdkSource) {
     try {
       const _flow = String(payload.flow || "");
       if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, challenge);
-      // 模拟真实用户行为，喂 session observer（真实浏览器 harvest 有 mouse.move/scroll/Tab）
+      // 注意: 不要在这里等待/延迟——collector 的 jt 与 snapshot 的 jt 共享全局 St/Y，会互相干扰挂起。
+      // 模拟真实用户行为，喂 session observer（实验性；监听器异步注册时序未解决）
       await simulateBehavior();
       if (typeof globalThis.SentinelSDK.sessionObserverToken === "function") {
         const s = await globalThis.SentinelSDK.sessionObserverToken(_flow);
         so = (typeof s === "string") ? s : JSON.stringify(s);
       }
     } catch (e) { /* so 失败不影响 t */ }
+    // 调试：dump session observer 采集的 __oai_so_* 状态
+    const oai_so = {};
+    try {
+      for (const k of Object.keys(globalThis)) {
+        if (k.startsWith("__oai_so_")) oai_so[k] = String(globalThis[k]).slice(0, 60);
+      }
+    } catch (e) { /* ignore */ }
     return {
       final_p: finalP,
       t: tValue,
       so: so,
       fp_reads: Array.isArray(globalThis.__debug_fp_reads) ? globalThis.__debug_fp_reads : [],
       event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
+      oai_so: oai_so,
     };
   }
 
