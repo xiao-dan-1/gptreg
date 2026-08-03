@@ -33,6 +33,9 @@ SENTINEL_REQ_URL = "https://chatgpt.com/backend-api/sentinel/req"
 
 _WRAPPER_JS = r"""
 const fs=require('fs');
+// 在 eval(adapter) 之前捕获 Node 真实 setTimeout——vm 会覆盖 globalThis.setTimeout 为同步版，
+// 若轮询用它会形成微任务忙碌循环、饿死真实 macrotask 定时器（collector/so 异步全挂起的根因）。
+const __rST=setTimeout.bind(null),__rCST=clearTimeout.bind(null);
 const tm=Number(process.env.QJS_TIMEOUT_MS||'120000');
 const sdkFile=process.env.QJS_SDK_FILE, scriptFile=process.env.QJS_SCRIPT;
 let input='';process.stdin.setEncoding('utf8');
@@ -46,7 +49,7 @@ process.stdin.on('end',async()=>{try{
   const st=Date.now();
   while(!globalThis.__vm_done){
     if(Date.now()-st>tm){throw new Error('quickjs vm timeout');}
-    await new Promise(r=>setTimeout(r,1));
+    await new Promise(r=>__rST(r,1));  // 真实定时器，让事件循环跑起来（macrotask 不被饿死）
   }
   if(String(globalThis.__vm_error||'').trim())throw new Error(String(globalThis.__vm_error));
   process.stdout.write(String(globalThis.__vm_output_json||''));

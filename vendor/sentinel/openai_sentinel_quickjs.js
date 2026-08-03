@@ -642,33 +642,42 @@ function loadPatchedSdk(sdkSource) {
   sdk = sdk.replace(INSTANCE_PATCH, INSTANCE_REPLACEMENT);
   sdk = sdk.replace(EXPOSE_PATCH, EXPOSE_REPLACEMENT);
   sdk = sdk.replace('e(""+kn)}),500', 'e(""+kn)}),120000');
+  // 诊断：_t() 队列处理器加循环守卫（collector 死循环定位用）
+  sdk = sdk.replace(
+    "_t(){const t=xt;for(;St[t(25)](Y).length>0;){const[n,...e]=St[t(25)](Y).shift(),r=St.get(n)(...e);r&&typeof r[t(13)]===t(17)&&await r,Ct++}}",
+    "_t(){const t=xt;globalThis.__T_ITER=0,globalThis.__T_LOG=[];for(;St[t(25)](Y).length>0;){if(++globalThis.__T_ITER>500000){throw new Error('_t_LOOP '+JSON.stringify(globalThis.__T_LOG.slice(-5)))}const[n,...e]=St[t(25)](Y).shift();globalThis.__T_LOG.push([n,typeof St.get(n),e.length]);globalThis.__T_LOG.length>50&&globalThis.__T_LOG.shift();r=St.get(n)(...e);r&&typeof r[t(13)]===t(17)&&await r,Ct++}}"
+  );
   sdk = sdk.replace("function D(t,n){I.set(t,n)}", "function D(t,n){I.set(t,n);globalThis.__debug_D=D;}");
   sdk = sdk.replace("function se(t,n){const e=Hn,r=re(t);", "globalThis.__debug_se=se;function se(t,n){const e=Hn,r=re(t);");
   eval(sdk);
 }
 
 // 模拟真实用户行为，喂 session observer（pointermove/keydown/scroll/wheel/click）。
-// 纯同步 + 显式递增 timeStamp（避免真实 await 拖慢/干扰 _n 的异步），坐标连续（人类鼠标轨迹）。
-// 事件系统注册回调即记录，sessionObserverToken 用记录的 timeStamp/坐标。
+// 真实间隔 120-180ms（yield 让 collector 的 jt 先注册监听器，事件再到达；wrapper 修复后真实定时器可用）。
+// 坐标连续（人类鼠标轨迹），timeStamp 用 performance.now()。
 async function simulateBehavior() {
   const fire = globalThis.__fire_event;
   if (typeof fire !== "function") return;
-  let t = 0;  // 相对页面加载的毫秒
-  const step = () => { t += 120 + Math.floor(Math.random() * 60); return t; };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const pts = [
     [280, 180], [310, 205], [340, 230], [375, 255], [400, 280],
     [435, 310], [465, 340], [500, 365], [525, 390], [510, 400],
     [485, 415], [455, 430], [430, 445], [415, 455], [405, 465],
   ];
   for (const [x, y] of pts) {
-    fire("pointermove", { type: "pointermove", clientX: x, clientY: y, screenX: x, screenY: y, pointerType: "mouse", buttons: 0, timeStamp: step() });
+    fire("pointermove", { type: "pointermove", clientX: x, clientY: y, screenX: x, screenY: y, pointerType: "mouse", buttons: 0, timeStamp: performance.now() });
+    await wait(130);
   }
-  fire("wheel", { type: "wheel", deltaY: 260, clientX: 400, clientY: 300, deltaMode: 0, timeStamp: step() });
-  fire("scroll", { type: "scroll", scrollY: 260, timeStamp: step() });
-  fire("keydown", { type: "keydown", key: "Tab", code: "Tab", keyCode: 9, which: 9, timeStamp: step() });
-  fire("click", { type: "click", clientX: 505, clientY: 400, button: 0, timeStamp: step() });
-  fire("paste", { type: "paste", timeStamp: step() });
-  fire("message", { type: "message", timeStamp: step() });
+  fire("wheel", { type: "wheel", deltaY: 260, clientX: 400, clientY: 300, deltaMode: 0, timeStamp: performance.now() });
+  await wait(150);
+  fire("scroll", { type: "scroll", scrollY: 260, timeStamp: performance.now() });
+  await wait(120);
+  fire("keydown", { type: "keydown", key: "Tab", code: "Tab", keyCode: 9, which: 9, timeStamp: performance.now() });
+  await wait(100);
+  fire("click", { type: "click", clientX: 505, clientY: 400, button: 0, timeStamp: performance.now() });
+  await wait(100);
+  fire("paste", { type: "paste", timeStamp: performance.now() });
+  fire("message", { type: "message", timeStamp: performance.now() });
 }
 
 async function run(payload, sdkSource) {
@@ -692,7 +701,7 @@ async function run(payload, sdkSource) {
     // 快速测试 collector 异步协调：se + 延迟 → dump __oai_so_*（不跑慢 _n）
     const _flow = String(payload.flow || "");
     try {
-      if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, payload.challenge || {});
+      if (!payload.skip_se && typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, payload.challenge || {});
       // 让 collector 注册监听器（其 jt 异步，需 yield）
       await new Promise((r) => setTimeout(r, 200));
       // 真实间隔事件：yield 让 collector 处理，事件到达已注册的监听器
@@ -719,6 +728,14 @@ async function run(payload, sdkSource) {
     } catch (e) {
       return { error: String(e && e.message || e) };
     }
+  }
+
+  if (payload.action === "sleeptest") {
+    // 最小测试：真实异步 setTimeout 是否 resolve
+    const d = Number(payload.sleep_ms || 0) || 0;
+    const t0 = Date.now();
+    await new Promise((r) => setTimeout(r, d));
+    return { elapsed: Date.now() - t0, real: d };
   }
 
   if (payload.action === "solve") {
