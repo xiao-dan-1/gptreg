@@ -541,6 +541,21 @@ function installRuntime(payload) {
         return t[k];
       },
     });
+    const wrapRet = (label, ret) => {
+      if (ret && (typeof ret === "object" || typeof ret === "function")) {
+        return new Proxy(ret, {
+          get(t2, k2) {
+            if (typeof k2 !== "symbol") {
+              const v2 = t2[k2];
+              if (v2 === undefined) reads.push({ k: `${label}.${String(k2)}`, v: "UNDEF" });
+              return v2;
+            }
+            return t2[k2];
+          },
+        });
+      }
+      return ret;
+    };
     const docProxy = new Proxy(document, {
       get(t, k) {
         if (typeof k !== "symbol") {
@@ -549,7 +564,7 @@ function installRuntime(payload) {
           if (typeof v === "function") {
             return (...a) => {
               reads.push({ k: `document.${String(k)}(${a.map((x) => String(x)).join(", ").slice(0, 80)})`, v: "CALL" });
-              return t[k].apply(t, a);
+              return wrapRet(`document.${String(k)}()`, t[k].apply(t, a));
             };
           }
         }
@@ -558,6 +573,22 @@ function installRuntime(payload) {
     });
     Object.defineProperty(globalThis, "navigator", { value: navProxy, configurable: true, writable: true });
     globalThis.document = docProxy;
+    // screen / performance / crypto 包装：`_n`（turnstile 求解器）依赖这些
+    for (const [gn, gk] of [["screen", "screen"], ["performance", "performance"], ["crypto", "crypto"]]) {
+      const gv = globalThis[gk];
+      if (gv && typeof gv === "object") {
+        globalThis[gk] = new Proxy(gv, {
+          get(t, k) {
+            if (typeof k !== "symbol") {
+              const v = t[k];
+              if (v === undefined) reads.push({ k: `${gn}.${String(k)}`, v: "UNDEF" });
+              return v;
+            }
+            return t[k];
+          },
+        });
+      }
+    }
   }
 }
 
@@ -608,7 +639,12 @@ async function run(payload, sdkSource) {
         so = (typeof s === "string") ? s : JSON.stringify(s);
       }
     } catch (e) { /* so 失败不影响 t */ }
-    return { final_p: finalP, t: tValue, so: so };
+    return {
+      final_p: finalP,
+      t: tValue,
+      so: so,
+      fp_reads: Array.isArray(globalThis.__debug_fp_reads) ? globalThis.__debug_fp_reads : [],
+    };
   }
 
   throw new Error(`unsupported action: ${payload.action}`);
