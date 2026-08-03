@@ -121,6 +121,33 @@ def _fingerprint_payload(cfg: dict[str, Any], device_id: str, sv: str) -> dict:
     }
 
 
+def _dump_solved_tokens(
+    device_id: str, request_p: str, final_p: str, t: str, so_header: str | None, flow: str
+) -> None:
+    """dump 真实产出的 token 到 data/solved_tokens/，供解码验证跨 token 自洽性（A2/A3）。
+
+    requirements 与 solve 是两次独立 Node 进程，_fingerprint_payload 里
+    performance_now/time_origin 每次现算——真浏览器 timeOrigin 是页面加载常数。
+    解码对比可实证该漂移是否存在。
+    """
+    try:
+        out_dir = Path(__file__).resolve().parent.parent / "data" / "solved_tokens"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": round(time.time(), 3),
+            "device_id": device_id,
+            "flow": flow,
+            "request_p": request_p,
+            "final_p": final_p,
+            "t_len": len(t),
+            "so": so_header,
+        }
+        with open(out_dir / "solved_tokens.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.warning("dump solved tokens 失败", exc_info=True)
+
+
 def get_sentinel_token_via_quickjs(
     session: Any,
     device_id: str,
@@ -206,4 +233,5 @@ def get_sentinel_token_via_quickjs(
             separators=(",", ":"), ensure_ascii=False,
         )
     log(f"quickjs 真 t 成功 (t_len={len(t)} so_len={len(so_header) if so_header else 0} elapsed={elapsed:.0f}s)")
+    _dump_solved_tokens(device_id, request_p, final_p, t, so_header, flow)
     return token, so_header
