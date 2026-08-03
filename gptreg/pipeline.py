@@ -281,6 +281,9 @@ def register_one(
             sentinel_create, so_header = auth.make_sentinel_headers(
                 session, None, "oauth_create_account", require_so=False, source=source
             )
+            # 隔离实验：--no-so 剥掉 so 头（判断 so 对存活的影响）
+            if reg_cfg.get("no_so"):
+                so_header = None
             has_so = bool(so_header)
             so_len = len(so_header or "")
             sentinel_meta = getattr(session, "_last_sentinel_meta", None) or {}

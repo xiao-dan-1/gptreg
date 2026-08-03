@@ -72,6 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument("-v", "--verbose", action="store_true", help="详细日志")
+    p.add_argument(
+        "--no-so",
+        action="store_true",
+        help="create 剥掉 openai-sentinel-so-token 头（隔离实验：判断 so 对存活的影响）",
+    )
     p.add_argument("--version", action="version", version=f"gptreg {__version__}")
     return p
 
@@ -109,6 +114,8 @@ def main(argv: list[str] | None = None) -> int:
     _apply_region(cfg, args.region)
     if getattr(args, "sentinel_source", None):
         cfg.setdefault("protocol", {})["sentinel_source"] = args.sentinel_source
+    if getattr(args, "no_so", False):
+        cfg.setdefault("register", {})["no_so"] = True
 
     proxy_override = _resolve_proxy_arg(args)
 
