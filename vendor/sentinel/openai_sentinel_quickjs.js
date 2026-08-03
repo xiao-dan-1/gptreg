@@ -355,6 +355,7 @@ function loadPatchedSdk(sdkSource) {
   sdk = sdk.replace(EXPOSE_PATCH, EXPOSE_REPLACEMENT);
   sdk = sdk.replace('e(""+kn)}),500', 'e(""+kn)}),120000');
   sdk = sdk.replace("function D(t,n){I.set(t,n)}", "function D(t,n){I.set(t,n);globalThis.__debug_D=D;}");
+  sdk = sdk.replace("function se(t,n){const e=Hn,r=re(t);", "globalThis.__debug_se=se;function se(t,n){const e=Hn,r=re(t);");
   eval(sdk);
 }
 
@@ -376,7 +377,17 @@ async function run(payload, sdkSource) {
     const dx = challenge && challenge.turnstile ? challenge.turnstile.dx : null;
     if (typeof globalThis.__debug_D === "function") globalThis.__debug_D(challenge, requestP);
     const tValue = dx ? await globalThis.SentinelSDK.__debug_n(challenge, dx) : null;
-    return { final_p: finalP, t: tValue };
+    // [so] se + sessionObserverToken 产真 so（getEnforcementToken 已设寄存器）
+    let so = null;
+    try {
+      const _flow = String(payload.flow || "");
+      if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, challenge);
+      if (typeof globalThis.SentinelSDK.sessionObserverToken === "function") {
+        const s = await globalThis.SentinelSDK.sessionObserverToken(_flow);
+        so = (typeof s === "string") ? s : JSON.stringify(s);
+      }
+    } catch (e) { /* so 失败不影响 t */ }
+    return { final_p: finalP, t: tValue, so: so };
   }
 
   throw new Error(`unsupported action: ${payload.action}`);

@@ -169,29 +169,28 @@ def make_sentinel_headers(
         return token, so
 
     if mode == "quickjs":
-        # Node VM 跑官方 sdk.js 产**真 t**（协议产真 t 突破，capture/protocol-real-t-20260803/）。
-        # 无浏览器；每 token ~60s（解释器慢）。
+        # Node VM 跑官方 sdk.js 产**真 t + 真 so**（协议产真 t/so 突破，capture/protocol-real-t-20260803/）。
+        # 无浏览器；每 token ~60s（t 解释器慢，so 快）。
         from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
 
-        token = get_sentinel_token_via_quickjs(
+        token, so = get_sentinel_token_via_quickjs(
             session, session.device_id, flow=flow, cfg=session.cfg,
         )
-        # quickjs 目前不产 so（未来可扩展 sessionObserverToken）
-        so = None
         try:
             tj = json.loads(token)
             _t_len = len(str(tj.get("t") or ""))
         except Exception:
             _t_len = 0
+        _so_len = len(so or "")
         session._last_sentinel_meta = {  # type: ignore[attr-defined]
             "mode": "quickjs",
-            "has_so": False,
-            "so_len": 0,
+            "has_so": bool(so),
+            "so_len": _so_len,
             "t_len": _t_len,
         }
         logger.info(
-            "[Sentinel] headers ready flow=%s mode=quickjs t_len=%s (真 t)",
-            flow, _t_len,
+            "[Sentinel] headers ready flow=%s mode=quickjs t_len=%s so_len=%s (真 t+真 so)",
+            flow, _t_len, _so_len,
         )
         return token, so
 

@@ -125,8 +125,8 @@ def get_sentinel_token_via_quickjs(
     cfg: dict[str, Any] | None = None,
     timeout_ms: int = 120000,
     log=None,
-) -> str:
-    """返回完整 sentinel-token JSON 字符串（含真 t）。"""
+) -> tuple[str, str | None]:
+    """返回 (sentinel-token JSON 字符串（含真 t）, so-header 或 None)。"""
     log = log or (lambda m: logger.info(m))
     cfg = cfg or {}
     protocol = cfg.get("protocol", {}) or {}
@@ -178,5 +178,21 @@ def get_sentinel_token_via_quickjs(
         {"p": final_p, "t": t, "c": c_value, "id": device_id, "flow": flow},
         separators=(",", ":"), ensure_ascii=False,
     )
-    log(f"quickjs 真 t 成功 (t_len={len(t)} elapsed={elapsed:.0f}s)")
-    return token
+    # so：从 solve 输出提取，组装 openai-sentinel-so-token
+    so_header: str | None = None
+    so_raw = solved.get("so")
+    if so_raw:
+        so_val = so_raw
+        if isinstance(so_raw, str):
+            try:
+                sp = json.loads(so_raw)
+                if isinstance(sp, dict) and sp.get("so"):
+                    so_val = sp["so"]
+            except Exception:
+                pass
+        so_header = json.dumps(
+            {"so": so_val, "c": c_value, "id": device_id, "flow": flow},
+            separators=(",", ":"), ensure_ascii=False,
+        )
+    log(f"quickjs 真 t 成功 (t_len={len(t)} so_len={len(so_header) if so_header else 0} elapsed={elapsed:.0f}s)")
+    return token, so_header
