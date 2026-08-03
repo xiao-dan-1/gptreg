@@ -21,5 +21,6 @@ capture/chrome-profile-*/
 *.log
 *.tmp
 
-# ---- Claude Code 本机配置 ----
+# ---- Claude Code / 编辑器本机配置 ----
 .claude/
+.serena/
