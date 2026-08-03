@@ -92,6 +92,7 @@ function createElement(tagName) {
 
 function installRuntime(payload) {
   const __realST = setTimeout.bind(null);
+  const __realCST = clearTimeout.bind(null);
   const screen = {
     width: Number(payload.screen_width || 1366),
     height: Number(payload.screen_height || 768),
@@ -248,7 +249,7 @@ function installRuntime(payload) {
     if (d >= 100) return __realST(cb, d);   // 大延迟（看门狗/超时）→ 真异步
     cb(); return 1;                          // 小延迟/0 → 同步，解释器快跑
   };
-  globalThis.clearTimeout = (id) => clearTimeout(id);
+  globalThis.clearTimeout = (id) => __realCST(id);
   globalThis.setInterval = () => 1;
   globalThis.clearInterval = () => {};
   globalThis.requestIdleCallback = (cb) => {
