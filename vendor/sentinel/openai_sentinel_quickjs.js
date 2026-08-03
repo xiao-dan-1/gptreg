@@ -409,10 +409,39 @@ function installRuntime(payload) {
     return 1;
   };
   globalThis.cancelIdleCallback = () => {};
-  globalThis.addEventListener = () => {};
-  globalThis.removeEventListener = () => {};
-  globalThis.dispatchEvent = () => true;
+  // 真实事件系统：session observer 通过 addEventListener 采行为数据。
+  // 记录注册的事件类型（供诊断），并让 dispatchEvent 能触发回调（模拟行为喂给 collector）。
+  const _listeners = {};
+  const _eventLog = [];
+  defineHidden("__event_log", _eventLog);
+  function _regEvent(type, cb) {
+    const t = String(type || "");
+    if (!t) return;
+    if (typeof cb === "function") {
+      (_listeners[t] = _listeners[t] || []).push(cb);
+      _eventLog.push(`register:${t}`);
+    }
+  }
+  function _fire(type, ev) {
+    for (const cb of _listeners[type] || []) {
+      try { cb(ev || { type, target: globalThis, timeStamp: performance.now() }); } catch (e) { /* ignore */ }
+    }
+  }
+  globalThis.addEventListener = _regEvent;
+  globalThis.removeEventListener = (t, cb) => {
+    const arr = _listeners[String(t)];
+    if (arr) _listeners[String(t)] = arr.filter((x) => x !== cb);
+  };
+  globalThis.dispatchEvent = (ev) => { _fire(ev && ev.type, ev); return true; };
   globalThis.postMessage = () => {};
+  defineHidden("__fire_event", _fire);  // 供 solve 模拟行为时派发事件
+  // document 也走同一事件系统（observer 可能在 document 上注册）
+  document.addEventListener = _regEvent;
+  document.removeEventListener = (t, cb) => {
+    const arr = _listeners[String(t)];
+    if (arr) _listeners[String(t)] = arr.filter((x) => x !== cb);
+  };
+  document.dispatchEvent = (ev) => { _fire(ev && ev.type, ev); return true; };
 
   globalThis.atob = (input) => String.fromCharCode(...base64ToBytes(input));
   globalThis.btoa = (input) => {
@@ -603,6 +632,30 @@ function loadPatchedSdk(sdkSource) {
   eval(sdk);
 }
 
+// 模拟真实用户行为，喂 session observer（pointermove/keydown/scroll/wheel/click）。
+// 纯同步 + 显式递增 timeStamp（避免真实 await 拖慢/干扰 _n 的异步），坐标连续（人类鼠标轨迹）。
+// 事件系统注册回调即记录，sessionObserverToken 用记录的 timeStamp/坐标。
+async function simulateBehavior() {
+  const fire = globalThis.__fire_event;
+  if (typeof fire !== "function") return;
+  let t = 0;  // 相对页面加载的毫秒
+  const step = () => { t += 120 + Math.floor(Math.random() * 60); return t; };
+  const pts = [
+    [280, 180], [310, 205], [340, 230], [375, 255], [400, 280],
+    [435, 310], [465, 340], [500, 365], [525, 390], [510, 400],
+    [485, 415], [455, 430], [430, 445], [415, 455], [405, 465],
+  ];
+  for (const [x, y] of pts) {
+    fire("pointermove", { type: "pointermove", clientX: x, clientY: y, screenX: x, screenY: y, pointerType: "mouse", buttons: 0, timeStamp: step() });
+  }
+  fire("wheel", { type: "wheel", deltaY: 260, clientX: 400, clientY: 300, deltaMode: 0, timeStamp: step() });
+  fire("scroll", { type: "scroll", scrollY: 260, timeStamp: step() });
+  fire("keydown", { type: "keydown", key: "Tab", code: "Tab", keyCode: 9, which: 9, timeStamp: step() });
+  fire("click", { type: "click", clientX: 505, clientY: 400, button: 0, timeStamp: step() });
+  fire("paste", { type: "paste", timeStamp: step() });
+  fire("message", { type: "message", timeStamp: step() });
+}
+
 async function run(payload, sdkSource) {
   installRuntime(payload);
   loadPatchedSdk(sdkSource);
@@ -634,6 +687,8 @@ async function run(payload, sdkSource) {
     try {
       const _flow = String(payload.flow || "");
       if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, challenge);
+      // 模拟真实用户行为，喂 session observer（真实浏览器 harvest 有 mouse.move/scroll/Tab）
+      await simulateBehavior();
       if (typeof globalThis.SentinelSDK.sessionObserverToken === "function") {
         const s = await globalThis.SentinelSDK.sessionObserverToken(_flow);
         so = (typeof s === "string") ? s : JSON.stringify(s);
@@ -644,6 +699,7 @@ async function run(payload, sdkSource) {
       t: tValue,
       so: so,
       fp_reads: Array.isArray(globalThis.__debug_fp_reads) ? globalThis.__debug_fp_reads : [],
+      event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
     };
   }
 
