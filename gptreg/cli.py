@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--sentinel-source",
         default=None,
-        choices=["pow", "browser", "node"],
+        choices=["pow", "browser", "node", "quickjs"],
         help=(
             "create 阶段 sentinel：pow=纯 Python（默认，通常无 so）| "
             "browser=真 Chrome token+so（opt-in；OTP 仍 pow）。"

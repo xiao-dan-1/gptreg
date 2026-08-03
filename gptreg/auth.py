@@ -110,13 +110,15 @@ def request_sentinel(session: BrowserSession, flow: str) -> dict:
 
 
 def _sentinel_source(session: BrowserSession, source: str | None = None) -> str:
-    """pow | browser（真页真 t）| node（默认：Node VM 产非空 t）。"""
+    """pow | browser（真页真 t）| node（假 t）| quickjs（Node VM 真 t，突破）。"""
     raw = (source if source is not None else (session.cfg.get("protocol") or {}).get("sentinel_source") or "pow")
     mode = str(raw or "pow").strip().lower()
     if mode in {"browser", "pw", "playwright", "chrome"}:
         return "browser"
     if mode in {"node", "node_vm", "nodepow"}:
         return "node"
+    if mode in {"quickjs", "qjs"}:
+        return "quickjs"
     return "pow"
 
 
@@ -164,6 +166,33 @@ def make_sentinel_headers(
             "elapsed_s": meta.get("elapsed_s"),
             "so_api_err": meta.get("so_api_err"),
         }
+        return token, so
+
+    if mode == "quickjs":
+        # Node VM 跑官方 sdk.js 产**真 t**（协议产真 t 突破，capture/protocol-real-t-20260803/）。
+        # 无浏览器；每 token ~60s（解释器慢）。
+        from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
+
+        token = get_sentinel_token_via_quickjs(
+            session, session.device_id, flow=flow, cfg=session.cfg,
+        )
+        # quickjs 目前不产 so（未来可扩展 sessionObserverToken）
+        so = None
+        try:
+            tj = json.loads(token)
+            _t_len = len(str(tj.get("t") or ""))
+        except Exception:
+            _t_len = 0
+        session._last_sentinel_meta = {  # type: ignore[attr-defined]
+            "mode": "quickjs",
+            "has_so": False,
+            "so_len": 0,
+            "t_len": _t_len,
+        }
+        logger.info(
+            "[Sentinel] headers ready flow=%s mode=quickjs t_len=%s (真 t)",
+            flow, _t_len,
+        )
         return token, so
 
     if mode == "node":

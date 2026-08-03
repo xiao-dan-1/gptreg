@@ -20,3 +20,6 @@ capture/chrome-profile-*/
 # ---- 运行时 / 临时 ----
 *.log
 *.tmp
+
+# ---- Claude Code 本机配置 ----
+.claude/

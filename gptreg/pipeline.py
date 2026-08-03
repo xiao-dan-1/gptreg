@@ -262,6 +262,8 @@ def register_one(
             base_source = "browser"
         elif base_source in {"node", "node_vm", "nodepow"}:
             base_source = "node"
+        elif base_source in {"quickjs", "qjs"}:
+            base_source = "quickjs"
         else:
             base_source = "pow"
 
