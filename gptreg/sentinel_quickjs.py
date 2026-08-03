@@ -26,7 +26,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SENTINEL_REQ_URL = "https://sentinel.openai.com/backend-api/sentinel/req"
+# 2026-08 知己知彼：浏览器 SDK 实际从 chatgpt.com/backend-api/sentinel/req 取 challenge
+# （frame.html iframe 上下文），不是 sentinel.openai.com。复刻浏览器请求头。
+SENTINEL_REQ_URL = "https://chatgpt.com/backend-api/sentinel/req"
 
 _WRAPPER_JS = r"""
 const fs=require('fs');
@@ -147,11 +149,18 @@ def get_sentinel_token_via_quickjs(
     if not request_p:
         raise RuntimeError("quickjs requirements 未返回 request_p")
 
-    # 2) /req 拿 challenge（走 session 代理）
+    # 2) /req 拿 challenge（走 session 代理，复刻浏览器 frame 上下文）
     body = json.dumps({"p": request_p, "id": device_id, "flow": flow}, separators=(",", ":"))
     resp = session.post(
         SENTINEL_REQ_URL, data=body,
-        headers=session.sentinel_headers(), timeout=max(10, int(timeout_ms / 1000)),
+        headers={
+            "content-type": "text/plain;charset=UTF-8",
+            "referer": "https://chatgpt.com/backend-api/sentinel/frame.html",
+            "origin": "https://chatgpt.com",
+            "user-agent": session.user_agent,
+            "accept": "*/*",
+        },
+        timeout=max(10, int(timeout_ms / 1000)),
     )
     if resp.status_code != 200:
         raise RuntimeError(f"quickjs /req HTTP {resp.status_code}: {(resp.text or '')[:200]}")
