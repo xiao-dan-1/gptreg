@@ -688,6 +688,39 @@ async function run(payload, sdkSource) {
     };
   }
 
+  if (payload.action === "collect_test") {
+    // 快速测试 collector 异步协调：se + 延迟 → dump __oai_so_*（不跑慢 _n）
+    const _flow = String(payload.flow || "");
+    try {
+      if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, payload.challenge || {});
+      // 让 collector 注册监听器（其 jt 异步，需 yield）
+      await new Promise((r) => setTimeout(r, 200));
+      // 真实间隔事件：yield 让 collector 处理，事件到达已注册的监听器
+      const fire = globalThis.__fire_event;
+      if (typeof fire === "function") {
+        for (let i = 0; i < 8; i++) {
+          fire("pointermove", { type: "pointermove", clientX: 200 + i * 50, clientY: 150 + i * 30, pointerType: "mouse", buttons: 0, timeStamp: performance.now() });
+          await new Promise((r) => setTimeout(r, 120));
+        }
+        fire("scroll", { type: "scroll", scrollY: 200, timeStamp: performance.now() });
+        await new Promise((r) => setTimeout(r, 100));
+        fire("keydown", { type: "keydown", key: "Tab", code: "Tab", keyCode: 9, timeStamp: performance.now() });
+        await new Promise((r) => setTimeout(r, 100));
+        fire("wheel", { type: "wheel", deltaY: 200, clientX: 400, clientY: 300, timeStamp: performance.now() });
+        await new Promise((r) => setTimeout(r, 100));
+        fire("click", { type: "click", clientX: 500, clientY: 400, timeStamp: performance.now() });
+      }
+      await new Promise((r) => setTimeout(r, 300));
+      const oai = {};
+      for (const k of Object.keys(globalThis)) {
+        if (k.startsWith("__oai_so_")) oai[k] = String(globalThis[k]).slice(0, 80);
+      }
+      return { oai_so: oai };
+    } catch (e) {
+      return { error: String(e && e.message || e) };
+    }
+  }
+
   if (payload.action === "solve") {
     const challenge = payload.challenge || {};
     const requestP = String(payload.request_p || "").trim();
@@ -706,21 +739,34 @@ async function run(payload, sdkSource) {
       // 行为模拟默认关（opt-in）：DerrickMclean9927 实测 ~21min 死（快于全空基线 ~1h），
       // 半填充行为状态比干净空状态更可疑。
       if (payload.simulate_behavior) await simulateBehavior();
-      // 实验：直接给 __oai_so_* 字段塞合理值（绕过采集器异步时序），验证行为数据是否影响 so 长度/结构
+      // 注入 __oai_so_* 行为字段（绕过挂起的 collector；值遵循真实浏览器模板 browser_oai_so_fields.json）
       if (payload.inject_oai_so) {
         try {
           const _now = Date.now();
-          globalThis.__oai_so_t0 = _now - 120000;
-          globalThis.__oai_so_p = 1; globalThis.__oai_so_pc = 15;
-          globalThis.__oai_so_i = 1; globalThis.__oai_so_m = 3;
-          globalThis.__oai_so_h = 84531092; globalThis.__oai_so_hi = 4521193;
-          globalThis.__oai_so_hp = 33298111; globalThis.__oai_so_hw = 118837;
-          globalThis.__oai_so_s = 423981; globalThis.__oai_so_k = 221983;
-          globalThis.__oai_so_lx = 640; globalThis.__oai_so_ly = 360;
-          globalThis.__oai_so_sp = 120; globalThis.__oai_so_spt = 84320;
-          globalThis.__oai_so_ss = 2; globalThis.__oai_so_ss2 = 1;
-          globalThis.__oai_so_wb = 38412; globalThis.__oai_so_we = 842;
-          globalThis.__oai_so_fs = 1; globalThis.__oai_so_fs2 = 1;
+          const _base = _now - 90000;
+          // 函数字段（collector 处理器）——浏览器里是函数，这里放无害占位
+          const _noop = function () {};
+          globalThis.__oai_so_h = _noop; globalThis.__oai_so_hi = _noop;
+          globalThis.__oai_so_hp = _noop; globalThis.__oai_so_hw = _noop;
+          // 时间戳/坐标（浏览器模板）
+          globalThis.__oai_so_t0 = _base;
+          globalThis.__oai_so_lx = 700; globalThis.__oai_so_ly = 500;
+          globalThis.__oai_so_sx0 = 550; globalThis.__oai_so_sy0 = 425;
+          // 浮点时序累加器（浏览器模板量级）
+          globalThis.__oai_so_cs = 2055.1; globalThis.__oai_so_cs2 = 524355;
+          globalThis.__oai_so_fs = 7737.9; globalThis.__oai_so_fs2 = 59875096;
+          globalThis.__oai_so_ht = 1.6; globalThis.__oai_so_m = 8222.6;
+          globalThis.__oai_so_p = 7737.9; globalThis.__oai_so_s = 4543.9;
+          globalThis.__oai_so_ss = 184173; globalThis.__oai_so_ss2 = 626260169;
+          globalThis.__oai_so_wl = 7582.7; globalThis.__oai_so_sp = 167.7;
+          // 计数（浏览器模板）
+          globalThis.__oai_so_k = 1; globalThis.__oai_so_kp = 0;
+          globalThis.__oai_so_we = 2; globalThis.__oai_so_wb = 1;
+          globalThis.__oai_so_pc = 1; globalThis.__oai_so_hc = 1;
+          globalThis.__oai_so_fn = 1; globalThis.__oai_so_bc = 0; globalThis.__oai_so_bm = 0;
+          globalThis.__oai_so_cn = 78; globalThis.__oai_so_sn = 78;
+          globalThis.__oai_so_i = 88; globalThis.__oai_so_st = 2;
+          globalThis.__oai_so_sw = 8; globalThis.__oai_so_spt = 7;
         } catch (e) { /* ignore */ }
       }
       if (typeof globalThis.SentinelSDK.sessionObserverToken === "function") {
