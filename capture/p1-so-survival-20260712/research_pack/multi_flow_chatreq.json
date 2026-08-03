@@ -1,0 +1,443 @@
+{
+  "ts": "2026-07-12T23:25:16",
+  "device_id": "b0f6a054-0e3a-49be-99b9-9cfad9918a75",
+  "multi_flow_obs": {
+    "authorize_continue": {
+      "flow": "authorize_continue",
+      "http": 200,
+      "keys": [
+        "expire_after",
+        "expire_at",
+        "persona",
+        "proofofwork",
+        "so",
+        "token",
+        "turnstile"
+      ],
+      "has_so_field": true,
+      "so_required": true,
+      "so_collector_dx_len": 17356,
+      "so_keys": [
+        "collector_dx",
+        "required",
+        "snapshot_dx"
+      ],
+      "turnstile_required": true,
+      "turnstile_dx_len": 21012,
+      "pow_required": true,
+      "pow_difficulty": "061a80",
+      "pow_seed_len": 17,
+      "token_c_len": 2060,
+      "persona": "chatgpt-noauth",
+      "requires": [
+        "pow",
+        "turnstile",
+        "so"
+      ]
+    },
+    "oauth_create_account": {
+      "flow": "oauth_create_account",
+      "http": 200,
+      "keys": [
+        "expire_after",
+        "expire_at",
+        "persona",
+        "proofofwork",
+        "so",
+        "token",
+        "turnstile"
+      ],
+      "has_so_field": true,
+      "so_required": true,
+      "so_collector_dx_len": 17524,
+      "so_keys": [
+        "collector_dx",
+        "required",
+        "snapshot_dx"
+      ],
+      "turnstile_required": true,
+      "turnstile_dx_len": 22584,
+      "pow_required": true,
+      "pow_difficulty": "06da3e",
+      "pow_seed_len": 18,
+      "token_c_len": 2060,
+      "persona": "chatgpt-noauth",
+      "requires": [
+        "pow",
+        "turnstile",
+        "so"
+      ]
+    },
+    "username_password_create": {
+      "flow": "username_password_create",
+      "http": 200,
+      "keys": [
+        "expire_after",
+        "expire_at",
+        "persona",
+        "proofofwork",
+        "token",
+        "turnstile"
+      ],
+      "has_so_field": false,
+      "so_required": false,
+      "so_collector_dx_len": 0,
+      "so_keys": [],
+      "turnstile_required": true,
+      "turnstile_dx_len": 20520,
+      "pow_required": true,
+      "pow_difficulty": "06bb11",
+      "pow_seed_len": 19,
+      "token_c_len": 1740,
+      "persona": "chatgpt-noauth",
+      "requires": [
+        "pow",
+        "turnstile"
+      ]
+    }
+  },
+  "multi_flow_slim": {
+    "authorize_continue": {
+      "keys": [
+        "expire_after",
+        "expire_at",
+        "persona",
+        "proofofwork",
+        "so",
+        "token",
+        "turnstile"
+      ],
+      "persona": "chatgpt-noauth",
+      "expire_after": 540,
+      "token_len": 2060,
+      "proofofwork": {
+        "required": true,
+        "difficulty": "061a80",
+        "seed_len": 17,
+        "seed_prefix": "0.185831676443595"
+      },
+      "turnstile": {
+        "required": true,
+        "dx_len": 21012,
+        "dx_prefix": "PBp5bWF3cnlKfFRvbBRbRR9zRmF3dEVsdGRtXXsU",
+        "keys": [
+          "dx",
+          "required"
+        ]
+      },
+      "so": {
+        "required": true,
+        "keys": [
+          "collector_dx",
+          "required",
+          "snapshot_dx"
+        ],
+        "collector_dx_len": 17356,
+        "snapshot_dx_len": 18520,
+        "collector_dx_prefix": "PBp5bWF5cHlMcFRvbBRbRR99RGFxeEVscnx6VW8YR2EzelMSdXNXeHxlV35e",
+        "snapshot_dx_prefix": "PBp5bWFycHlMfVRvbBRbRR92RGFxdUVscn16UWEYR2EzelMSdXJXfHJlV35a"
+      },
+      "token_json_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "t_len": 0
+    },
+    "oauth_create_account": {
+      "keys": [
+        "expire_after",
+        "expire_at",
+        "persona",
+        "proofofwork",
+        "so",
+        "token",
+        "turnstile"
+      ],
+      "persona": "chatgpt-noauth",
+      "expire_after": 540,
+      "token_len": 2060,
+      "proofofwork": {
+        "required": true,
+        "difficulty": "06da3e",
+        "seed_len": 18,
+        "seed_prefix": "0.8793328895514667"
+      },
+      "turnstile": {
+        "required": true,
+        "dx_len": 22584,
+        "dx_prefix": "PBp5bWF1e3lBfVRvbBRbRR9xT2F8dUVscHx6VGMY",
+        "keys": [
+          "dx",
+          "required"
+        ]
+      },
+      "so": {
+        "required": true,
+        "keys": [
+          "collector_dx",
+          "required",
+          "snapshot_dx"
+        ],
+        "collector_dx_len": 17524,
+        "snapshot_dx_len": 18492,
+        "collector_dx_prefix": "PBp5bWF5cHlJcFRvbBRbRR99RGF0eEVsdnp6UmMYR2EzelMScXVXf3BlV39c",
+        "snapshot_dx_prefix": "PBp5bWF0cnlMflRvbBRbRR9wRmFxdkVse3J6UGMYR2EzelMSfH1XfXBlV3RT"
+      },
+      "token_json_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "t_len": 0
+    },
+    "username_password_create": {
+      "keys": [
+        "expire_after",
+        "expire_at",
+        "persona",
+        "proofofwork",
+        "token",
+        "turnstile"
+      ],
+      "persona": "chatgpt-noauth",
+      "expire_after": 540,
+      "token_len": 1740,
+      "proofofwork": {
+        "required": true,
+        "difficulty": "06bb11",
+        "seed_len": 19,
+        "seed_prefix": "0.08981250167403054"
+      },
+      "turnstile": {
+        "required": true,
+        "dx_len": 20520,
+        "dx_prefix": "PBp5bWFzcHlKcFRvbBRbRR93RGF3eEVsdXN6Vm8Y",
+        "keys": [
+          "dx",
+          "required"
+        ]
+      },
+      "so": {
+        "required": null,
+        "keys": [],
+        "collector_dx_len": 0,
+        "snapshot_dx_len": 0,
+        "collector_dx_prefix": null,
+        "snapshot_dx_prefix": null
+      },
+      "token_json_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "t_len": 0
+    }
+  },
+  "dx_peek": {
+    "collector_dx": {
+      "len": 16964,
+      "prefix": "PBp5bWF0e3lMZVh3CWVXPnF9WXpoYVh0bXh4RGVpS3M1Z0tndmlZcHZnR3pGeUUfMTNaKAkhFBB4cTxn",
+      "b64_ok": true,
+      "b64_len": 12723,
+      "b64_head_hex": "3c1a796d61747b794c6558770965573e",
+      "b64_utf8_prefix": "<\u001aymat{yLeXw\teW>q}YzhaXtmxxDeiKs5gKgviYpvgGzFyE\u001f13Z(\t!\u0014\u0010xq<g\b\u001f`gZsAcpmG}\u0018bV9\u0001|EU{\u0015QVif\\efgEMxc^M^y5Nc\u0019`Yy\u0004@ka}]xre\u0015|ME\u0013"
+    },
+    "snapshot_dx": {
+      "len": 18944,
+      "prefix": "PBp5bWFycXlOcVRvbBRbRR92RWFzeUVsd3J6U2YYR2EzelMScH1XfnVlV3lYd15+eHUUHw8zWig3JUUP",
+      "b64_ok": true,
+      "b64_len": 14207,
+      "b64_head_hex": "3c1a796d617271794e71546f6c145b45",
+      "b64_utf8_prefix": "<\u001aymarqyNqTol\u0014[E\u001fvEasyElwrzSf\u0018Ga3zS\u0012p}W~ueWyXw^~xu\u0014\u001f\u000f3Z(7%E\u000f\u001c\u0011\u000exHo@uhaS|kzCN\u0013|6Mwn\\Sib^efbGOai@C_~DBwp{Xdl@k\bzA`sq\u0019nwWY|"
+    },
+    "turnstile_dx": {
+      "len": 21380,
+      "prefix": "PBp5bWFwcXlJfFRvbBRbRR90RWF0dEVsenl6XXsUVmYzelMSdXdXeXFlV39ad1Z1eHUHeDd5FhZlY0li",
+      "b64_ok": true,
+      "b64_len": 16034,
+      "b64_head_hex": "3c1a796d61707179497c546f6c145b45",
+      "b64_utf8_prefix": "<\u001aymapqyI|Tol\u0014[E\u001ftEattElzyz]{\u0014Vf3zS\u0012uwWyqeWZwVuxu\u0007x7y\u0016\u0016ecIb\u0005\u001durKo@uhaV\u0016in-S\u0001d[T{\u0015\\JvoGiw\u000bYA\u0003k^M^{DBur{Xc\u001dL|\u000eeS\u0015u{\u001b~qOWy"
+    }
+  },
+  "accounts_ab": [
+    {
+      "email": "BrandonNichols1400+c688c2@outlook.com",
+      "saved_at": "2026-07-12T22:43:10",
+      "device_id": "b611a847-35d0-49f0-89e4-cc990168d777",
+      "sentinel": {
+        "flow": "oauth_create_account",
+        "challenge_mode": "browser",
+        "has_so": true,
+        "so_len": 2718,
+        "t_len": 1412,
+        "browser_elapsed_s": 11.571,
+        "sdk_keys": [
+          "init",
+          "sessionObserverToken",
+          "token"
+        ],
+        "post_login": true,
+        "post_login_ok": true,
+        "post_login_detail": {
+          "enabled": true,
+          "account_id": "3c2c8de8-d6fd-4f7e-88c7-809624f14d1b",
+          "oai_session_id": "0fc4485e-bd9b-41a8-9daa-7add917b286e",
+          "steps": {
+            "me": {
+              "ok": true,
+              "http": 200,
+              "body_head": "{\"object\":\"user\",\"id\":\"user-71Skxf7NldzrBWr98p416W8H\",\"email\":\"brandonnichols1400+c688c2@outlook.com\",\"name\":\"Ufyltvv Wvgyv\",\"picture\":null,\"created\":1783867376,\"phone_number\":null,\"mfa_flag_enabled\":"
+            },
+            "conversation_init": {
+              "ok": true,
+              "http": 200,
+              "body_head": "{\"type\":\"conversation_detail_metadata\",\"banner_info\":null,\"blocked_features\":[],\"model_limits\":[],\"limits_progress\":[{\"feature_name\":\"deep_research\",\"remaining\":5,\"reset_after\":\"2026-08-11T14:43:08.352315+00:00\"},{\"feature_name\":\"file_uploa"
+            },
+            "chat_requirements_prepare": {
+              "ok": true,
+              "http": 200,
+              "body_head": "{\"persona\":\"chatgpt-freeaccount\",\"prepare_token\":\"gAAAAABqU6f-wyRBCsg03B3gRvwSUYR5AqIoZEa1FPaFJ4JRkTBTQTBFGFuZ7ktv4ODw4g_tt_ekxncIHOuJggIy2wiTgyLc5BN7Brg3sRKkLhOtWlaeA07AYaq7S1yorRQaijDhr6uBKe2O8MSYuX6058oJ7OK7pFjjSwUeyqk66Ox8LNmJMNKLVc0dhb",
+              "p_len": 649,
+              "has_prepare_token": true,
+              "pow_required": true,
+              "turnstile_required": true,
+              "so_required": true,
+              "finalize": "skipped_no_real_pow_turnstile"
+            }
+          },
+          "finalize": "skipped_no_real_pow_turnstile",
+          "ok": true
+        }
+      },
+      "has_access": true,
+      "proxy": null,
+      "keys": [
+        "access_token",
+        "account",
+        "birthdate",
+        "copy_line",
+        "device_id",
+        "email",
+        "expires",
+        "health",
+        "mail_type",
+        "material_line",
+        "name",
+        "proxy_used",
+        "saved_at",
+        "sentinel_obs",
+        "user"
+      ]
+    },
+    {
+      "email": "EricWilliams3405+6af702@outlook.com",
+      "saved_at": "2026-07-12T22:45:52",
+      "device_id": "cbff787d-83ca-4c40-a9ef-c41e3d58cc23",
+      "sentinel": {
+        "flow": "oauth_create_account",
+        "challenge_mode": "pow",
+        "has_so": false,
+        "so_len": 0,
+        "t_len": null,
+        "browser_elapsed_s": null,
+        "sdk_keys": null,
+        "post_login": true,
+        "post_login_ok": true,
+        "post_login_detail": {
+          "enabled": true,
+          "account_id": "0dde8557-e11e-49e5-abd4-062c6446fd5d",
+          "oai_session_id": "b55a1494-5402-48e3-bcd4-bd6de618e077",
+          "steps": {
+            "me": {
+              "ok": true,
+              "http": 200,
+              "body_head": "{\"object\":\"user\",\"id\":\"user-3fnkql6FOOn98uADcGoc4Xi7\",\"email\":\"ericwilliams3405+6af702@outlook.com\",\"name\":\"Cgzvcg Slzvkn\",\"picture\":null,\"created\":1783867539,\"phone_number\":null,\"mfa_flag_enabled\":tr"
+            },
+            "conversation_init": {
+              "ok": true,
+              "http": 200,
+              "body_head": "{\"type\":\"conversation_detail_metadata\",\"banner_info\":null,\"blocked_features\":[],\"model_limits\":[],\"limits_progress\":[{\"feature_name\":\"deep_research\",\"remaining\":5,\"reset_after\":\"2026-08-11T14:45:50.222515+00:00\"},{\"feature_name\":\"file_uploa"
+            },
+            "chat_requirements_prepare": {
+              "ok": true,
+              "http": 200,
+              "body_head": "{\"persona\":\"chatgpt-freeaccount\",\"prepare_token\":\"gAAAAABqU6igF_9Fr46rvywuvifN5JShP5JuTFa15eFe_3GNvYpi104eLGohwylYptx3gz-IpTm1UHxFDUElqTgkXEXJOkjbz6C3tNf6JKLWhT_rIyxbYq6XSC_EnKxf2pIikTzuq4ucl2WXrOtTyeyXfXBEUbU8_nlEPBiMmSMd6nWPoz-9KpjxUhS9Lz",
+              "p_len": 629,
+              "has_prepare_token": true,
+              "pow_required": true,
+              "turnstile_required": true,
+              "so_required": true,
+              "finalize": "skipped_no_real_pow_turnstile"
+            }
+          },
+          "finalize": "skipped_no_real_pow_turnstile",
+          "ok": true
+        }
+      },
+      "has_access": true,
+      "proxy": null,
+      "keys": [
+        "access_token",
+        "account",
+        "birthdate",
+        "copy_line",
+        "device_id",
+        "email",
+        "expires",
+        "health",
+        "mail_type",
+        "material_line",
+        "name",
+        "proxy_used",
+        "saved_at",
+        "sentinel_obs",
+        "user"
+      ]
+    }
+  ],
+  "log_hits": {
+    "A_has_so_lines": [
+      "22:41:11 [INFO] [Sentinel] headers ready flow=authorize_continue mode=pow has_so=False so_len=0",
+      "22:42:55 [INFO] [Sentinel] headers ready flow=oauth_create_account mode=browser has_so=True so_len=2718 t_len=1412 elapsed=11.571",
+      "22:42:55 [INFO] [Sentinel/obs] create flow=oauth_create_account mode=browser has_so=True so_len=2718 t_len=1412",
+      "22:42:55 [INFO] [Auth] create_account name=Ufyltvv Wvgyv birthdate=2003-05-02 has_so=True",
+      "22:43:10 [INFO] [完成] BrandonNichols1400+c688c2@outlook.com token=eyJhbGciOiJSUzI1... out=D:\\home\\06_projects\\GPT协议注册机\\output health=ok has_so=True so_len=2718 post_login=True"
+    ],
+    "A_chatReq": [],
+    "A_browser": [
+      "22:42:55 [INFO] [Sentinel] headers ready flow=oauth_create_account mode=browser has_so=True so_len=2718 t_len=1412 elapsed=11.571",
+      "22:42:55 [INFO] [Sentinel/obs] create flow=oauth_create_account mode=browser has_so=True so_len=2718 t_len=1412"
+    ],
+    "B_has_so_lines": [
+      "22:43:22 [INFO] [Sentinel] headers ready flow=authorize_continue mode=pow has_so=False so_len=0",
+      "22:44:56 [INFO] [Sentinel] headers ready flow=oauth_create_account mode=pow has_so=False so_len=0",
+      "22:44:56 [INFO] [Sentinel/obs] create flow=oauth_create_account mode=pow has_so=False so_len=0 t_len=None",
+      "22:44:57 [INFO] [Auth] create_account name=Muoad Zhwrfe birthdate=2005-04-08 has_so=False",
+      "22:45:18 [INFO] [Sentinel] headers ready flow=authorize_continue mode=pow has_so=False so_len=0",
+      "22:45:38 [INFO] [Sentinel] headers ready flow=oauth_create_account mode=pow has_so=False so_len=0",
+      "22:45:38 [INFO] [Sentinel/obs] create flow=oauth_create_account mode=pow has_so=False so_len=0 t_len=None",
+      "22:45:38 [INFO] [Auth] create_account name=Cgzvcg Slzvkn birthdate=2000-04-21 has_so=False",
+      "22:45:52 [INFO] [完成] EricWilliams3405+6af702@outlook.com token=eyJhbGciOiJSUzI1... out=D:\\home\\06_projects\\GPT协议注册机\\output health=ok has_so=False so_len=0 post_login=True"
+    ],
+    "B_chatReq": [],
+    "B_warn_so": [],
+    "B_disallowed": [
+      "    \"code\": \"registration_disallowed\""
+    ]
+  },
+  "sdk_info": {
+    "size": 33804,
+    "sessionObserverToken": 29628,
+    "collector_dx": 8214,
+    "snapshot_dx": 8345,
+    "openai-sentinel-so-token": -1
+  },
+  "sdk_context": "):(Ae=xe(),Ae[c(59)](c(17),(()=>{Oe=!0,i()})))}))}function Ue(){const t=[\"nextHopProtocol\",\"body\",\"string\",\"headers\",\"__default__\",\"resource\",\"no-store\",\"[::1]\",\"postMessage\",\"set\",\"req_\",\"required\",\"sessionObserverToken() should not be called from within an iframe.\",\"round\",\"startsWith\",\"s-cf-origin-ttfb-msec\",\"replace\",\"load\",\"location\",\"requestStart\",\"init\",\"length\",\"collector_dx\",\"__sentinel_init_pending\",\"max\",\"source\",\"getEnforcementToken\",\"getEntries\",\"resolve\",\"response\",\"localhost\",\"catch\",\"entryType\",\"https://chatgpt.com/backend-api/sentinel/\",\":8000/api/sentinel/\",\"/sentinel/\",\"flow\",\"isFinite\",\"apply\",\"race\",\"forEach\",\"observe\",\"data\",\"snapshot_dx\",\"toString\",\"name\",\"message\",\"in"
+}

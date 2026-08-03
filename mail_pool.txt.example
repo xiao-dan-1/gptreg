@@ -1,0 +1,14 @@
+# 邮箱号池，每行一个。支持两种格式：
+#
+# 1) Outlook / Hotmail / Live（OAuth refresh_token）
+#    email----password----client_id----refresh_token
+#    alice@outlook.com----pass123----9e5f94bc-xxxx----M.C529_xxxx
+#
+# 2) Gmail API 接码（mailsapi 等 get-code）
+#    email----https://gapi.mailsapi.com/api/get-code?uid=...
+#    bob+tag@gmail.com----https://gapi.mailsapi.com/api/get-code?uid=xxx
+#
+# 规则：
+# - # 开头为注释
+# - 手动 plus 别名请直接写完整地址，程序不会再二次加别名
+# - 同一 Gmail base + 同一 code_url 批量建议每批 <=5，避免共享收件箱旧码/限流

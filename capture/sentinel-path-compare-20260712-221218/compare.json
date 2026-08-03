@@ -1,0 +1,104 @@
+{
+  "created_at": "2026-07-12T22:12:24",
+  "device_id": "ece6612f-78df-40f9-901d-0ae18bf5d00d",
+  "flow": "oauth_create_account",
+  "proxy_label": "http://region-USsid-wL2yQgzX@us.lajiaohttp.net:2000 via-chain",
+  "registration_default": "pow",
+  "results": [
+    {
+      "mode": "pow",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": false,
+      "so_len": 0,
+      "so_header_len": 0,
+      "p_len": 557,
+      "c_len": 2124,
+      "error": null,
+      "so_is_fake": false,
+      "t_len": 0,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "",
+      "t_empty": true,
+      "so_header_present": false,
+      "elapsed_s": 3.307,
+      "note": "注册主路径：纯 Python FNV-1a，t 强制空串，无 Node/so"
+    },
+    {
+      "mode": "file",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": false,
+      "so_len": 0,
+      "so_header_len": 0,
+      "p_len": 625,
+      "c_len": 2124,
+      "error": null,
+      "so_is_fake": false,
+      "t_len": 132,
+      "t_is_syntaxerror": true,
+      "t_decoded_head": "0: SyntaxError: Expected ',' or ']' after array element in JSON at position 48 (line 1 column 49)",
+      "t_empty": false,
+      "so_header_present": false,
+      "elapsed_s": 1.404,
+      "challenge": {
+        "present": true,
+        "keys": [
+          "persona",
+          "token",
+          "expire_after",
+          "expire_at",
+          "turnstile",
+          "proofofwork",
+          "so"
+        ],
+        "so_required": true,
+        "pow_required": true,
+        "turnstile_required": true,
+        "has_collector_dx": true,
+        "has_snapshot_dx": true,
+        "token_len": 2124
+      },
+      "note": "Node + Python 预拉 challenge（旧路径）"
+    },
+    {
+      "mode": "url",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": false,
+      "so_len": 0,
+      "so_header_len": 0,
+      "p_len": 609,
+      "c_len": 1764,
+      "error": null,
+      "so_is_fake": false,
+      "t_len": 832,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "J\u0013\u001c\u0007\u001c\u0000\u0004\f\f\u0010|KICF\f\u0013\u0014\u001e\u0013\u0003\u0019\u0018\n\u0007\u0013\u0014\u0014sc\tJtUxsod\u0006vpIspyVwus`tKwU\f\f\f\u001a\u0010\t\u001f\u0018\u0003\u0010\u000b\u0013|p\u000bzd\u001fdki\u0001Ze\u0010\u001d\u0013\u0016\u0002\u001c\u0002\t\f\f\u0010t\u0003xn`]U\u001eg\u0003IkwAcSxRQi\u0000\u001bWtZs{cw^f]|TiBxscgFz`c{K`E\u0004uvpddbh\u000fQgw{yzZs{cw",
+      "t_empty": false,
+      "so_header_present": false,
+      "elapsed_s": 1.079,
+      "challenge_url": "http://127.0.0.1:1789/req",
+      "note": "Node + 本地 curl_cffi 中转闭环（k12 url）"
+    }
+  ],
+  "prior_closed_loop_note": "历史 closed_loop_compare.json：file 假 t + 无 so；url 真 t 形态 + 仍无 so。当前注册主路径已切 SentinelPoW（pow），与 url 默认配置可能不同步。"
+}

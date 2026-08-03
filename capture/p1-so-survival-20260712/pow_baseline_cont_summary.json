@@ -1,0 +1,66 @@
+{
+  "generated_at": "2026-07-13T01:58:56",
+  "mode": "pow",
+  "n": 3,
+  "ok": 0,
+  "disallow": 1,
+  "pass_rate": 0.0,
+  "elapsed_s": 222.0,
+  "results": [
+    {
+      "slot": 1,
+      "mode": "pow",
+      "ts": "2026-07-13T01:58:56",
+      "ok": false,
+      "email": "QuentinKaboos152+1c386e@outlook.com",
+      "mail_main": "QuentinKaboos152@outlook.com",
+      "name": null,
+      "birthdate": null,
+      "has_so": null,
+      "so_len": null,
+      "health": null,
+      "proxy_label": "http://region-USsid-wvWWaTVP@us.lajiaohttp.net:2000 via-chain",
+      "error": "MailClientError: 等待 QuentinKaboos152@outlook.com OTP 超时（>90s）",
+      "registration_disallowed": false
+    },
+    {
+      "slot": 2,
+      "mode": "pow",
+      "ts": "2026-07-13T01:58:56",
+      "ok": false,
+      "email": "ArderyAlcocer1469+0f3f1d@outlook.com",
+      "mail_main": "ArderyAlcocer1469@outlook.com",
+      "name": null,
+      "birthdate": null,
+      "has_so": null,
+      "so_len": null,
+      "health": null,
+      "proxy_label": "http://region-USsid-0vi7eTxP@us.lajiaohttp.net:2000 via-chain",
+      "error": "SSLError: Failed to perform, curl: (35) TLS connect error: error:00000000:invalid library (0):OPENSSL_internal:invalid library (0). See https://curl.se/libcurl/c/libcurl-errors.html first for more details.",
+      "registration_disallowed": false
+    },
+    {
+      "slot": 3,
+      "mode": "pow",
+      "ts": "2026-07-13T01:58:56",
+      "ok": false,
+      "email": "FerdolageSagehorn0127+d7d9fa@outlook.com",
+      "mail_main": "FerdolageSagehorn0127@outlook.com",
+      "name": null,
+      "birthdate": null,
+      "has_so": null,
+      "so_len": null,
+      "health": null,
+      "proxy_label": "http://region-USsid-LYwtSM5W@us.lajiaohttp.net:2000 via-chain",
+      "error": "HTTPError: HTTP Error 400: ",
+      "registration_disallowed": true
+    }
+  ],
+  "note": "continuation pow baseline after E2+E1; Z4 natural names; unused-limited",
+  "combined_with_e2_pow": {
+    "n": 6,
+    "ok": 1,
+    "disallow": 3,
+    "pass_rate": 0.16666666666666666
+  }
+}

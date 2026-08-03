@@ -1,0 +1,56 @@
+{
+  "ts": "2026-07-12T23:34:01",
+  "via": "BrowserSession+post_login_warmup",
+  "email": "BrandonNichols1400+c688c2@outlook.com",
+  "detail": {
+    "enabled": true,
+    "account_id": "3c2c8de8-d6fd-4f7e-88c7-809624f14d1b",
+    "oai_session_id": "e3547521-caa9-4a19-81ed-3cf51fb001b3",
+    "steps": {
+      "me": {
+        "ok": true,
+        "http": 200,
+        "body_head": "{\"object\":\"user\",\"id\":\"user-71Skxf7NldzrBWr98p416W8H\",\"email\":\"brandonnichols1400+c688c2@outlook.com\",\"name\":\"Ufyltvv Wvgyv\",\"picture\":null,\"created\":1783867376,\"phone_number\":null,\"mfa_flag_enabled\":"
+      },
+      "conversation_init": {
+        "ok": true,
+        "http": 200,
+        "body_head": "{\"type\":\"conversation_detail_metadata\",\"banner_info\":null,\"blocked_features\":[],\"model_limits\":[],\"limits_progress\":[{\"feature_name\":\"deep_research\",\"remaining\":5,\"reset_after\":\"2026-08-11T15:33:59.636443+00:00\"},{\"feature_name\":\"file_uploa"
+      },
+      "chat_requirements_prepare": {
+        "ok": true,
+        "http": 200,
+        "body_head": "{\"persona\":\"chatgpt-freeaccount\",\"prepare_token\":\"gAAAAABqU7PpcqV8D3UEi-78vyh4w4amnIVC85AlNA6FgzsJgsGdLm1xULOqIUIJEVX68Fp-U-4vaKMbJCFec2zbnid9rYf_isfp7fU9739XM0qHcc6qk_U30fKBkIfJez7Boj5vRF8DnaJE82ZKrvCBb_4xnndGx2RlevXWrB4xBkNNwrGfPv7jsIC6jS",
+        "p_len": 649,
+        "has_prepare_token": true,
+        "pow_required": true,
+        "turnstile_required": true,
+        "so_required": true,
+        "finalize": "skipped_no_real_pow_turnstile"
+      }
+    },
+    "finalize": "skipped_no_real_pow_turnstile",
+    "ok": true
+  },
+  "eric": {
+    "enabled": true,
+    "account_id": "0dde8557-e11e-49e5-abd4-062c6446fd5d",
+    "oai_session_id": "ef8c2680-19eb-4976-ab94-8a211266d5e0",
+    "steps": {
+      "me": {
+        "ok": false,
+        "error": "ConnectionError: Failed to perform, curl: (7) Failed to connect to 127.0.0.1 port 63005 after 2044 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details."
+      },
+      "conversation_init": {
+        "ok": false,
+        "error": "ConnectionError: Failed to perform, curl: (7) Failed to connect to 127.0.0.1 port 63005 after 2043 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details."
+      },
+      "chat_requirements_prepare": {
+        "ok": false,
+        "error": "ConnectionError: Failed to perform, curl: (7) Failed to connect to 127.0.0.1 port 63005 after 2041 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details."
+      }
+    },
+    "finalize": "skipped_no_real_pow_turnstile",
+    "ok": false
+  }
+}

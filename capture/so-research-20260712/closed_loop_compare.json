@@ -1,0 +1,31 @@
+{
+  "device_id": "75842336-43a5-4000-8fd6-8de166a62f9f",
+  "flow": "oauth_create_account",
+  "challenge_url": "http://127.0.0.1:1789/req",
+  "file": {
+    "keys": [
+      "p",
+      "t",
+      "c",
+      "id",
+      "flow"
+    ],
+    "has_so": false,
+    "t_is_syntaxerror": true,
+    "t_decoded_head": "0: SyntaxError: Expected ',' or ']' after array element in JSON at position 57 (line 1 column 58)",
+    "t_len": 132
+  },
+  "url": {
+    "keys": [
+      "p",
+      "t",
+      "c",
+      "id",
+      "flow"
+    ],
+    "has_so": false,
+    "t_is_syntaxerror": false,
+    "t_decoded_head": "M\u0015\u001f\u0000\u001a\u0004\u0004\f\u000f\u0016t@\u0013\b\u0016\u001a\u0015\u001d\u0005\u001a\u0006\u0004\f\u000f\u0016t@k\b\u0016\u001a\u0015\u0016\f\u001a\u0004\u000e\f\u000f\u0016t@\u0013\b\u0016\u001a\u0015\u001a\f\u001a\u0004\u0001\f\u000f\u0016xsw@zLf\u0013\u0017\u0018\u0014\u0000\u001f\u001b\u0000\u000e\u0015\u0014\u0017V`[LbbQVyc@l`lEna\u0006BlsZ[Lbb^E\f\u0019\u0016\u0001\u0000\u0000\u0002\u0005\u0014\r\f{NBad\t\u000b\u0015\u0002\u0017\r\u0006\u0019\u001d\u0001\u0016\f\u0015zgbqbh\u0004fn\u0006AmpQTfsScnhpv~b{wQpeppgff`C\u000b\n\f\u0019\u0016\u000f\u0007\u0000\u0007\f\u0014\r\ftuwvotuwvotuwvotu",
+    "t_len": 804
+  }
+}

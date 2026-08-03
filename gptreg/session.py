@@ -1,0 +1,187 @@
+"""curl_cffi 会话封装：统一 cookie / 头 / TLS 指纹 / 代理。"""
+from __future__ import annotations
+
+import random
+import uuid
+from typing import Any
+
+from curl_cffi.requests import Session
+
+
+def _datadog_rum_headers() -> dict[str, str]:
+    """对齐 starmiaoa/k12：auth JSON API 带 Datadog RUM 追踪头。
+
+    参考：chatgpt-register-k12 `register/headers.py` `_make_trace_headers`、
+    本地 k12-register-dist `lib/utils.generate_datadog_trace`。
+    注释称 OpenAI backend 期望这些头；我们此前 auth 请求完全缺失。
+    """
+    trace_id = str(random.getrandbits(64))
+    parent_id = str(random.getrandbits(64))
+    trace_hex = format(int(trace_id), "016x")
+    parent_hex = format(int(parent_id), "016x")
+    return {
+        "traceparent": f"00-0000000000000000{trace_hex}-{parent_hex}-01",
+        "tracestate": "dd=s:1;o:rum",
+        "x-datadog-origin": "rum",
+        "x-datadog-parent-id": parent_id,
+        "x-datadog-sampling-priority": "1",
+        "x-datadog-trace-id": trace_id,
+    }
+
+
+class BrowserSession:
+    """模拟 Chrome 的 HTTP 会话，device_id 贯穿整条注册链。"""
+
+    def __init__(self, cfg: dict[str, Any], proxy: str = ""):
+        browser = cfg.get("browser", {})
+        protocol = cfg.get("protocol", {})
+        self.cfg = cfg
+        self.proxy = proxy or ""
+        self.device_id = str(uuid.uuid4())
+        self.auth_session_logging_id = str(uuid.uuid4())
+        self.user_agent = browser.get("user_agent", "")
+        self.sec_ch_ua = browser.get("sec_ch_ua", "")
+        self.sec_ch_ua_platform = browser.get("sec_ch_ua_platform", '"Windows"')
+        self.sec_ch_ua_mobile = browser.get("sec_ch_ua_mobile", "?0")
+        self.accept_language = browser.get(
+            "accept_language", "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"
+        )
+        self.impersonate = browser.get("impersonate", "chrome142")
+        self.timeout = int(browser.get("request_timeout", 60))
+        self.sentinel_sv = protocol.get("sentinel_sv", "20260219f9f6")
+
+        self.session = Session(impersonate=self.impersonate, verify=False)
+        self.session.timeout = self.timeout
+        if self.proxy:
+            self.session.proxies = {"http": self.proxy, "https": self.proxy}
+
+        # 贯穿全程的设备 cookie（oai-did）
+        try:
+            for domain in (
+                ".chatgpt.com",
+                "chatgpt.com",
+                ".openai.com",
+                "auth.openai.com",
+                "sentinel.openai.com",
+            ):
+                self.session.cookies.set("oai-did", self.device_id, domain=domain)
+        except Exception:
+            pass
+
+    def _common(self) -> dict[str, str]:
+        return {
+            "User-Agent": self.user_agent,
+            "sec-ch-ua": self.sec_ch_ua,
+            "sec-ch-ua-platform": self.sec_ch_ua_platform,
+            "sec-ch-ua-mobile": self.sec_ch_ua_mobile,
+            "accept-language": self.accept_language,
+        }
+
+    def set_oai_sc(self, challenge_token: str) -> None:
+        """可选：写入 oai-sc cookie（starmiaoa 生成 ``0``+c；registrar 未必用）。"""
+        c = (challenge_token or "").strip()
+        if not c:
+            return
+        val = c if c.startswith("0") else f"0{c}"
+        try:
+            for domain in ("auth.openai.com", ".openai.com", "sentinel.openai.com"):
+                self.session.cookies.set("oai-sc", val, domain=domain)
+        except Exception:
+            pass
+
+    def chatgpt_headers(self, referer: str = "https://chatgpt.com/login") -> dict[str, str]:
+        h = self._common()
+        h.update(
+            {
+                "accept": "*/*",
+                "content-type": "application/json",
+                "sec-fetch-site": "same-origin",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-dest": "empty",
+                "referer": referer,
+                "priority": "u=1, i",
+            }
+        )
+        return h
+
+    def auth_api_headers(self, referer: str) -> dict[str, str]:
+        h = self._common()
+        h.update(
+            {
+                "accept": "application/json",
+                "content-type": "application/json",
+                "sec-fetch-site": "same-origin",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-dest": "empty",
+                "referer": referer,
+                "origin": "https://auth.openai.com",
+                "oai-device-id": self.device_id,
+                "priority": "u=1, i",
+            }
+        )
+        # 每次请求新 trace（对齐 starmiaoa json_headers）
+        h.update(_datadog_rum_headers())
+        return h
+
+    def auth_navigate_headers(self, referer: str = "https://chatgpt.com/") -> dict[str, str]:
+        h = self._common()
+        h.update(
+            {
+                "accept": (
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                    "image/avif,image/webp,image/apng,*/*;q=0.8,"
+                    "application/signed-exchange;v=b3;q=0.7"
+                ),
+                "sec-fetch-site": "cross-site",
+                "sec-fetch-mode": "navigate",
+                "sec-fetch-dest": "document",
+                "referer": referer,
+                "priority": "u=0, i",
+                "upgrade-insecure-requests": "1",
+            }
+        )
+        return h
+
+    def sentinel_headers(self) -> dict[str, str]:
+        h = self._common()
+        h.update(
+            {
+                "accept": "*/*",
+                "content-type": "text/plain;charset=UTF-8",
+                "origin": "https://sentinel.openai.com",
+                "referer": (
+                    f"https://sentinel.openai.com/backend-api/sentinel/frame.html"
+                    f"?sv={self.sentinel_sv}"
+                ),
+                "sec-fetch-site": "same-origin",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-dest": "empty",
+                "priority": "u=1, i",
+            }
+        )
+        return h
+
+    def get(self, url: str, headers: dict | None = None, **kwargs):
+        return self.session.get(url, headers=headers, **kwargs)
+
+    def post(self, url: str, headers: dict | None = None, **kwargs):
+        return self.session.post(url, headers=headers, **kwargs)
+
+    def proxy_label(self) -> str:
+        if not self.proxy:
+            return "直连"
+        # 若调用方挂了脱敏标签，优先用
+        label = getattr(self, "_proxy_label", "") or ""
+        if label:
+            return label
+        try:
+            from gptreg.proxyutil import proxy_label as _pl
+
+            return _pl(self.proxy)
+        except Exception:
+            try:
+                scheme = self.proxy.split("://", 1)[0]
+                host = self.proxy.split("@")[-1]
+                return f"{scheme}://***@{host}"
+            except Exception:
+                return "已配置"

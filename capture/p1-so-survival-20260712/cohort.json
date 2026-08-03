@@ -1,0 +1,30 @@
+[
+  {
+    "email": "BrandonNichols1400+c688c2@outlook.com",
+    "group": "A_browser",
+    "device_id": "b611a847-35d0-49f0-89e4-cc990168d777",
+    "saved_at": "2026-07-12T22:43:10",
+    "health_t0": "ok",
+    "has_so": true,
+    "so_len": 2718,
+    "challenge_mode": "browser",
+    "t_len": 1412,
+    "post_login": true,
+    "post_login_ok": true,
+    "token_len": 1718
+  },
+  {
+    "email": "EricWilliams3405+6af702@outlook.com",
+    "group": "B_pow",
+    "device_id": "cbff787d-83ca-4c40-a9ef-c41e3d58cc23",
+    "saved_at": "2026-07-12T22:45:52",
+    "health_t0": "ok",
+    "has_so": false,
+    "so_len": 0,
+    "challenge_mode": "pow",
+    "t_len": null,
+    "post_login": true,
+    "post_login_ok": true,
+    "token_len": 1716
+  }
+]

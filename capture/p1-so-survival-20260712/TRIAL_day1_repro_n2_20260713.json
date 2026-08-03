@@ -1,0 +1,63 @@
+{
+  "trial": "day1_repro_pow_no_so_n2",
+  "when": "2026-07-13T17:47:46",
+  "elapsed_s": 116.3,
+  "config": {
+    "sentinel_source": "pow",
+    "pow_so_source": "none",
+    "create_browser_fallback": false,
+    "create_retries": 3
+  },
+  "results": [
+    {
+      "success": false,
+      "email": "DebbieRodriguez7023+e0aa7c@outlook.com",
+      "mail_main": "DebbieRodriguez7023@outlook.com",
+      "used_alias": true,
+      "error": "RuntimeError: create_account HTTP 400: {\n  \"error\": {\n    \"message\": \"Sorry, we aren't able to create your account\",\n    \"type\": \"invalid_request_error\",\n    \"param\": null,\n    \"code\": \"registration_disallowed\"\n  }\n}",
+      "create_acknowledged": false,
+      "proxy_label": "http://region-USsid-NrwbR4ca@us.lajiaohttp.net:2000 via-chain",
+      "create_attempts": [
+        {
+          "source": "pow",
+          "attempt": 1,
+          "ok": false,
+          "disallow": true,
+          "error": "RuntimeError: create_account HTTP 400: {\n  \"error\": {\n    \"message\": \"Sorry, we cannot create your account with the given information.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": null,\n    \"code\": \"registration_disallowed\"\n  }\n}",
+          "has_so": false,
+          "so_len": 0
+        },
+        {
+          "source": "pow",
+          "attempt": 2,
+          "ok": false,
+          "disallow": true,
+          "error": "RuntimeError: create_account HTTP 400: {\n  \"error\": {\n    \"message\": \"Sorry, we cannot create your account with the given information.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": null,\n    \"code\": \"registration_disallowed\"\n  }\n}",
+          "has_so": false,
+          "so_len": 0
+        },
+        {
+          "source": "pow",
+          "attempt": 3,
+          "ok": false,
+          "disallow": true,
+          "error": "RuntimeError: create_account HTTP 400: {\n  \"error\": {\n    \"message\": \"Sorry, we aren't able to create your account\",\n    \"type\": \"invalid_request_error\",\n    \"param\": null,\n    \"code\": \"registration_disallowed\"\n  }\n}",
+          "has_so": false,
+          "so_len": 0
+        }
+      ],
+      "fail_bucket": "create_disallow",
+      "mailbox_note": "create_disallow_not_mailbox_ban"
+    },
+    {
+      "success": false,
+      "email": "NicoleBurch5569+3f1a3f@outlook.com",
+      "mail_main": "NicoleBurch5569@outlook.com",
+      "used_alias": true,
+      "error": "HTTPError: HTTP Error 403: ",
+      "create_acknowledged": false,
+      "proxy_label": "http://region-USsid-HFbbHL5K@us.lajiaohttp.net:2000 via-chain",
+      "fail_bucket": "other"
+    }
+  ]
+}

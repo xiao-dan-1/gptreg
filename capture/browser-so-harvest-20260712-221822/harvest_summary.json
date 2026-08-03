@@ -1,0 +1,118 @@
+{
+  "created_at": "2026-07-12T22:18:52",
+  "flow": "oauth_create_account",
+  "proxy": "http://127.0.0.1:7890",
+  "headless": true,
+  "times": 2,
+  "results": [
+    {
+      "device_id": "d8c2d824-8de7-41e8-9ce3-1ddf0d135931",
+      "flow": "oauth_create_account",
+      "page_url": "https://auth.openai.com/about-you",
+      "proxy": "http://127.0.0.1:7890",
+      "headless": true,
+      "final_url": "https://auth.openai.com/about-you",
+      "nav_error": null,
+      "sdk_load_mode": "remote_url",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2654,
+      "so_raw_head": "{\"so\":\"TRsZBh0OCwwLEXRoFmtxTglscHFVcG1WC3d/SXxwdE5raBEaGxoHHQQNDAsRdF4TDBEaGx0GHQAMDAsRdF4TDBEaGxcHHQEBDAsRdF4TDBEaGx0fB",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 480,
+      "so_is_fake": false,
+      "so_header_len": 2654,
+      "so_header_present": true,
+      "p_len": 609,
+      "c_len": 2084,
+      "error": null,
+      "t_len": 1316,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "J\u0015\u001d\b\u001f\u0002\u0004\f\u0002\u0013peEb\u0013\u001d\u0015\u0016\u000f\u001f\u0001\u0001\f\u0002\u0013|]wM~e~\u0013\u001a\u001d\u0013\u0006\u001e\u0016\u0007\t\u0015\u0014\u001a|Kr[vKt\n\f\u0014\u0013\u0003\u0007\u0000\r\u0003\u0013\r\fkYggzTsh`\u001dTcgbx^up~o{pdRhz`f{\u0001cioBkc\u0000\u000etjcdbmit{uYqPdrJoc\u0000e\u0017nwwVi_BspY@kc\u0006l]`\\OKicdbmz\u0001eak~di\\`Bb",
+      "elapsed_s": 10.361,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    },
+    {
+      "device_id": "b926c587-80cf-41f3-8771-263a3dd18dce",
+      "flow": "oauth_create_account",
+      "page_url": "https://auth.openai.com/about-you",
+      "proxy": "http://127.0.0.1:7890",
+      "headless": true,
+      "final_url": "https://auth.openai.com/about-you",
+      "nav_error": null,
+      "sdk_load_mode": "remote_url",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2702,
+      "so_raw_head": "{\"so\":\"TRMZBhYHBQwOGnRgTWN6ZGhqFhQUAhoaDgcTFBZ6UQwTFhQUAhYaCgETFBZ6UQwTFhQUCBkaCwcTFBZ6UQwTFhQUAx4aDgMTFBZ6UQwTFhQUBh8aA",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 464,
+      "so_is_fake": false,
+      "so_header_len": 2702,
+      "so_header_present": true,
+      "p_len": 601,
+      "c_len": 2148,
+      "error": null,
+      "t_len": 1300,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "L\u0017\u001d\n\u0019\u0002\u0001\f\u0003\u0015u]][\u0015\u001b\u0017\u0019\u0001\u0019\u0002\u0000\f\u0003\u0015vtoxvvtoxvvtoxvvtoxvvtoxvv\b\u0013\u001b\u001b\u0015\u0001\u0016\u0017\u0006\u0015\u000f\u001e\u0017\u0007\u0007\u0005\u001f\u000b\u000e\u000f\u0002\u001b\f\u000f\u0005\f\u001f\u000e\u0001\u0001\u0005\u001f\u0015\u0015\u0005\u0002\u0000\u0000\u0005\u0015\u000f\ftcz@`Cb\n\u0017\u0002\u001b\u0006\u000e\u001b\u001a\u0000\u0015\r\u0017z{Sga\u001fcR`mBhb\u0007{J}vzrj^TRs|o`f\u0005\u0017h`\u0004\fk\u0006\u0002SATbvoZg",
+      "elapsed_s": 18.689,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    }
+  ],
+  "summary": {
+    "ok_n": 2,
+    "has_so_n": 2,
+    "syntax_t_n": 0
+  },
+  "pass_criteria": {
+    "has_so_stable": ">=1 and preferably all times",
+    "t_not_syntaxerror": true,
+    "so_header_len_near_jennifer": "~2900"
+  },
+  "note": "P0 目标：真页稳定 has_so=true 且 t 非 SyntaxError。成功后再接协议 create opt-in；禁止伪造 so。"
+}

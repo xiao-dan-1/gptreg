@@ -1,0 +1,179 @@
+"""配置加载与路径解析。"""
+from __future__ import annotations
+
+import random
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = ROOT / "config.yaml"
+
+_DEFAULTS: dict[str, Any] = {
+    "proxy": {
+        "default": "http://127.0.0.1:10808",
+        "pool": [],
+        "dynamic": {
+            "enabled": False,
+            "template": "",
+            "region": "US",
+            "rotate_sid": True,
+            "sid_len": 8,
+            "sticky": 5,
+            "chain_via": "http://127.0.0.1:7890",
+        },
+    },
+    "mail": {
+        "pool_file": "mail_pool.txt",
+        "poll_interval": 3,
+        "max_wait": 90,
+        "settle_seconds": 5,
+        "used_code_cache": "data/used_otp_codes.json",
+        "use_alias": False,
+        "alias_tag_len": 6,
+    },
+    "browser": {
+        "user_agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/142.0.0.0 Safari/537.36"
+        ),
+        "sec_ch_ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+        "sec_ch_ua_platform": '"Windows"',
+        "sec_ch_ua_mobile": "?0",
+        "impersonate": "chrome142",
+        "language": "en-US",
+        "languages": "en-US,en",
+        "accept_language": "en-US,en;q=0.9",
+        "request_timeout": 60,
+        "screen_width": 1920,
+        "screen_height": 1080,
+        "hardware_concurrency": 16,
+    },
+    "protocol": {
+        "client_id": "app_X8zY6vW2pQ9tR3dE7nK1jL5gH",
+        "scope": (
+            "openid email profile offline_access "
+            "model.request model.read organization.read organization.write"
+        ),
+        "audience": "https://api.openai.com/v1",
+        "redirect_uri": "https://chatgpt.com/api/auth/callback/openai",
+        "sentinel_sv": "20260219f9f6",
+        "sentinel_dir": "vendor/sentinel",
+        # url=k12 闭环（本地 curl_cffi 中转 + runner 自拉 challenge）；file=旧 Python 预拉
+        # 注意：注册主路径默认已切纯 Python PoW；下列两项主要服务 Node 兼容/研究。
+        "sentinel_challenge_mode": "url",
+        "sentinel_proxy_port": 1789,
+        # pow=默认纯 Python（通常无 so）| browser=真 Chrome token+so（opt-in）
+        # P1: 本环境 2h 有/无 so 双活 → 默认保持 pow
+        "sentinel_source": "pow",
+        # none | xiaopp（小PP HAR so，create 纯协议带头，无浏览器）
+        "pow_so_source": "xiaopp",
+        "sentinel_browser_headless": True,
+        "sentinel_browser_timeout": 60,
+        # 空=自动 chain_via → default；也可写 http://127.0.0.1:7890
+        "sentinel_browser_proxy": "",
+        "sentinel_browser_page": "https://auth.openai.com/about-you",
+        "sentinel_browser_local_sdk": False,
+    },
+    "register": {
+        "default_name": "",
+        "birthday_year_min": 1995,
+        "birthday_year_max": 2005,
+        "finalize_attempts": 5,
+        # Step B：登录后 me + conversation/init + prepare（不 finalize/不造假）
+        "post_login": False,
+        # create 400 同 body 重试（对齐资料 zip，不改 sentinel）
+        "create_retries": 3,
+        "create_retry_sleep": 2.0,
+        # pow 遇 registration_disallowed 后 browser 回退（默认关：纯协议；CLI/yaml 可开）
+        "create_browser_fallback": False,
+    },
+    "output": {
+        "dir": "output",
+        "accounts_jsonl": "accounts.jsonl",
+        "tokens_txt": "tokens.txt",
+        "emails_txt": "emails.txt",
+        "full_lines_txt": "full_lines.txt",
+    },
+}
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def resolve_path(path: str | Path, base: Path | None = None) -> Path:
+    p = Path(path)
+    if p.is_absolute():
+        return p
+    return (base or ROOT) / p
+
+
+def load_config(path: str | Path | None = None) -> dict[str, Any]:
+    cfg_path = Path(path) if path else DEFAULT_CONFIG_PATH
+    if not cfg_path.is_absolute():
+        cfg_path = ROOT / cfg_path
+    data: dict[str, Any] = {}
+    if cfg_path.exists():
+        raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        if not isinstance(raw, dict):
+            raise ValueError(f"配置文件格式错误: {cfg_path}")
+        data = raw
+    cfg = _deep_merge(_DEFAULTS, data)
+    cfg["_config_path"] = str(cfg_path)
+    cfg["_root"] = str(ROOT)
+    return cfg
+
+
+def pick_proxy(cfg: dict[str, Any], override: str | None = None) -> str:
+    """选择本次注册使用的代理 URL（兼容旧调用）。
+
+    动态代理 / 链式隧道请用 gptreg.proxyutil.resolve_proxy。
+    override:
+      - None: 用配置
+      - "": 强制直连
+      - 其他: 指定代理
+    """
+    from gptreg.proxyutil import pick_proxy as _pick
+
+    return _pick(cfg, override)
+
+
+# 对齐 k12 / starmiaoa / 资料：自然英文名（卫生项；成功号历史乱码名亦能过 create）
+_FIRST_NAMES = (
+    "James", "Robert", "John", "Michael", "David", "William", "Richard",
+    "Mary", "Jennifer", "Linda", "Elizabeth", "Susan", "Jessica", "Sarah",
+    "Emily", "Emma", "Olivia", "Sophia", "Liam", "Noah", "Oliver", "Ethan",
+    "Daniel", "Matthew", "Anthony", "Mark", "Andrew", "Joshua", "Kevin",
+    "Ryan", "Brandon", "Jason", "Mason", "Eric", "Adam",
+)
+_LAST_NAMES = (
+    "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller",
+    "Davis", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Martin",
+    "Reed", "Cooper", "Ward", "Price", "Foster", "Hayes", "Walsh",
+    "Jackson", "Thompson", "White", "Harris", "Clark",
+)
+
+
+def random_display_name() -> str:
+    """自然英文姓名（对齐参考项目名池）。非 registration_disallowed 充分修复。"""
+    return f"{random.choice(_FIRST_NAMES)} {random.choice(_LAST_NAMES)}"
+
+
+def random_birthdate(cfg: dict[str, Any]) -> str:
+    reg = cfg.get("register", {})
+    y_min = int(reg.get("birthday_year_min", 1995))
+    y_max = int(reg.get("birthday_year_max", 2005))
+    year = random.randint(y_min, y_max)
+    month = random.randint(1, 12)
+    day = random.randint(1, 28)
+    return f"{year}-{month:02d}-{day:02d}"

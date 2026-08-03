@@ -1,0 +1,43 @@
+{
+  "obs": {
+    "flow": "oauth_create_account",
+    "http": 200,
+    "keys": [
+      "expire_after",
+      "expire_at",
+      "persona",
+      "proofofwork",
+      "so",
+      "token",
+      "turnstile"
+    ],
+    "has_so_field": true,
+    "so_required": true,
+    "so_collector_dx_len": 16760,
+    "so_keys": [
+      "collector_dx",
+      "required",
+      "snapshot_dx"
+    ],
+    "turnstile_required": true,
+    "turnstile_dx_len": 20844,
+    "pow_required": true,
+    "pow_difficulty": "061a80",
+    "pow_seed_len": 18,
+    "token_c_len": 2040,
+    "persona": "chatgpt-noauth",
+    "requires": [
+      "pow",
+      "turnstile",
+      "so"
+    ]
+  },
+  "token_keys": [
+    "p",
+    "t",
+    "c",
+    "id",
+    "flow"
+  ],
+  "t_len": 0
+}

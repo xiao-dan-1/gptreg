@@ -1,0 +1,22 @@
+# ---- 凭据 / 敏感数据（绝不提交）----
+mail_pool.txt
+mail_pool.txt.state.json
+config.yaml
+data/
+output/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- 浏览器 profile 缓存（capture 内，含 cookie/历史）----
+capture/chrome-profile/
+capture/chrome-profile-*/
+
+# ---- 第三方参考资料（非本项目代码）----
+资料/
+
+# ---- 运行时 / 临时 ----
+*.log
+*.tmp

@@ -1,0 +1,135 @@
+{
+  "generated_at": "2026-07-13T01:24:47",
+  "pool_used": [
+    "BrandonNichols1400@outlook.com",
+    "ConderGord45@outlook.com",
+    "EricWilliams3405@outlook.com",
+    "JenniferPhillips9261@outlook.com",
+    "JohnOwens2952@outlook.com"
+  ],
+  "pool_failed": {
+    "JenniferMitchell9500@outlook.com": 1,
+    "LeslieChavez6274@outlook.com": 1,
+    "LarryHoffman7534@outlook.com": 1,
+    "TracyHenry4340@outlook.com": 1
+  },
+  "rows": [
+    {
+      "kind": "success",
+      "email": "RoelfsWida92+1a@outlook.com",
+      "root": "RoelfsWida92@outlook.com",
+      "name": "Vmtzli Ipbo",
+      "birthdate": "1998-02-21",
+      "has_so": null,
+      "mode": null,
+      "saved_at": "2026-07-11T18:13:23"
+    },
+    {
+      "kind": "success",
+      "email": "RoelfsWida92+2d65fd@outlook.com",
+      "root": "RoelfsWida92@outlook.com",
+      "name": "Vbgafw Ltkb",
+      "birthdate": "2000-05-03",
+      "has_so": null,
+      "mode": null,
+      "saved_at": "2026-07-11T18:53:05"
+    },
+    {
+      "kind": "success",
+      "email": "ConderGord45+827a56@outlook.com",
+      "root": "ConderGord45@outlook.com",
+      "name": "Evxlcvl Adjai",
+      "birthdate": "1995-02-24",
+      "has_so": null,
+      "mode": null,
+      "saved_at": "2026-07-11T19:37:52"
+    },
+    {
+      "kind": "success",
+      "email": "JohnOwens2952+ae8294@outlook.com",
+      "root": "JohnOwens2952@outlook.com",
+      "name": "Gyerc Bfqv",
+      "birthdate": "1998-11-04",
+      "has_so": false,
+      "mode": null,
+      "saved_at": "2026-07-12T00:30:24"
+    },
+    {
+      "kind": "success",
+      "email": "JohnOwens2952+41dcda@outlook.com",
+      "root": "JohnOwens2952@outlook.com",
+      "name": "Tyfri Uidk",
+      "birthdate": "1998-10-28",
+      "has_so": false,
+      "mode": null,
+      "saved_at": "2026-07-12T00:55:52"
+    },
+    {
+      "kind": "success",
+      "email": "BrandonNichols1400+c688c2@outlook.com",
+      "root": "BrandonNichols1400@outlook.com",
+      "name": "Ufyltvv Wvgyv",
+      "birthdate": "2003-05-02",
+      "has_so": true,
+      "mode": "browser",
+      "saved_at": "2026-07-12T22:43:10"
+    },
+    {
+      "kind": "success",
+      "email": "EricWilliams3405+6af702@outlook.com",
+      "root": "EricWilliams3405@outlook.com",
+      "name": "Cgzvcg Slzvkn",
+      "birthdate": "2000-04-21",
+      "has_so": false,
+      "mode": "pow",
+      "saved_at": "2026-07-12T22:45:52"
+    },
+    {
+      "kind": "success",
+      "email": "JenniferPhillips9261+542af2@outlook.com",
+      "root": "JenniferPhillips9261@outlook.com",
+      "name": "Jvpqy Isytz",
+      "birthdate": "2004-01-12",
+      "has_so": true,
+      "mode": "browser",
+      "saved_at": "2026-07-13T01:10:25"
+    },
+    {
+      "kind": "create_disallow",
+      "email": "LeslieChavez6274+…",
+      "root": "LeslieChavez6274@outlook.com",
+      "mode": "pow",
+      "has_so": false,
+      "note": "P1 create 400"
+    },
+    {
+      "kind": "create_disallow",
+      "email": "LarryHoffman7534+232f31@outlook.com",
+      "root": "LarryHoffman7534@outlook.com",
+      "mode": "pow",
+      "has_so": false,
+      "note": "2026-07-13 create 400"
+    },
+    {
+      "kind": "create_disallow",
+      "email": "TracyHenry4340+daa42c@outlook.com",
+      "root": "TracyHenry4340@outlook.com",
+      "mode": "pow",
+      "has_so": false,
+      "note": "2026-07-13 create 400"
+    }
+  ],
+  "success_roots": [
+    "BrandonNichols1400@outlook.com",
+    "ConderGord45@outlook.com",
+    "EricWilliams3405@outlook.com",
+    "JenniferPhillips9261@outlook.com",
+    "JohnOwens2952@outlook.com",
+    "RoelfsWida92@outlook.com"
+  ],
+  "disallow_roots": [
+    "LarryHoffman7534@outlook.com",
+    "LeslieChavez6274@outlook.com",
+    "TracyHenry4340@outlook.com"
+  ]
+}

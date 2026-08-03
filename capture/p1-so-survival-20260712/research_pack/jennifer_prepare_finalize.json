@@ -1,0 +1,66 @@
+{
+  "prepare_req": {
+    "phase": "request",
+    "status": null,
+    "url": "https://chatgpt.com/backend-api/sentinel/chat-requirements/prepare",
+    "req_header_keys": [
+      "oai-language",
+      "authorization",
+      "chatgpt-account-id",
+      "x-oai-is-client-observation",
+      "oai-client-build-number",
+      "content-type",
+      "oai-client-version",
+      "oai-session-id",
+      "oai-device-id"
+    ]
+  },
+  "prepare_resp": {
+    "phase": "response",
+    "status": 200,
+    "url": "https://chatgpt.com/backend-api/sentinel/chat-requirements/prepare",
+    "req_header_keys": [
+      "oai-language",
+      "authorization",
+      "chatgpt-account-id",
+      "x-oai-is-client-observation",
+      "oai-client-build-number",
+      "content-type",
+      "oai-client-version",
+      "oai-session-id",
+      "oai-device-id"
+    ]
+  },
+  "finalize_req": {
+    "phase": "request",
+    "status": null,
+    "url": "https://chatgpt.com/backend-api/sentinel/chat-requirements/finalize",
+    "req_header_keys": [
+      "oai-language",
+      "authorization",
+      "chatgpt-account-id",
+      "x-oai-is-client-observation",
+      "oai-client-build-number",
+      "content-type",
+      "oai-client-version",
+      "oai-session-id",
+      "oai-device-id"
+    ]
+  },
+  "finalize_resp": {
+    "phase": "response",
+    "status": 200,
+    "url": "https://chatgpt.com/backend-api/sentinel/chat-requirements/finalize",
+    "req_header_keys": [
+      "oai-language",
+      "authorization",
+      "chatgpt-account-id",
+      "x-oai-is-client-observation",
+      "oai-client-build-number",
+      "content-type",
+      "oai-client-version",
+      "oai-session-id",
+      "oai-device-id"
+    ]
+  }
+}

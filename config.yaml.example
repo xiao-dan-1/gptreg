@@ -1,0 +1,114 @@
+# GPT 协议注册机配置
+# 代理 / 邮箱池 / 浏览器指纹 / 协议参数
+
+proxy:
+  # 默认本地代理（可上外网）。支持 http/https/socks5/socks5h
+  # 留空字符串表示直连；也可在 CLI 用 --proxy 覆盖
+  # dynamic.enabled=true 时优先用动态代理，本项作 chain_via 兜底
+  default: "http://127.0.0.1:10808"
+  # 可选静态代理池：dynamic 关闭时，非空则每次注册随机挑一个
+  pool: []
+  # 例：
+  # pool:
+  #   - "socks5h://127.0.0.1:10808"
+  #   - "http://user:pass@host:port"
+
+  # 辣椒 / kookeey 类动态住宅代理
+  # 用户名格式: 账号-region-XX-sid-随机-t-粘性分钟
+  # 改 region 换地区；改 sid 换 IP（同 sid 在 t 分钟内粘性）
+  dynamic:
+    enabled: true
+    # 完整模板（推荐）。每次注册会把 -sid-xxx-t- 换成新 sid
+    template: "http://账号-region-XX-sid-xxxx-t-5:密码@us.lajiaohttp.net:2000"
+    # 覆盖模板中的 region（US/JP/NL/HK/...）；空则保留模板原 region
+    region: "US"
+    # 每次注册是否随机 sid（换 IP）
+    rotate_sid: true
+    sid_len: 8
+    sticky: 5
+    # 直连辣椒常 403（本机公网 IP 未入白名单）。
+    # 必须经已入白名单的本地代理做 CONNECT 链路。实测 7890 可用、10808 不可用。
+    chain_via: "http://127.0.0.1:7890"
+
+mail:
+  pool_file: "mail_pool.txt"
+  # OTP 轮询
+  poll_interval: 3
+  max_wait: 90
+  # 抓到首个候选后，再观察几秒是否有更新的邮件（Outlook 有效）
+  settle_seconds: 5
+  # 共享 get-code 邮箱：已使用 OTP 持久化缓存，避免 stale code
+  used_code_cache: "data/used_otp_codes.json"
+  # 注册用 plus 别名：主号 local+随机tag@domain；收码仍用号池 OAuth/主号
+  # 号池已是手动别名时也会先剥掉 +xxx 再生成，避免 double alias
+  use_alias: true
+  alias_tag_len: 6
+
+browser:
+  # UA 与 impersonate 主版本必须对齐
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+  sec_ch_ua: '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"'
+  sec_ch_ua_platform: '"Windows"'
+  sec_ch_ua_mobile: "?0"
+  impersonate: "chrome142"
+  language: "en-US"
+  languages: "en-US,en"
+  accept_language: "en-US,en;q=0.9"
+  request_timeout: 60
+  screen_width: 1920
+  screen_height: 1080
+  hardware_concurrency: 16
+
+protocol:
+  # OpenAI 公开 OAuth 客户端参数（抓包固定值）
+  client_id: "app_X8zY6vW2pQ9tR3dE7nK1jL5gH"
+  scope: "openid email profile offline_access model.request model.read organization.read organization.write"
+  audience: "https://api.openai.com/v1"
+  redirect_uri: "https://chatgpt.com/api/auth/callback/openai"
+  # Sentinel SDK 版本（更新时同步 vendor/sentinel/sdk.js）
+  sentinel_sv: "20260219f9f6"
+  sentinel_dir: "vendor/sentinel"
+  # 注册主路径 sentinel（策略见 capture/create-requires-real-t-20260803.md）
+  # browser=默认：真 Chrome token()+sessionObserverToken() 产真 t+真 so（唯一实证能存活，7h+）
+  # node=Node VM 跑 sdk.js 产非空 t（create 能过，但假 t ~6h 被吊销，仅研究用）
+  # pow=纯 Python FNV-1a，仅 OTP（create 空 t 已被拒）
+  # OTP 始终 pow；假 so 丢弃；勿用资料 jsdom/collector_dx 当 so
+  # CLI 覆盖：--sentinel-source pow|browser|node
+  sentinel_source: "browser"
+  # none=不带 so（默认）| xiaopp=小PP HAR so（已废弃：假 so 无助于 create，违反禁止假 so）
+  pow_so_source: "none"
+  sentinel_browser_headless: true
+  sentinel_browser_timeout: 60
+  # 空=自动用 proxy.dynamic.chain_via → proxy.default
+  sentinel_browser_proxy: ""
+  sentinel_browser_page: "https://auth.openai.com/about-you"
+  # Node 兼容/研究（注册主路径默认不走）
+  # url=k12 闭环：本地 1789 中转 + runner 自拉 challenge
+  # file=旧路径：Python 预拉 challenge 再 --challenge-file
+  sentinel_challenge_mode: "url"
+  sentinel_proxy_port: 1789
+
+register:
+  # 留空则每次随机英文名；生日默认随机 1995-2005
+  default_name: ""
+  birthday_year_min: 1995
+  birthday_year_max: 2005
+  # 回调后拉 session 的重试
+  finalize_attempts: 5
+  # 登录后最小补齐：me + conversation/init + prepare 观测
+  # 不解 chat-requirements/finalize（禁止假 pow/turnstile/so）
+  post_login: true
+  # create 400 同 body 重试次数
+  create_retries: 3
+  create_retry_sleep: 2.0
+  # browser 回退：默认关（create 走 sentinel_source=node）。
+  # 仅 base_source=pow 时触发；想用 pow→browser 保真 t 兜底时开 true 并把 sentinel_source 改回 pow
+  create_browser_fallback: false
+
+output:
+  dir: "output"
+  # 成功账号追加写入
+  accounts_jsonl: "accounts.jsonl"
+  tokens_txt: "tokens.txt"
+  emails_txt: "emails.txt"
+  full_lines_txt: "full_lines.txt"

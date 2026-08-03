@@ -1,0 +1,14 @@
+{
+  "flow": "oauth_create_account",
+  "device_id": "4d6b31eb-2831-4f14-952d-5c911d0dd88d",
+  "challenge_so_required": true,
+  "token_keys": [
+    "p",
+    "t",
+    "c",
+    "id",
+    "flow"
+  ],
+  "has_so": false,
+  "returncode": 0
+}

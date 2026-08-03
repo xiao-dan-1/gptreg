@@ -1,0 +1,148 @@
+{
+  "generated_at": "2026-07-13T01:40:59",
+  "n_pairs": 3,
+  "z4_natural_names": true,
+  "pow": {
+    "n": 3,
+    "ok": 1,
+    "disallow": 2,
+    "emails": [
+      "ThomasRivers7260+a36d42@outlook.com",
+      "TrenhHattie36+2a54c2@outlook.com",
+      "EmbreeNicholas183+7fcc43@outlook.com"
+    ]
+  },
+  "browser": {
+    "n": 3,
+    "ok": 3,
+    "disallow": 0,
+    "emails": [
+      "JasmineMcconnell9909+1b5fcd@outlook.com",
+      "BeatheFulwood6282+85b8d3@outlook.com",
+      "BengelsdorfSalato25+bf3db9@outlook.com"
+    ]
+  },
+  "results": [
+    {
+      "slot": 1,
+      "pair": 1,
+      "mode": "pow",
+      "ts": "2026-07-13T01:30:18",
+      "ok": false,
+      "email": "ThomasRivers7260+a36d42@outlook.com",
+      "mail_main": "ThomasRivers7260@outlook.com",
+      "name": null,
+      "birthdate": null,
+      "has_so": null,
+      "so_len": null,
+      "health": null,
+      "proxy_label": "http://region-USsid-7sJZ52Fd@us.lajiaohttp.net:2000 via-chain",
+      "error": "HTTPError: HTTP Error 400: ",
+      "registration_disallowed": true,
+      "elapsed_s": 104.4,
+      "disallow_inferred": true
+    },
+    {
+      "slot": 2,
+      "pair": 1,
+      "mode": "browser",
+      "ts": "2026-07-13T01:32:31",
+      "ok": true,
+      "email": "JasmineMcconnell9909+1b5fcd@outlook.com",
+      "mail_main": "JasmineMcconnell9909@outlook.com",
+      "name": "Kevin Price",
+      "birthdate": "2002-10-21",
+      "has_so": true,
+      "so_len": 2698,
+      "health": "ok",
+      "proxy_label": "http://region-USsid-e4v5BkIa@us.lajiaohttp.net:2000 via-chain",
+      "error": null,
+      "registration_disallowed": false,
+      "elapsed_s": 130.9
+    },
+    {
+      "slot": 3,
+      "pair": 2,
+      "mode": "pow",
+      "ts": "2026-07-13T01:34:20",
+      "ok": false,
+      "email": "TrenhHattie36+2a54c2@outlook.com",
+      "mail_main": "TrenhHattie36@outlook.com",
+      "name": null,
+      "birthdate": null,
+      "has_so": null,
+      "so_len": null,
+      "health": null,
+      "proxy_label": "http://region-USsid-uMip4waZ@us.lajiaohttp.net:2000 via-chain",
+      "error": "HTTPError: HTTP Error 400: ",
+      "registration_disallowed": true,
+      "elapsed_s": 106.9,
+      "disallow_inferred": true
+    },
+    {
+      "slot": 4,
+      "pair": 2,
+      "mode": "browser",
+      "ts": "2026-07-13T01:36:27",
+      "ok": true,
+      "email": "BeatheFulwood6282+85b8d3@outlook.com",
+      "mail_main": "BeatheFulwood6282@outlook.com",
+      "name": "John Brown",
+      "birthdate": "2005-09-14",
+      "has_so": true,
+      "so_len": 2614,
+      "health": "ok",
+      "proxy_label": "http://region-USsid-74NusVQM@us.lajiaohttp.net:2000 via-chain",
+      "error": null,
+      "registration_disallowed": false,
+      "elapsed_s": 125.7
+    },
+    {
+      "slot": 5,
+      "pair": 3,
+      "mode": "pow",
+      "ts": "2026-07-13T01:38:26",
+      "ok": true,
+      "email": "EmbreeNicholas183+7fcc43@outlook.com",
+      "mail_main": "EmbreeNicholas183@outlook.com",
+      "name": "Mary Johnson",
+      "birthdate": "2005-11-11",
+      "has_so": false,
+      "so_len": 0,
+      "health": "ok",
+      "proxy_label": "http://region-USsid-EKcmHvi6@us.lajiaohttp.net:2000 via-chain",
+      "error": null,
+      "registration_disallowed": false,
+      "elapsed_s": 116.5
+    },
+    {
+      "slot": 6,
+      "pair": 3,
+      "mode": "browser",
+      "ts": "2026-07-13T01:40:59",
+      "ok": true,
+      "email": "BengelsdorfSalato25+bf3db9@outlook.com",
+      "mail_main": "BengelsdorfSalato25@outlook.com",
+      "name": "Sophia Ward",
+      "birthdate": "2003-03-08",
+      "has_so": true,
+      "so_len": 2670,
+      "health": "ok",
+      "proxy_label": "http://region-USsid-42Gshi6u@us.lajiaohttp.net:2000 via-chain",
+      "error": null,
+      "registration_disallowed": false,
+      "elapsed_s": 124.9
+    }
+  ],
+  "interpretation": {
+    "pow_create_pass_rate": 0.3333333333333333,
+    "browser_create_pass_rate": 1.0,
+    "notes": [
+      "Z4 natural names used on all attempts (Richard Thompson, Kevin Price, Anthony Ward, John Brown, Mary Johnson, ...)",
+      "pow slot5 EmbreeNicholas SUCCESS without so — so not required for create",
+      "pow slots 1,3 create 400 registration_disallowed (body in auth log; HTTPError str lacks code)",
+      "browser pass rate higher than pow THIS window — confounded by mailbox root; do not change default to browser yet",
+      "H3 (so required for create) weakened: pow can still create 200"
+    ]
+  }
+}
