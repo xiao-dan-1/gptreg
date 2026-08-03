@@ -705,6 +705,23 @@ async function run(payload, sdkSource) {
       // 注意: 不要在这里等待/延迟——collector 的 jt 与 snapshot 的 jt 共享全局 St/Y，会互相干扰挂起。
       // 模拟真实用户行为，喂 session observer（实验性；监听器异步注册时序未解决）
       await simulateBehavior();
+      // 实验：直接给 __oai_so_* 字段塞合理值（绕过采集器异步时序），验证行为数据是否影响 so 长度/结构
+      if (payload.inject_oai_so) {
+        try {
+          const _now = Date.now();
+          globalThis.__oai_so_t0 = _now - 120000;
+          globalThis.__oai_so_p = 1; globalThis.__oai_so_pc = 15;
+          globalThis.__oai_so_i = 1; globalThis.__oai_so_m = 3;
+          globalThis.__oai_so_h = 84531092; globalThis.__oai_so_hi = 4521193;
+          globalThis.__oai_so_hp = 33298111; globalThis.__oai_so_hw = 118837;
+          globalThis.__oai_so_s = 423981; globalThis.__oai_so_k = 221983;
+          globalThis.__oai_so_lx = 640; globalThis.__oai_so_ly = 360;
+          globalThis.__oai_so_sp = 120; globalThis.__oai_so_spt = 84320;
+          globalThis.__oai_so_ss = 2; globalThis.__oai_so_ss2 = 1;
+          globalThis.__oai_so_wb = 38412; globalThis.__oai_so_we = 842;
+          globalThis.__oai_so_fs = 1; globalThis.__oai_so_fs2 = 1;
+        } catch (e) { /* ignore */ }
+      }
       if (typeof globalThis.SentinelSDK.sessionObserverToken === "function") {
         const s = await globalThis.SentinelSDK.sessionObserverToken(_flow);
         so = (typeof s === "string") ? s : JSON.stringify(s);
