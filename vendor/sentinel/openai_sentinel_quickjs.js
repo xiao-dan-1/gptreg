@@ -703,8 +703,9 @@ async function run(payload, sdkSource) {
       const _flow = String(payload.flow || "");
       if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, challenge);
       // 注意: 不要在这里等待/延迟——collector 的 jt 与 snapshot 的 jt 共享全局 St/Y，会互相干扰挂起。
-      // 模拟真实用户行为，喂 session observer（实验性；监听器异步注册时序未解决）
-      await simulateBehavior();
+      // 行为模拟默认关（opt-in）：DerrickMclean9927 实测 ~21min 死（快于全空基线 ~1h），
+      // 半填充行为状态比干净空状态更可疑。
+      if (payload.simulate_behavior) await simulateBehavior();
       // 实验：直接给 __oai_so_* 字段塞合理值（绕过采集器异步时序），验证行为数据是否影响 so 长度/结构
       if (payload.inject_oai_so) {
         try {
