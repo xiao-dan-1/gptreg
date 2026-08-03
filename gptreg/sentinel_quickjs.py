@@ -109,6 +109,8 @@ def _fingerprint_payload(cfg: dict[str, Any], device_id: str, sv: str) -> dict:
         "screen_width": int(b.get("screen_width", 1920)),
         "screen_height": int(b.get("screen_height", 1080)),
         "hardware_concurrency": int(b.get("hardware_concurrency", 16)),
+        "device_memory": int(b.get("device_memory", 16) or 16),
+        "max_touch_points": int(b.get("max_touch_points", 10) or 10),
         "language": b.get("language", "en-US"),
         "languages": [x.strip() for x in languages if x.strip()] or ["en-US"],
         "performance_now": round(time.time() * 1000 % 50000, 2),

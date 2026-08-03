@@ -144,10 +144,12 @@ function installRuntime(payload) {
     },
   };
 
+  const _nowBase = Number(payload.performance_now || 12345.67);
+  const _wallStart = Date.now();
   const performance = {
-    now: () => Number(payload.performance_now || 12345.67),
+    now: () => _nowBase + (Date.now() - _wallStart),  // 真实递增时钟（SDK 读 ~83 次当时钟）
     timeOrigin: Number(payload.time_origin || 1710000000000),
-    memory: { jsHeapSizeLimit: Number(payload.js_heap_size_limit || 4294967296) },
+    memory: { jsHeapSizeLimit: Number(payload.js_heap_size_limit || 4395630592) },
   };
 
   class TextEncoderPoly {
@@ -230,6 +232,10 @@ function installRuntime(payload) {
     platform: "Win32",
     vendor: "Google Inc.",
     webdriver: false,
+    deviceMemory: payload.device_memory != null ? Number(payload.device_memory) : 8,
+    maxTouchPoints: payload.max_touch_points != null ? Number(payload.max_touch_points) : 0,
+    cookieEnabled: true,
+    onLine: true,
   }, configurable: true, writable: true });
   globalThis.location = {
     href: "https://auth.openai.com/",
