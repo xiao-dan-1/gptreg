@@ -26,11 +26,14 @@ def main() -> int:
     sdk_file = _ensure_sdk(None, sv, 60000)  # 已缓存，不联网
 
     runs = []
+    uuid_calls_all = []
     for i in range(3):
         fp = _fingerprint_payload(cfg, device_id, sv)
-        out = _run_action(script, sdk_file, "requirements", fp, 60000)
+        out = _run_action(script, sdk_file, "requirements", fp, 60000, env_extra={"TZ": "America/Los_Angeles"})
         request_p = str(out.get("request_p") or "")
         runs.append(request_p)
+        uuids = list(out.get("uuid_calls") or [])
+        uuid_calls_all.append(uuids)
         print(f"\n--- 第 {i + 1} 次 requirements ---")
         print(f"request_p 长度 = {len(request_p)}")
         decoded = decode_p(request_p)
@@ -39,11 +42,11 @@ def main() -> int:
             print(f"数组长度 = {len(decoded)}")
             for j, v in enumerate(decoded):
                 print(f"  [{j:2}] {repr(v)}")
+            print(f"crypto.randomUUID 调用 {len(uuids)} 次: {uuids[:5]}")
         else:
             print(f"原始内容 = {str(decoded)[:120]}")
 
     print("\n\n===== 对比三次 p 是否漂移 =====")
-    # 用 analyze 风格手写对比（analyze 期望 req/solve 两个字段的 dict，这里直接解）
     r0, r1, r2 = (decode_p(p) for p in runs)
     if isinstance(r0, list) and isinstance(r1, list) and isinstance(r2, list):
         n = max(len(r0), len(r1), len(r2))
@@ -54,6 +57,13 @@ def main() -> int:
             same = v0 == v1 == v2
             flag = "" if same else "  <-- 漂移"
             print(f"[{j:2}] run1={repr(v0)}  run2={repr(v1)}  run3={repr(v2)}{flag}")
+        # [14] 是否来自 crypto.randomUUID？
+        if uuid_calls_all:
+            for i, (dec, uuids) in enumerate(zip(runs, uuid_calls_all)):
+                d = decode_p(dec)
+                v14 = d[14] if isinstance(d, list) and len(d) > 14 else None
+                hit = v14 in uuids if uuids else False
+                print(f"[14] 来源检查 run{i + 1}: p[14]={v14!r} 在 randomUUID 返回值中: {hit}")
     else:
         print("p 不是 JSON 数组，无法逐字段对比；见上方解码结果。")
         if isinstance(r0, bytes):

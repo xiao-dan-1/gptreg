@@ -90,9 +90,100 @@ function createElement(tagName) {
   };
 }
 
+function makePluginArray() {
+  const names = [
+    "PDF Viewer", "Chrome PDF Viewer", "Chromium PDF Viewer",
+    "Microsoft Edge PDF Viewer", "WebKit built-in PDF",
+  ];
+  const arr = [];
+  names.forEach((name, i) => {
+    arr[i] = {
+      name,
+      filename: name.toLowerCase().replace(/ /g, "-") + ".pdf",
+      description: name + " for PDF files",
+      suffixes: "pdf",
+    };
+  });
+  arr.length = names.length;
+  arr.item = (i) => arr[i] || null;
+  arr.namedItem = (n) => arr.find((p) => p && p.name === n) || null;
+  arr.refresh = () => {};
+  return arr;
+}
+
+function makeMimeTypes() {
+  const names = ["application/pdf", "text/pdf"];
+  const arr = [];
+  names.forEach((name, i) => {
+    arr[i] = { type: name, suffixes: "pdf", description: "Portable Document Format", enabledPlugin: null };
+  });
+  arr.length = names.length;
+  arr.item = (i) => arr[i] || null;
+  arr.namedItem = (n) => arr.find((m) => m && m.type === n) || null;
+  arr.refresh = () => {};
+  return arr;
+}
+
+// 真 Chrome navigator 的对象型属性：Symbol.toStringTag 让 Object.prototype.toString 产出真实类名
+// （如 [object NavigatorLogin]），SDK 的 T() 会做 navigator[key].toString() 采样（p[10]）。
+function taggedChrome(proto) {
+  const obj = {};
+  if (proto && proto !== "object") Object.defineProperty(obj, Symbol.toStringTag, { value: String(proto) });
+  return obj;
+}
+
+// Navigator.prototype 的候选键（真 Chrome 大部分导航属性都在原型上；SDK 采样 Object.keys(proto)）。
+// 值必须 defined，否则 navigator[key].toString() 抛错 → catch → 返回裸 key。
+function chromeNavigatorExtras() {
+  return {
+    userAgentData: taggedChrome("NavigatorUAData"),
+    login: taggedChrome("NavigatorLogin"),
+    keyboard: taggedChrome("Keyboard"),
+    getInterestGroupAdAuctionData: function getInterestGroupAdAuctionData() {},
+    storage: taggedChrome("StorageManager"),
+    credentials: taggedChrome("CredentialsContainer"),
+    permissions: taggedChrome("Permissions"),
+    connection: Object.assign(taggedChrome("NetworkInformation"), { effectiveType: "4g", rtt: 50, downlink: 10, saveData: false }),
+    serviceWorker: taggedChrome("ServiceWorkerContainer"),
+    mediaDevices: taggedChrome("MediaDevices"),
+    geolocation: taggedChrome("Geolocation"),
+    bluetooth: taggedChrome("Bluetooth"),
+    usb: taggedChrome("USB"),
+    hid: taggedChrome("HID"),
+    serial: taggedChrome("Serial"),
+    gpu: taggedChrome("GPU"),
+    ink: taggedChrome("Ink"),
+    wakeLock: taggedChrome("WakeLock"),
+    xr: taggedChrome("XRSystem"),
+    mediaCapabilities: taggedChrome("MediaCapabilities"),
+    scheduling: taggedChrome("Scheduling"),
+    mediaSession: taggedChrome("MediaSession"),
+    clipboard: taggedChrome("Clipboard"),
+    devicePosture: taggedChrome("DevicePosture"),
+    virtualKeyboard: taggedChrome("VirtualKeyboard"),
+    windowControlsOverlay: taggedChrome("WindowControlsOverlay"),
+    managed: taggedChrome("NavigatorManagedData"),
+    getGamepads: function getGamepads() { return []; },
+    getBattery: async function getBattery() { return { charging: false, level: 1, chargingTime: 0, dischargingTime: Infinity }; },
+    requestMIDIAccess: async function requestMIDIAccess() { return {}; },
+    pdfViewerEnabled: true,
+  };
+}
+
 function installRuntime(payload) {
   const __realST = setTimeout.bind(null);
   const __realCST = clearTimeout.bind(null);
+  // 我们注入的全局一律 non-enumerable：SDK 疑似对 window 键做随机采样，
+  // 枚举可见的 __sentinel_*/__debug*/__vm_* 会泄漏 vm 执行痕迹进指纹（已实证捕获）。
+  function defineHidden(key, value) {
+    try {
+      Object.defineProperty(globalThis, key, {
+        value, writable: true, configurable: true, enumerable: false,
+      });
+    } catch (e) {
+      globalThis[key] = value;
+    }
+  }
   const screen = {
     width: Number(payload.screen_width || 1366),
     height: Number(payload.screen_height || 768),
@@ -103,7 +194,13 @@ function installRuntime(payload) {
     colorDepth: 24,
     pixelDepth: 24,
   };
+  // 复刻真页面 DOM：head 里 script 为 backend-api 加载器。
+  // 真浏览器 p[5] 稳定 = 加载器 src（backend-api URL）；SDK 读 script 元素的 index 会变化，
+  // 故只放一个元素，任意 index 都返回 backend-api。
   const scripts = [];
+  const _loaderScriptEl = createElement("script");
+  _loaderScriptEl.src = String(payload.script_src || "https://sentinel.openai.com/backend-api/sentinel/sdk.js");
+  scripts.push(_loaderScriptEl);
   const documentElement = createElement("html");
   documentElement.clientWidth = screen.width;
   documentElement.clientHeight = screen.height;
@@ -125,7 +222,7 @@ function installRuntime(payload) {
     },
     cookie: `oai-did=${encodeURIComponent(payload.device_id || "")}`,
     scripts,
-    currentScript: { src: "https://sentinel.openai.com/sentinel/sdk.js", getAttribute() { return null; } },
+    currentScript: _loaderScriptEl,  // 真浏览器 p[5]=backend-api 加载器 src（SDK 读 currentScript.src）
     documentElement,
     body: createElement("body"),
     head: createElement("head"),
@@ -156,11 +253,15 @@ function installRuntime(payload) {
     },
   };
 
-  const _nowBase = Number(payload.performance_now || 12345.67);
-  const _wallStart = Date.now();
+  // time_origin 由调用方按「一次注册」固定传入（A3：真浏览器是页面加载常数，同注册两 token 必须一致）。
+  // performance.now() = Date.now() - timeOrigin：真语义，从 ~0 起单调递增。
+  const _timeOrigin = Number(payload.time_origin || (Date.now() - 300));
   const performance = {
-    now: () => _nowBase + (Date.now() - _wallStart),  // 真实递增时钟（SDK 读 ~83 次当时钟）
-    timeOrigin: Number(payload.time_origin || 1710000000000),
+    now: () => {
+      const v = Date.now() - _timeOrigin;
+      return v > 0 ? v : 0;
+    },
+    timeOrigin: _timeOrigin,
     memory: { jsHeapSizeLimit: Number(payload.js_heap_size_limit || 4395630592) },
   };
 
@@ -235,20 +336,35 @@ function installRuntime(payload) {
   globalThis.self = globalThis;
   globalThis.top = globalThis;
   globalThis.parent = globalThis;
+  // window 尺寸/DPR：真浏览器必有，缺失会让 SDK 退回奇怪默认值（实测 p[0]=3000）
+  globalThis.innerWidth = screen.width;
+  globalThis.innerHeight = screen.height;
+  globalThis.outerWidth = screen.width;
+  globalThis.outerHeight = screen.height;
+  globalThis.devicePixelRatio = 1;
   globalThis.document = document;
-  Object.defineProperty(globalThis, 'navigator', { value: {
+  // 真 Chrome：navigator 属性大多在 Navigator.prototype 上，SDK 的 T() 采样
+  // Object.keys(Object.getPrototypeOf(navigator)) 并做 navigator[key].toString()（p[10]）。
+  // 所以除自身属性外，必须把候选键放到 navigator 的 __proto__ 上。
+  const navigatorProps = {
     userAgent: String(payload.user_agent || "Mozilla/5.0"),
     language: String(payload.language || "en-US"),
     languages: Array.isArray(payload.languages) ? payload.languages : ["en-US", "en"],
     hardwareConcurrency: Number(payload.hardware_concurrency || 16),
     platform: "Win32",
     vendor: "Google Inc.",
+    vendorSub: "",  // 真 Chrome = ''（typeof string）；缺失会让 SDK 报 undefined（A1）
     webdriver: false,
     deviceMemory: payload.device_memory != null ? Number(payload.device_memory) : 8,
     maxTouchPoints: payload.max_touch_points != null ? Number(payload.max_touch_points) : 0,
     cookieEnabled: true,
     onLine: true,
-  }, configurable: true, writable: true });
+    plugins: makePluginArray(),   // 真 Chrome PluginArray（typeof object，A1）
+    mimeTypes: makeMimeTypes(),   // 真 Chrome MimeTypeArray（typeof object，A1）
+  };
+  const navigatorProto = { ...navigatorProps, ...chromeNavigatorExtras() };
+  Object.setPrototypeOf(navigatorProps, navigatorProto);
+  Object.defineProperty(globalThis, 'navigator', { value: navigatorProps, configurable: true, writable: true });
   globalThis.location = {
     href: "https://auth.openai.com/",
     origin: "https://auth.openai.com",
@@ -259,8 +375,26 @@ function installRuntime(payload) {
   globalThis.performance = performance;
   globalThis.localStorage = createStorage();
   globalThis.sessionStorage = createStorage();
+  // __sentinel_*/SentinelSDK 是真浏览器全局（backend-api 加载器创建，可枚举），保持忠实
   globalThis.__sentinel_init_pending = [];
   globalThis.__sentinel_token_pending = [];
+  globalThis.SentinelSDK = globalThis.SentinelSDK || {};
+  // 仅我们的 vm/诊断产物需要隐藏（真浏览器没有 __debug_*/__vm_*）
+  for (const _k of [
+    "__payload_json", "__sdk_source", "__vm_done", "__vm_output_json", "__vm_error",
+    "__debugP", "__debug_D", "__debug_se",
+  ]) {
+    defineHidden(_k, globalThis[_k]);
+  }
+  // Node 专属全局（process/Buffer/global）真浏览器没有，window 键采样会命中 → 只隐藏枚举（保留值，
+  // 否则 wrapper 的 process.stdout/stdin 会挂）。process 非可配置时静默失败（尽力而为）。
+  for (const _n of ["process", "Buffer", "global"]) {
+    try {
+      Object.defineProperty(globalThis, _n, {
+        value: globalThis[_n], writable: true, configurable: true, enumerable: false,
+      });
+    } catch (e) { /* 非可配置则忽略 */ }
+  }
 
   globalThis.setTimeout = (cb, ms) => {
     const d = typeof ms === "number" ? ms : 0;
@@ -358,12 +492,73 @@ function installRuntime(payload) {
     }
     return arr;
   };
+  const _origCrypto = globalThis.crypto;
+  const _origRandomUUID =
+    _origCrypto && typeof _origCrypto.randomUUID === "function"
+      ? _origCrypto.randomUUID.bind(_origCrypto)
+      : null;
+  // 记录 randomUUID 返回值，供探针判断 p[14] 是否来自它（保真 [14] 会话内恒定）。
+  const _uuidCalls = [];
+  defineHidden("__debug_randomUUID_calls", _uuidCalls);
   globalThis.crypto = {
-    randomUUID: globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
-      ? globalThis.crypto.randomUUID.bind(globalThis.crypto)
-      : undefined,
+    randomUUID: _origRandomUUID
+      ? () => {
+          const u = _origRandomUUID();
+          if (_uuidCalls) _uuidCalls.push(u);
+          return u;
+        }
+      : () => {
+          const u = "10000000-0000-4000-8000-" + String(Math.floor(Math.random() * 1e12)).padStart(12, "0");
+          if (_uuidCalls) _uuidCalls.push(u);
+          return u;
+        },
     getRandomValues: randomFill,
   };
+
+  // 诊断钩子（payload.debug_undef）：记录 SDK 对 navigator/document 的读取，
+  // 定位 p[10]（navigator 属性采样）与 p[5]（sdk 路径）的真实来源。
+  if (payload.debug_undef) {
+    const reads = [];
+    defineHidden("__debug_fp_reads", reads);
+    const navProxy = new Proxy(navigator, {
+      has(t, k) {
+        if (typeof k !== "symbol") reads.push({ k: `navigator.in.${String(k)}`, v: "CALL" });
+        return Reflect.has(t, k);
+      },
+      ownKeys(t) {
+        reads.push({ k: "navigator.ownKeys", v: "CALL" });
+        return Reflect.ownKeys(t);
+      },
+      getOwnPropertyDescriptor(t, k) {
+        if (typeof k !== "symbol") reads.push({ k: `navigator.gOPD.${String(k)}`, v: "CALL" });
+        return Reflect.getOwnPropertyDescriptor(t, k);
+      },
+      get(t, k) {
+        if (typeof k !== "symbol") {
+          const v = t[k];
+          reads.push({ k: `navigator.${String(k)}`, v: v === undefined ? "UNDEF" : typeof v });
+        }
+        return t[k];
+      },
+    });
+    const docProxy = new Proxy(document, {
+      get(t, k) {
+        if (typeof k !== "symbol") {
+          const v = t[k];
+          reads.push({ k: `document.${String(k)}`, v: v === undefined ? "UNDEF" : (typeof v === "string" ? v.slice(0, 80) : typeof v) });
+          if (typeof v === "function") {
+            return (...a) => {
+              reads.push({ k: `document.${String(k)}(${a.map((x) => String(x)).join(", ").slice(0, 80)})`, v: "CALL" });
+              return t[k].apply(t, a);
+            };
+          }
+        }
+        return t[k];
+      },
+    });
+    Object.defineProperty(globalThis, "navigator", { value: navProxy, configurable: true, writable: true });
+    globalThis.document = docProxy;
+  }
 }
 
 function loadPatchedSdk(sdkSource) {
@@ -383,7 +578,15 @@ async function run(payload, sdkSource) {
 
   if (payload.action === "requirements") {
     const requestP = await globalThis.__debugP.getRequirementsToken();
-    return { request_p: requestP };
+    return {
+      request_p: requestP,
+      uuid_calls: Array.isArray(globalThis.__debug_randomUUID_calls)
+        ? globalThis.__debug_randomUUID_calls
+        : [],
+      fp_reads: Array.isArray(globalThis.__debug_fp_reads)
+        ? globalThis.__debug_fp_reads
+        : [],
+    };
   }
 
   if (payload.action === "solve") {

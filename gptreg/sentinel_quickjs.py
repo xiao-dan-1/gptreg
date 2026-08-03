@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import subprocess
 import tempfile
 import time
@@ -78,20 +79,26 @@ def _ensure_sdk(session: Any, sv: str, timeout_ms: int) -> Path:
     return cache
 
 
-def _run_action(script: Path, sdk_file: Path, action: str, payload: dict, timeout_ms: int) -> dict:
+def _run_action(
+    script: Path, sdk_file: Path, action: str, payload: dict, timeout_ms: int,
+    env_extra: dict[str, str] | None = None,
+) -> dict:
     body = dict(payload)
     body["action"] = action
+    env = {
+        **os.environ,
+        "QJS_SDK_FILE": str(sdk_file),
+        "QJS_SCRIPT": str(script),
+        "QJS_TIMEOUT_MS": str(timeout_ms),
+    }
+    if env_extra:
+        env.update({str(k): str(v) for k, v in env_extra.items()})
     proc = subprocess.run(
         [_node_binary(), "-e", _WRAPPER_JS],
         input=json.dumps(body, ensure_ascii=False),
         text=True, capture_output=True, encoding="utf-8", errors="replace",
         timeout=max(30, int(timeout_ms / 1000) + 10),
-        env={
-            **os.environ,
-            "QJS_SDK_FILE": str(sdk_file),
-            "QJS_SCRIPT": str(script),
-            "QJS_TIMEOUT_MS": str(timeout_ms),
-        },
+        env=env,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"quickjs {action} 失败: {(proc.stderr or proc.stdout or 'unknown').strip()[:300]}")
@@ -102,9 +109,16 @@ def _run_action(script: Path, sdk_file: Path, action: str, payload: dict, timeou
 
 
 def _fingerprint_payload(cfg: dict[str, Any], device_id: str, sv: str) -> dict:
-    """真实浏览器指纹（与 config.browser 一致），供 installRuntime 用。"""
+    """真实浏览器指纹（与 config.browser 一致），供 installRuntime 用。
+
+    time_origin 由调用方按「一次注册」计算一次、两次动作（requirements/solve）
+    复用同一值 —— 真浏览器 timeOrigin 是页面加载常数（A3 修复）。
+    """
     b = cfg.get("browser", {}) or {}
     languages = str(b.get("languages", "en-US,en") or "en-US,en").split(",")
+    # 页面加载到产 token 的真实耗时（真浏览器实测 5-12s），性能时钟从该偏移起算。
+    # 一次注册固定（requirements/solve 复用同一 fp）。
+    elapsed = int(b.get("page_elapsed_ms", 0) or 0) or random.randint(3000, 15000)
     return {
         "device_id": device_id,
         "user_agent": b.get("user_agent", ""),
@@ -115,9 +129,14 @@ def _fingerprint_payload(cfg: dict[str, Any], device_id: str, sv: str) -> dict:
         "max_touch_points": int(b.get("max_touch_points", 10) or 10),
         "language": b.get("language", "en-US"),
         "languages": [x.strip() for x in languages if x.strip()] or ["en-US"],
-        "performance_now": round(time.time() * 1000 % 50000, 2),
-        "time_origin": round(time.time() * 1000, 1),
-        "script_src": f"https://sentinel.openai.com/sentinel/{sv}/sdk.js",
+        "time_origin": round(time.time() * 1000 - elapsed, 1),
+        "page_elapsed_ms": elapsed,
+        "js_heap_size_limit": int(b.get("js_heap_size_limit", 4395630592) or 4395630592),
+        # TZ 默认空 = 用机器时区（与本机 browser_sentinel 一致）；设 cfg.browser.timezone 可对齐代理地区
+        "timezone": str(b.get("timezone", "") or ""),
+        # 复刻真页面：script_src=backend-api 加载器；sdk_url=动态加载的版本化 SDK
+        "script_src": f"https://sentinel.openai.com/backend-api/sentinel/sdk.js",
+        "sdk_url": f"https://sentinel.openai.com/sentinel/{sv}/sdk.js",
     }
 
 
@@ -170,8 +189,12 @@ def get_sentinel_token_via_quickjs(
     sdk_file = _ensure_sdk(session, sv, timeout_ms)
 
     # 1) requirements：SDK 自己的 getRequirementsToken()（真实指纹）
+    #    fp 一次注册算一次，requirements 与 solve 复用同一份（含 time_origin），
+    #    否则 solve 用默认指纹 UA/screen/memory 与 requirements 不一致（保真 bug）。
     fp = _fingerprint_payload(cfg, device_id, sv)
-    req = _run_action(script, sdk_file, "requirements", fp, timeout_ms)
+    tz = str(fp.get("timezone") or "").strip()
+    env_extra = {"TZ": tz} if tz else {}
+    req = _run_action(script, sdk_file, "requirements", fp, timeout_ms, env_extra=env_extra)
     request_p = str(req.get("request_p") or "")
     if not request_p:
         raise RuntimeError("quickjs requirements 未返回 request_p")
@@ -197,13 +220,16 @@ def get_sentinel_token_via_quickjs(
         raise RuntimeError("quickjs /req 返回 token 为空")
 
     # 3) solve：getEnforcementToken + D 注册 + _n 产真 t
+    #    关键：solve 复用同一份 fp（含 time_origin / UA / screen / memory），
+    #    与 requirements 同页面加载 → 两 token 指纹一致（A2/A3 保真修复）。
     t0 = time.time()
-    solved = _run_action(script, sdk_file, "solve", {
-        "device_id": device_id,
+    solve_payload = dict(fp)
+    solve_payload.update({
         "request_p": request_p,
         "challenge": challenge,
         "flow": flow,
-    }, timeout_ms)
+    })
+    solved = _run_action(script, sdk_file, "solve", solve_payload, timeout_ms, env_extra=env_extra)
     elapsed = time.time() - t0
     final_p = str(solved.get("final_p") or "")
     t = str(solved.get("t") or "")
