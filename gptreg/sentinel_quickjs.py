@@ -30,7 +30,7 @@ SENTINEL_REQ_URL = "https://sentinel.openai.com/backend-api/sentinel/req"
 
 _WRAPPER_JS = r"""
 const fs=require('fs');
-const tm=Number(process.env.QJS_TIMEOUT_MS||'90000');
+const tm=Number(process.env.QJS_TIMEOUT_MS||'120000');
 const sdkFile=process.env.QJS_SDK_FILE, scriptFile=process.env.QJS_SCRIPT;
 let input='';process.stdin.setEncoding('utf8');
 process.stdin.on('data',c=>{input+=c});
@@ -123,7 +123,7 @@ def get_sentinel_token_via_quickjs(
     *,
     flow: str,
     cfg: dict[str, Any] | None = None,
-    timeout_ms: int = 90000,
+    timeout_ms: int = 120000,
     log=None,
 ) -> str:
     """返回完整 sentinel-token JSON 字符串（含真 t）。"""

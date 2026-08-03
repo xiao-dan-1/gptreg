@@ -352,7 +352,7 @@ function loadPatchedSdk(sdkSource) {
   sdk = sdk.replace(SDK_GLOBAL_PATCH, SDK_GLOBAL_REPLACEMENT);
   sdk = sdk.replace(INSTANCE_PATCH, INSTANCE_REPLACEMENT);
   sdk = sdk.replace(EXPOSE_PATCH, EXPOSE_REPLACEMENT);
-  sdk = sdk.replace('e(""+kn)}),500', 'e(""+kn)}),60000');
+  sdk = sdk.replace('e(""+kn)}),500', 'e(""+kn)}),120000');
   sdk = sdk.replace("function D(t,n){I.set(t,n)}", "function D(t,n){I.set(t,n);globalThis.__debug_D=D;}");
   eval(sdk);
 }
