@@ -178,6 +178,18 @@ def register_one(
     create_acked = False
     create_attempts_log: list[dict[str, Any]] = []
 
+    # 分阶段计时（monotonic 秒，成功/失败都落盘，便于定位基建卡点）
+    _stage: dict[str, float] = {"start": time.monotonic()}
+
+    def _mark(name: str) -> None:
+        _stage[name] = time.monotonic()
+        _stage["last"] = _stage[name]
+
+    def _elapsed(earlier: str, later: str) -> float | None:
+        if earlier in _stage and later in _stage:
+            return round(_stage[later] - _stage[earlier], 1)
+        return None
+
     logger.info(
         "[注册] 开始 reg=%s main=%s alias=%s proxy=%s mail_type=%s",
         email,
@@ -202,6 +214,7 @@ def register_one(
         otp_after = time.time()
         time.sleep(0.3)
         auth.follow_authorize(session, authorize_url)
+        _mark("authorize_done")
         time.sleep(1.5)
 
         # OTP 阶段 sentinel：始终 pow（Jennifer OTP 无 so；browser 留给 create）
@@ -243,6 +256,7 @@ def register_one(
         )
         # 先记住再提交，无论成败都排除，避免共享收件箱 stale 重放
         used_cache.remember(identity, otp, email=email, status="submitted")
+        _mark("otp_got")
         logger.info("[OTP] 拿到验证码，提交中")
 
         validate_result = auth.validate_email_otp(session, otp, sentinel_otp)
@@ -264,6 +278,12 @@ def register_one(
             base_source = "node"
         elif base_source in {"quickjs", "qjs"}:
             base_source = "quickjs"
+        elif base_source in {"browser_t_quickjs_so", "bt_vs", "btqs", "true_t_vm_so"}:
+            base_source = "browser_t_quickjs_so"
+        elif base_source in {"quickjs_t_browser_so", "qt_bs", "qtbs", "vm_t_true_so"}:
+            base_source = "quickjs_t_browser_so"
+        elif base_source in {"quickjs_pwd_v3", "pwd", "pwd_v3"}:
+            base_source = "quickjs_pwd_v3"
         else:
             base_source = "pow"
 
@@ -371,6 +391,7 @@ def register_one(
                 raise
 
         create_acked = True
+        _mark("create_done")
         continue_url = (create_result or {}).get("continue_url")
         if not continue_url:
             raise RuntimeError(f"create_account 无 continue_url: {create_result}")
@@ -391,6 +412,7 @@ def register_one(
                 f"注册后健康检查失败 status={health_status} "
                 f"http={health.get('http')} body={(health.get('body') or health.get('detail') or '')[:180]}"
             )
+        _mark("health_done")
 
         # Step B：post-login 最小集（默认关；config register.post_login=true 开启）
         # so 策略不变；不造假 finalize/pow/turnstile
@@ -400,6 +422,13 @@ def register_one(
             post_login_detail = auth.post_login_warmup(session, access_token, session_info)
 
         chatreq_obs = sentinel_meta.get("chatreq") or getattr(session, "_last_chatreq_obs", None)
+        timing = {
+            "total_s": _elapsed("start", "health_done"),
+            "signin_authorize_s": _elapsed("start", "authorize_done"),
+            "otp_wait_s": _elapsed("authorize_done", "otp_got"),
+            "validate_create_s": _elapsed("otp_got", "create_done"),
+            "finalize_health_s": _elapsed("create_done", "health_done"),
+        }
         sentinel_obs = {
             "flow": "oauth_create_account",
             "challenge_mode": challenge_mode,
@@ -413,7 +442,24 @@ def register_one(
             "post_login": post_login_enabled,
             "post_login_ok": bool((post_login_detail or {}).get("ok")) if post_login_enabled else None,
             "post_login_detail": post_login_detail,
+            "timing_s": timing,
         }
+        # 序列化会话 cookies 供日后 refresh(有 cookies 可无限刷新,见 store.refresh_token)
+        # 注意:curl_cffi Cookies 直接迭代返回 str(名),必须走 .jar(http.cookiejar)拿 Cookie 对象
+        try:
+            sess_cookies = [
+                {
+                    "name": c.name,
+                    "value": c.value,
+                    "domain": c.domain,
+                    "path": c.path,
+                    "secure": bool(getattr(c, "secure", False)),
+                    "expires": getattr(c, "expires", None),
+                }
+                for c in session.session.cookies.jar
+            ]
+        except Exception:
+            sess_cookies = []
         out_dir = save_success(
             cfg,
             email=email,
@@ -425,10 +471,11 @@ def register_one(
             name=display_name,
             birthdate=bday,
             extra={"sentinel_obs": sentinel_obs, "health": health_status},
+            session_cookies=sess_cookies,
         )
         used_cache.remember(identity, otp, email=email, status="ok")
         logger.info(
-            "[完成] %s token=%s... out=%s health=%s has_so=%s so_len=%s post_login=%s",
+            "[完成] %s token=%s... out=%s health=%s has_so=%s so_len=%s post_login=%s total=%ss",
             email,
             access_token[:16],
             out_dir,
@@ -436,6 +483,7 @@ def register_one(
             has_so,
             so_len,
             post_login_enabled,
+            timing.get("total_s") or "?",
         )
         return {
             "success": True,
@@ -472,7 +520,22 @@ def register_one(
         partial["fail_bucket"] = bucket
         if bucket == "create_disallow":
             partial["mailbox_note"] = "create_disallow_not_mailbox_ban"
-        logger.error("[失败] %s bucket=%s: %s", email, bucket, err_s)
+        # 失败也要带阶段耗时：定位是 OTP 卡住 / TLS / create 拒建 / 登录态
+        if _stage.get("last"):
+            partial["elapsed_s"] = round(_stage["last"] - _stage["start"], 1)
+            partial["stage_last"] = max(
+                (k for k in ("authorize_done", "otp_got", "create_done", "health_done") if k in _stage),
+                key=lambda k: _stage[k],
+                default=None,
+            )
+        logger.error(
+            "[失败] %s bucket=%s stage=%s elapsed=%ss: %s",
+            email,
+            bucket,
+            partial.get("stage_last") or "-",
+            partial.get("elapsed_s") or "?",
+            err_s,
+        )
         return partial
     finally:
         resolved.close()
@@ -513,29 +576,49 @@ def run_batch(
             }
         email = account["email"]
         logger.info("[批量] #%s 领取 %s", index + 1, email)
-        try:
-            result = register_one(cfg, account, proxy=proxy, used_cache=cache)
-            if result.get("success"):
-                result.setdefault("fail_bucket", "success")
+
+        def _attempt(tag: str) -> dict[str, Any]:
+            """执行一次注册并记池。返回 (result, bucket)。"""
+            try:
+                res = register_one(cfg, account, proxy=proxy, used_cache=cache)
+            except Exception as exc:
+                mail_pool.mark_failed(email)
+                partial = {"success": False, "email": email, "error": str(exc)}
+                partial["fail_bucket"] = classify_result(partial)
+                partial["retry_tag"] = tag
+                return partial
+            if res.get("success"):
+                res.setdefault("fail_bucket", "success")
                 mail_pool.mark_used(email)
+                return res
+            res["fail_bucket"] = classify_result(res)
+            res["retry_tag"] = tag
+            bucket = res["fail_bucket"]
+            if res.get("create_acknowledged"):
+                # create 已 200 但后续失败：邮箱侧可能已占用
+                mail_pool.mark_bad(email, reason=res.get("error", ""))
+            elif bucket == "create_disallow":
+                # OpenAI 拒建号 ≠ 邮箱封死；OTP 往往仍通。记 fail 进 retrying，勿 mark_bad
+                mail_pool.mark_failed(email)
+                res["mailbox_note"] = "create_disallow_not_mailbox_ban"
             else:
-                result["fail_bucket"] = classify_result(result)
-                bucket = result["fail_bucket"]
-                if result.get("create_acknowledged"):
-                    # create 已 200 但后续失败：邮箱侧可能已占用
-                    mail_pool.mark_bad(email, reason=result.get("error", ""))
-                elif bucket == "create_disallow":
-                    # OpenAI 拒建号 ≠ 邮箱封死；OTP 往往仍通。记 fail 进 retrying，勿 mark_bad
-                    mail_pool.mark_failed(email)
-                    result["mailbox_note"] = "create_disallow_not_mailbox_ban"
-                else:
-                    mail_pool.mark_failed(email)
-            return result
-        except Exception as exc:
-            mail_pool.mark_failed(email)
-            partial = {"success": False, "email": email, "error": str(exc)}
-            partial["fail_bucket"] = classify_result(partial)
-            return partial
+                mail_pool.mark_failed(email)
+            return res
+
+        result = _attempt("first")
+        bucket = result.get("fail_bucket")
+        # 基建类失败（TLS/代理/OTP 超时）当次换 IP 重试一次：
+        # register_one 内部每次重新 resolve_proxy，重跑即换 sid/IP。
+        if not result.get("success") and bucket in ("tls_ssl", "proxy"):
+            logger.warning(
+                "[批量] #%s %s 失败(%s)，换 IP 重试一次: %s",
+                index + 1,
+                email,
+                bucket,
+                str(result.get("error"))[:80],
+            )
+            result = _attempt("retry")
+        return result
 
     if workers <= 1:
         for i in range(count):
