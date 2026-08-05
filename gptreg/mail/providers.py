@@ -259,7 +259,12 @@ class MSMailClient:
                         on_poll({"code": otp, "excluded": excluded, "source": "ms_oauth"})
                     except Exception:
                         pass
-                if excluded:
+                # 关键修复：同主号的新 alias 可能收到相同验证码(OpenAI 复用码)，
+                # 若仅因码值在 exclude 就跳过，会死等一封不存在的"新码"。
+                # 只有"旧邮件"(ts 在 after_ts 附近但早于发码)才应排除；
+                # 本次新发的邮件(ts >= after_ts)即使码重复也直接采用。
+                is_new = after_ts is None or ts >= after_ts
+                if excluded and not is_new:
                     continue
                 if ts >= best_ts:
                     if best_otp and otp != best_otp:
@@ -304,6 +309,18 @@ class IMAPOAuthClient:
         self.timeout = timeout
         self._conn: imaplib.IMAP4_SSL | None = None
         self._access_token: str | None = None
+        # Graph 兜底：部分邮箱 OAuth token 缺 IMAP scope（authenticated but not connected），
+        # 这类邮箱 IMAP 连不上但 Graph 正常，需自动降级。
+        self._fallback: MSMailClient | None = None
+
+    def _graph_fallback(self) -> MSMailClient:
+        if self._fallback is None:
+            self._fallback = MSMailClient(
+                {"email": self.email, "client_id": self.client_id,
+                 "refresh_token": self.refresh_token, "password": ""},
+                proxy=self.proxy, impersonate=self.impersonate, timeout=self.timeout,
+            )
+        return self._fallback
 
     def _get_access_token(self, force: bool = False) -> str | None:
         if not force and self._access_token:
@@ -380,6 +397,74 @@ class IMAPOAuthClient:
         ids = [int(x) for x in data[0].split()]
         return max(ids) if ids else 0
 
+    def _latest_since(self, conn: imaplib.IMAP4_SSL, after_ts: float) -> tuple[str, int, float] | None:
+        """返回最新且 Date>=after_ts 的 OpenAI 邮件 (otp, uid, date_ts)。无则 None。
+
+        相比 UID 增量：send_otp 后邮件可能已到（初始 last_uid 已含目标邮件），
+        UID 增量会漏检；用 after_ts 时间过滤能覆盖"发码前已到"的场景。
+        """
+        conn.select("INBOX", readonly=True)
+        typ, data = conn.search(None, "FROM", IMAP_OPENAI_SENDER)
+        if typ != "OK" or not data or not data[0]:
+            return None
+        ids = [int(x) for x in data[0].split()]
+        if not ids:
+            return None
+        # 从最新往前找，最多看最近 10 封
+        for uid in reversed(ids[-10:]):
+            try:
+                t, md = conn.fetch(str(uid), "(BODY.PEEK[HEADER.FIELDS (DATE SUBJECT)] BODY.PEEK[TEXT])")
+                if t != "OK" or not md:
+                    continue
+                header = b""
+                body = b""
+                for part in md:
+                    if isinstance(part, tuple):
+                        block = part[1]
+                        if b"Date:" in block[:200] or b"Subject:" in block[:200]:
+                            header += block
+                        else:
+                            body += block
+                msg = email.message_from_bytes(header or b"")
+                date_raw = str(msg.get("Date") or "")
+                ts = _parse_ts(date_raw)
+                if after_ts and ts and ts < after_ts:
+                    # Date 早于发码 → 旧邮件，继续往前找（更旧的不可能是本次）
+                    continue
+                otp = self._extract_otp_from_raw(header, body)
+                if otp:
+                    return (otp, int(uid), ts)
+            except Exception as exc:
+                logger.warning("[IMAP] _latest_since uid=%s 异常: %s", uid, exc)
+                continue
+        return None
+
+    def _extract_otp_from_raw(self, header: bytes, body: bytes) -> str | None:
+        """从 IMAP header/body 提取 OTP，复用 extract_otp。"""
+        try:
+            msg = email.message_from_bytes(header or b"")
+            body_text = ""
+            try:
+                m2 = email.message_from_bytes(body or b"")
+                for part in m2.walk():
+                    if part.get_content_type() == "text/plain":
+                        payload = part.get_payload(decode=True) or b""
+                        body_text = payload.decode("utf-8", "replace")
+                        break
+                if not body_text:
+                    body_text = (body or b"").decode("utf-8", "replace")
+            except Exception:
+                body_text = (body or b"").decode("utf-8", "replace")
+            item = {
+                "subject": str(msg.get("Subject") or ""),
+                "from": str(msg.get("From") or ""),
+                "text": body_text,
+                "content": body_text,
+            }
+            return extract_otp(item)
+        except Exception:
+            return None
+
     def _fetch_otp(self, conn: imaplib.IMAP4_SSL, uid: int) -> str | None:
         """按 UID 拉邮件正文并提取 OTP。构造与 extract_otp 兼容的 dict。"""
         typ, msg_data = conn.fetch(str(uid), "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)] BODY.PEEK[TEXT])")
@@ -431,75 +516,79 @@ class IMAPOAuthClient:
         deadline = time.time() + timeout
         t_start = time.time()
         conn = None
-        last_uid = 0
-        # 首连/初始 uid 也可能失败(IMAP 服务器错误等)，失败则重连后继续
+        # 首连(失败则重连)；初始无需记录 uid，靠 after_ts 时间过滤判新
         for _ in range(3):
             try:
                 conn = self._ensure_conn()
-                last_uid = self._latest_uid(conn)
                 break
             except Exception as exc:
-                logger.warning("[IMAP] 初始连接/查 uid 失败: %s，重连", exc)
+                logger.warning("[IMAP] 初始连接失败: %s，重连", exc)
                 self.close()
                 time.sleep(1)
         if conn is None:
-            raise MailClientError(f"IMAP 连接失败: {self.email}")
+            # 该邮箱 IMAP 不可用(缺 scope/未开 IMAP)，降级 Graph 收码
+            logger.warning("[IMAP] %s 连接失败，降级 Graph 收码", self.email)
+            return self._graph_fallback().wait_for_otp(
+                after_ts=after_ts, timeout=timeout, interval=interval,
+                settle_seconds=settle_seconds, exclude_codes=exclude_codes,
+                on_poll=on_poll,
+            )
         reported: set[tuple[str, bool]] = set()
         mid_warned = False
+        conn_fails = 0
 
         while time.time() < deadline:
             try:
                 conn = self._ensure_conn()
-                cur_uid = self._latest_uid(conn)
+                hit = self._latest_since(conn, after_ts or 0.0)
+                conn_fails = 0
             except Exception as exc:
-                logger.warning("[IMAP] 拉取异常 %s，重连", exc)
+                conn_fails += 1
+                logger.warning("[IMAP] 拉取异常 %s（连续 %s 次），重连", exc, conn_fails)
                 self.close()
-                conn = self._ensure_conn()
-                last_uid = self._latest_uid(conn)
+                if conn_fails >= 3:
+                    # IMAP 持续不可用，降级 Graph
+                    logger.warning("[IMAP] %s 持续失败，降级 Graph 收码", self.email)
+                    return self._graph_fallback().wait_for_otp(
+                        after_ts=after_ts, timeout=timeout, interval=interval,
+                        settle_seconds=settle_seconds, exclude_codes=exclude_codes,
+                        on_poll=on_poll,
+                    )
                 time.sleep(interval)
                 continue
-            if cur_uid > last_uid:
-                # 新邮件到达，尝试提取 OTP（同轮可能多封，逐一试）
-                for uid in range(last_uid + 1, cur_uid + 1):
-                    otp = self._fetch_otp(conn, uid)
-                    if not otp:
-                        logger.warning(
-                            "[IMAP] 新邮件 uid=%s 提取 OTP 失败(正文可能非验证码)，跳过",
-                            uid,
-                        )
-                        continue
-                    excluded = otp in exclude
-                    marker = (otp, excluded)
-                    if on_poll and marker not in reported:
-                        reported.add(marker)
-                        try:
-                            on_poll({"code": otp, "excluded": excluded, "source": "imap",
-                                     "elapsed_s": round(time.time() - t_start, 1)})
-                        except Exception:
-                            pass
-                    if not excluded:
-                        delay = time.time() - t_start
-                        logger.info(
-                            "[IMAP] 到件 OTP=%s uid=%s 延迟 %.1fs（email=%s）",
-                            otp, uid, delay, self.email,
-                        )
-                        last_uid = cur_uid
-                        # settle 确认稳定
-                        st = time.time() + settle_seconds
-                        while time.time() < st:
-                            time.sleep(0.2)
-                        return otp
-                last_uid = cur_uid
+            if hit:
+                otp, uid, _ts = hit
+                excluded = otp in exclude
+                marker = (otp, excluded)
+                if on_poll and marker not in reported:
+                    reported.add(marker)
+                    try:
+                        on_poll({"code": otp, "excluded": excluded, "source": "imap",
+                                 "elapsed_s": round(time.time() - t_start, 1)})
+                    except Exception:
+                        pass
+                # 基于 after_ts 时间过滤已保证是本次新邮件，直接采用。
+                # 不做 exclude 过滤(同主号 alias 可能收到相同码，exclude 会误伤死等)。
+                delay = time.time() - t_start
+                logger.info(
+                    "[IMAP] 到件 OTP=%s uid=%s 延迟 %.1fs（email=%s）",
+                    otp, uid, delay, self.email,
+                )
+                # settle 确认稳定
+                st = time.time() + settle_seconds
+                while time.time() < st:
+                    time.sleep(0.2)
+                return otp
             else:
                 # 防止静默超时：过一半时长仍无新邮件时提示一次
                 if not mid_warned and time.time() - t_start > timeout / 2:
                     mid_warned = True
                     logger.info(
-                        "[IMAP] 等待 %s OTP 已 %.0fs 仍无新邮件(last_uid=%s)",
-                        self.email, time.time() - t_start, last_uid,
+                        "[IMAP] 等待 %s OTP 已 %.0fs 仍无新邮件",
+                        self.email, time.time() - t_start,
                     )
             time.sleep(interval)
-        raise MailClientError(f"等待 {self.email} OTP 超时（>{timeout}s，last_uid={last_uid}）")
+        raise MailClientError(f"等待 {self.email} OTP 超时（>{timeout}s）")
 
 
 class GmailApiClient:
@@ -598,6 +687,8 @@ def _parse_ts(raw: str) -> float:
     try:
         from datetime import datetime
 
-        return datetime.strptime(text, "%a, %d %b %Y %H:%M:%S %z").timestamp()
+        # IMAP RFC822: "Wed, 05 Aug 2026 21:11:51 +0000 (UTC)"——剥掉 (UTC) 尾缀再解析
+        clean = text.split(" (")[0].strip()
+        return datetime.strptime(clean, "%a, %d %b %Y %H:%M:%S %z").timestamp()
     except Exception:
         return 0.0
