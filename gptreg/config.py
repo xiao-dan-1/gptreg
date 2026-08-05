@@ -30,6 +30,9 @@ _DEFAULTS: dict[str, Any] = {
         "poll_interval": 3,
         "max_wait": 90,
         "settle_seconds": 5,
+        # IMAP 秒级到件：单次等待缩短为 otp_wait，超时自动重发码 otp_max_attempts 次
+        "otp_wait": 45,
+        "otp_max_attempts": 2,
         "used_code_cache": "data/used_otp_codes.json",
         "use_alias": False,
         "alias_tag_len": 6,

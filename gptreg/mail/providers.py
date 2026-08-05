@@ -1,8 +1,10 @@
-"""邮箱 OTP 客户端：Outlook REST / Gmail get-code。"""
+"""邮箱 OTP 客户端：Outlook REST / IMAP / Gmail get-code。"""
 from __future__ import annotations
 
 import calendar
+import email
 import hashlib
+import imaplib
 import json
 import logging
 import threading
@@ -18,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 TOKEN_ENDPOINT = "https://login.live.com/oauth20_token.srf"
 MAIL_ENDPOINT = "https://outlook.office.com/api/v2.0/me/messages"
+
+# IMAP 搜索 OpenAI 发件人（noreply@tm.openai.com 含 "openai"）
+IMAP_OPENAI_SENDER = "openai"
 
 
 class MailClientError(RuntimeError):
@@ -227,16 +232,25 @@ class MSMailClient:
         reported: set[tuple[str, bool]] = set()
 
         while time.time() < deadline:
+            _now = time.time()
             for msg in self._fetch_messages():
                 item = self._normalize_msg(msg)
                 if not looks_like_openai_email(item):
                     continue
                 ts = _parse_ts(item.get("date") or "")
                 if after_ts is not None and ts and ts < after_ts - 30:
+                    logger.debug("[OTP/diag] 跳过旧邮件 date=%s from=%s", item.get("date"), item.get("from"))
                     continue
                 otp = extract_otp(item)
                 if not otp:
                     continue
+                logger.debug(
+                    "[OTP/diag] 发现 OTP 候选 t+%.1fs date=%s from=%s subj=%s",
+                    _now - (after_ts or 0),
+                    item.get("date"),
+                    item.get("from"),
+                    item.get("subject")[:40],
+                )
                 excluded = otp in exclude
                 marker = (otp, excluded)
                 if on_poll and marker not in reported:
@@ -262,6 +276,230 @@ class MSMailClient:
         if best_otp:
             return best_otp
         raise MailClientError(f"等待 {self.email} OTP 超时（>{timeout}s）")
+
+
+class IMAPOAuthClient:
+    """Outlook IMAP + XOAUTH2（OAuth 凭据连 IMAP，绕开 Graph 索引延迟）。
+
+    Graph API 对新邮件有 ~150s 间歇性索引延迟（实测 0.6s~152s 波动），
+    IMAP 走即时搜索/UID 递增，实测稳定 0.6s 到件。号池 ms_oauth 凭据
+    (refresh_token) 可直接换 access_token 做 XOAUTH2，无需额外 IMAP 密码。
+    """
+
+    IMAP_HOST = "outlook.office365.com"
+    IMAP_PORT = 993
+
+    def __init__(
+        self,
+        account: dict[str, Any],
+        proxy: str | None = None,
+        impersonate: str = "chrome142",
+        timeout: int = 25,
+    ):
+        self.email = account["email"]
+        self.client_id = account["client_id"]
+        self.refresh_token = account["refresh_token"]
+        self.proxy = proxy or None
+        self.impersonate = impersonate
+        self.timeout = timeout
+        self._conn: imaplib.IMAP4_SSL | None = None
+        self._access_token: str | None = None
+
+    def _get_access_token(self, force: bool = False) -> str | None:
+        if not force and self._access_token:
+            return self._access_token
+        data = {
+            "client_id": self.client_id,
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+        }
+        # IMAP 直连：token 交换直连 login.live.com（不走 OpenAI 注册代理），
+        # 避免链式隧道/动态代理对 curl 的影响；IMAP 993 本身也是直连。
+        for proxies in (None, self._proxies() if self.proxy else None):
+            try:
+                r = cr.post(
+                    TOKEN_ENDPOINT,
+                    data=data,
+                    timeout=self.timeout,
+                    impersonate=self.impersonate,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    proxies=proxies,
+                )
+                j = r.json() if r.status_code == 200 else {}
+                at = j.get("access_token")
+                if at:
+                    self._access_token = at
+                    return at
+                logger.warning("[IMAP] token 交换 status=%s: %s", r.status_code, str(j)[:150])
+            except Exception as exc:
+                logger.warning("[IMAP] token 请求失败(proxies=%s): %s", proxies, exc)
+        return None
+
+    def _proxies(self) -> dict | None:
+        if not self.proxy:
+            return None
+        return {"http": self.proxy, "https": self.proxy}
+
+    def connect(self) -> imaplib.IMAP4_SSL:
+        at = self._get_access_token()
+        if not at:
+            raise MailClientError(f"IMAP 换 access_token 失败: {self.email}")
+        conn = imaplib.IMAP4_SSL(self.IMAP_HOST, self.IMAP_PORT)
+        auth_str = f"user={self.email}\x01auth=Bearer {at}\x01\x01"
+        conn.authenticate("XOAUTH2", lambda x: auth_str.encode())
+        self._conn = conn
+        return conn
+
+    def _ensure_conn(self) -> imaplib.IMAP4_SSL:
+        if self._conn is None:
+            return self.connect()
+        try:
+            # 轻探活：若断连则重连
+            typ, _ = self._conn.select("INBOX", readonly=True)
+            if typ != "OK":
+                self.close()
+                return self.connect()
+        except Exception:
+            self.close()
+            return self.connect()
+        return self._conn
+
+    def close(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.logout()
+            except Exception:
+                pass
+            self._conn = None
+
+    def _latest_uid(self, conn: imaplib.IMAP4_SSL) -> int:
+        conn.select("INBOX", readonly=True)
+        typ, data = conn.search(None, "FROM", IMAP_OPENAI_SENDER)
+        if typ != "OK" or not data or not data[0]:
+            return 0
+        ids = [int(x) for x in data[0].split()]
+        return max(ids) if ids else 0
+
+    def _fetch_otp(self, conn: imaplib.IMAP4_SSL, uid: int) -> str | None:
+        """按 UID 拉邮件正文并提取 OTP。构造与 extract_otp 兼容的 dict。"""
+        typ, msg_data = conn.fetch(str(uid), "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)] BODY.PEEK[TEXT])")
+        if typ != "OK":
+            return None
+        raw = b""
+        header = b""
+        for part in msg_data:
+            if isinstance(part, tuple):
+                block = part[1]
+                # 区分 header 与 body 块：header 以 "Subject:" 等开头
+                if b"Subject:" in block[:200] or b"From:" in block[:200]:
+                    header += block
+                else:
+                    raw += block
+        msg = email.message_from_bytes(header or b"")
+        # 从正文提纯文本
+        body_text = ""
+        try:
+            m2 = email.message_from_bytes(raw)
+            for part in m2.walk():
+                if part.get_content_type() == "text/plain":
+                    payload = part.get_payload(decode=True) or b""
+                    body_text = payload.decode("utf-8", "replace")
+                    break
+            if not body_text:
+                body_text = raw.decode("utf-8", "replace")
+        except Exception:
+            body_text = raw.decode("utf-8", "replace")
+        item = {
+            "subject": str(msg.get("Subject") or ""),
+            "from": str(msg.get("From") or ""),
+            "text": body_text,
+            "content": body_text,
+        }
+        otp = extract_otp(item)
+        return otp
+
+    def wait_for_otp(
+        self,
+        after_ts: float | None = None,
+        timeout: int = 90,
+        interval: int = 1,
+        settle_seconds: int = 1,
+        exclude_codes: set[str] | None = None,
+        on_poll: Callable[[dict], None] | None = None,
+    ) -> str:
+        exclude = set(str(c) for c in (exclude_codes or set()))
+        deadline = time.time() + timeout
+        t_start = time.time()
+        conn = None
+        last_uid = 0
+        # 首连/初始 uid 也可能失败(IMAP 服务器错误等)，失败则重连后继续
+        for _ in range(3):
+            try:
+                conn = self._ensure_conn()
+                last_uid = self._latest_uid(conn)
+                break
+            except Exception as exc:
+                logger.warning("[IMAP] 初始连接/查 uid 失败: %s，重连", exc)
+                self.close()
+                time.sleep(1)
+        if conn is None:
+            raise MailClientError(f"IMAP 连接失败: {self.email}")
+        reported: set[tuple[str, bool]] = set()
+        mid_warned = False
+
+        while time.time() < deadline:
+            try:
+                conn = self._ensure_conn()
+                cur_uid = self._latest_uid(conn)
+            except Exception as exc:
+                logger.warning("[IMAP] 拉取异常 %s，重连", exc)
+                self.close()
+                conn = self._ensure_conn()
+                last_uid = self._latest_uid(conn)
+                time.sleep(interval)
+                continue
+            if cur_uid > last_uid:
+                # 新邮件到达，尝试提取 OTP（同轮可能多封，逐一试）
+                for uid in range(last_uid + 1, cur_uid + 1):
+                    otp = self._fetch_otp(conn, uid)
+                    if not otp:
+                        logger.warning(
+                            "[IMAP] 新邮件 uid=%s 提取 OTP 失败(正文可能非验证码)，跳过",
+                            uid,
+                        )
+                        continue
+                    excluded = otp in exclude
+                    marker = (otp, excluded)
+                    if on_poll and marker not in reported:
+                        reported.add(marker)
+                        try:
+                            on_poll({"code": otp, "excluded": excluded, "source": "imap",
+                                     "elapsed_s": round(time.time() - t_start, 1)})
+                        except Exception:
+                            pass
+                    if not excluded:
+                        delay = time.time() - t_start
+                        logger.info(
+                            "[IMAP] 到件 OTP=%s uid=%s 延迟 %.1fs（email=%s）",
+                            otp, uid, delay, self.email,
+                        )
+                        last_uid = cur_uid
+                        # settle 确认稳定
+                        st = time.time() + settle_seconds
+                        while time.time() < st:
+                            time.sleep(0.2)
+                        return otp
+                last_uid = cur_uid
+            else:
+                # 防止静默超时：过一半时长仍无新邮件时提示一次
+                if not mid_warned and time.time() - t_start > timeout / 2:
+                    mid_warned = True
+                    logger.info(
+                        "[IMAP] 等待 %s OTP 已 %.0fs 仍无新邮件(last_uid=%s)",
+                        self.email, time.time() - t_start, last_uid,
+                    )
+            time.sleep(interval)
+        raise MailClientError(f"等待 {self.email} OTP 超时（>{timeout}s，last_uid={last_uid}）")
 
 
 class GmailApiClient:
@@ -336,11 +574,12 @@ def build_mail_client(
     account: dict[str, Any],
     proxy: str | None = None,
     impersonate: str = "chrome142",
-) -> MSMailClient | GmailApiClient:
+) -> MSMailClient | GmailApiClient | IMAPOAuthClient:
     mail_type = account.get("mail_type") or "ms_oauth"
     if mail_type == "gmail_api":
         return GmailApiClient(account, proxy=proxy, impersonate=impersonate)
-    return MSMailClient(account, proxy=proxy, impersonate=impersonate)
+    # ms_oauth 走 IMAP(XOAUTH2)，绕开 Graph ~150s 索引延迟(实测稳定 0.6s)
+    return IMAPOAuthClient(account, proxy=proxy, impersonate=impersonate)
 
 
 def _parse_ts(raw: str) -> float:

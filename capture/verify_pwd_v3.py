@@ -35,7 +35,7 @@ from gptreg.session import BrowserSession  # noqa: E402
 from gptreg.proxyutil import resolve_proxy  # noqa: E402
 from gptreg import auth  # noqa: E402
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs  # noqa: E402
-from gptreg.mail.providers import build_mail_client, mail_identity_key, UsedCodeCache  # noqa: E402
+from gptreg.mail.providers import MailClientError, build_mail_client, mail_identity_key, UsedCodeCache  # noqa: E402
 from gptreg.pipeline import _root  # noqa: E402
 
 FLOW_PWD = "username_password_create"
@@ -93,11 +93,11 @@ def _run_once(
     session = BrowserSession(cfg, proxy=resolved.session_url)
     print(f"[{tag}] 代理: {resolved.label()}")
 
-    # 分阶段计时(monotonic)
-    st: dict[str, float] = {"start": time.monotonic()}
+    # 分阶段计时(统一墙钟 time.time(), 与 elapsed/t0 一致；勿混用 monotonic)
+    st: dict[str, float] = {"start": time.time()}
 
     def mark(name: str) -> None:
-        st[name] = time.monotonic()
+        st[name] = time.time()
         st["last"] = st[name]
 
     try:
@@ -132,8 +132,9 @@ def _run_once(
         r = session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER), allow_redirects=True)
         print(f"  HTTP {r.status_code} 落点: {str(getattr(r, 'url', ''))[:70]}")
         otp_after = time.time()
+        mark("otp_wait_start")
 
-        # 4. 收码
+        # 4. 收码（IMAP 秒级到件；短超时 + 超时自动重发码，最多 otp_max_attempts 次）
         print("\n[3] 收 OTP...")
         client = build_mail_client(account, proxy=resolved.session_url or None,
                                    impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"))
@@ -141,11 +142,35 @@ def _run_once(
         cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
         used_cache = UsedCodeCache(cache_path)
         exclude = used_cache.seen_codes(identity)
-        otp = client.wait_for_otp(after_ts=otp_after, timeout=max(int(cfg.get("mail", {}).get("max_wait", 90)), 150),
-                                  interval=3, settle_seconds=5, exclude_codes=exclude)
+        mail_cfg = cfg.get("mail", {})
+        otp_timeout = int(mail_cfg.get("otp_wait", 45) or 45)
+        otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 2) or 2))
+        send_url = reg.get("continue_url") or "https://auth.openai.com/api/accounts/email-otp/send"
+        otp = None
+        for attempt in range(otp_max_attempts):
+            try:
+                otp = client.wait_for_otp(
+                    after_ts=otp_after,
+                    timeout=otp_timeout,
+                    interval=3, settle_seconds=5,
+                    exclude_codes=exclude,
+                )
+                break
+            except Exception as exc:
+                if attempt >= otp_max_attempts - 1:
+                    raise
+                print(f"  [OTP] 第{attempt+1}次收码失败({type(exc).__name__}: {str(exc)[:60]})，重发验证码...")
+                time.sleep(1)
+                r_retry = session.get(
+                    send_url,
+                    headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
+                    allow_redirects=True,
+                )
+                print(f"  重发: HTTP {r_retry.status_code} 落点={str(getattr(r_retry, 'url', ''))[:50]}")
+                otp_after = time.time()
+        mark("otp_got")
         used_cache.remember(identity, otp, email=email, status="submitted")
         print(f"  OTP: {otp}")
-        mark("otp_got")
 
         # 5. validate_otp(不需要 sentinel,codex 做法)
         print("\n[4] validate_otp...")
@@ -187,7 +212,7 @@ def _run_once(
             timing_pwd = {
                 "total_s": round(st["create_done"] - st["start"], 1),
                 "signin_register_s": round(st.get("register_done", st["start"]) - st["start"], 1),
-                "otp_wait_s": round(st["otp_got"] - st["authorize_done"], 1),
+                "otp_wait_s": round(st["otp_got"] - st.get("otp_wait_start", st["authorize_done"]), 1),
                 "validate_create_s": round(st["create_done"] - st["otp_got"], 1),
             }
             pwd_rec = {
@@ -225,7 +250,7 @@ def _run_once(
                 timing = {
                     "total_s": round(st["health_done"] - st["start"], 1),
                     "signin_register_s": round(st.get("register_done", st["start"]) - st["start"], 1),
-                    "otp_wait_s": round(st["otp_got"] - st["authorize_done"], 1),
+                    "otp_wait_s": round(st["otp_got"] - st.get("otp_wait_start", st["authorize_done"]), 1),
                     "validate_create_s": round(st["create_done"] - st["otp_got"], 1),
                     "finalize_health_s": round(st["health_done"] - st["create_done"], 1),
                 }
@@ -282,11 +307,12 @@ def _run_once(
     except Exception as exc:
         err = f"{type(exc).__name__}: {exc}"
         stage = st.get("last") and max(
-            (k for k in ("authorize_done", "register_done", "otp_got", "create_done", "health_done") if k in st),
+            (k for k in ("authorize_done", "register_done", "otp_wait_start", "otp_got", "create_done", "health_done") if k in st),
             key=lambda k: st[k],
             default=None,
         )
-        elapsed = round(st["last"] - st["start"], 1) if st.get("last") else None
+        # 真实经过时间(墙钟)；st["last"] 在长阻塞(如 OTP 等待)期间不更新，勿用它算耗时
+        elapsed = round(time.time() - st["start"], 1)
         print(f"  [x] [{tag}] 失败 stage={stage} elapsed={elapsed}s: {err}")
         return 4, err
     finally:
