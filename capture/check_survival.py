@@ -57,7 +57,9 @@ def main() -> int:
 
     print(f"检查 {len(accounts)} 个账号:")
     results = []
-    for d in accounts:
+    import time as _time
+    t_start = _time.time()
+    for i, d in enumerate(accounts, 1):
         email = d.get("email")
         so = d.get("sentinel_obs") or {}
         mode = so.get("challenge_mode")
@@ -65,21 +67,27 @@ def main() -> int:
         orig_did = d.get("device_id")
         if orig_did:
             sess.device_id = orig_did
+        t_one = _time.time()
         try:
             r = auth.check_account_health(sess, d.get("access_token"))
             status = r.get("status")
             body = str(r.get("body") or r.get("detail") or "")[:60]
-            line = f"  {email} [{mode}] t_len={t_len} -> {status} {body}"
+            line = f"  [{i}/{len(accounts)}] {email} [{mode}] t_len={t_len} -> {status} {body}"
             print(line)
             results.append((email, mode, status))
         except Exception as exc:
-            line = f"  {email} [{mode}] -> 异常 {type(exc).__name__}: {str(exc)[:60]}"
+            status = "error"
+            line = f"  [{i}/{len(accounts)}] {email} [{mode}] -> 异常 {type(exc).__name__}: {str(exc)[:60]}"
             print(line)
             results.append((email, mode, "error"))
+        dt = _time.time() - t_one
+        if dt > 2:
+            print(f"      [耗时] 本账号 {dt:.1f}s")
     resolved.close()
 
     ok = sum(1 for _, _, s in results if s == "ok")
-    print(f"\n存活: {ok}/{len(results)}")
+    total = _time.time() - t_start
+    print(f"\n存活: {ok}/{len(results)}  总耗时 {total:.1f}s")
     return 0
 
 
