@@ -1,0 +1,274 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""密码V3注册 + 立即用 token 开 TOTP 2FA(纯协议, 无需 OAuth 授权)。
+
+关键: verify_pwd_v3 注册后 access_token 带 recent_auth, 直接 POST mfa/enroll 即可拿 secret
+(实测 200 返回 secret)。比 enable_totp_api 重新走 OAuth 简单且稳定。
+
+流程: 注册(verify_pwd_v3) → 用注册 token+ookies 调 mfa/enroll → 输出 账号----密码----TOTP secret
+记录分阶段耗时。
+
+用法: python capture/verify_pwd_totp.py --email 主号 [--proxy ...]
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from gptreg.config import load_config, resolve_path  # noqa: E402
+from gptreg.session import BrowserSession  # noqa: E402
+from gptreg.proxyutil import resolve_proxy  # noqa: E402
+from gptreg import auth  # noqa: E402
+from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs  # noqa: E402
+from gptreg.mail.pool import parse_mail_line  # noqa: E402
+from gptreg.mail.providers import build_mail_client, mail_identity_key, UsedCodeCache  # noqa: E402
+from gptreg.pipeline import _root  # noqa: E402
+
+FLOW_PWD = "username_password_create"
+FLOW_OAUTH = "oauth_create_account"
+REGISTER_URL = "https://auth.openai.com/api/accounts/user/register"
+PASSWORD_REFERER = "https://auth.openai.com/create-account/password"
+ABOUT_YOU_REFERER = "https://auth.openai.com/about-you"
+
+
+def _base(m: str) -> str:
+    parts = (m or "").split("@")
+    if len(parts) < 2:
+        return parts[0].split("+")[0]
+    return parts[0].split("+")[0] + "@" + parts[1]
+
+
+def _register(cfg, args, account, email, password, display_name, bday, base_email):
+    """复用 verify_pwd_v3 注册逻辑, 返回 (access_token, device_id, cookies) 或 None。"""
+    from gptreg.config import load_config
+    resolved = resolve_proxy(cfg, override=args.proxy)
+    session = BrowserSession(cfg, proxy=resolved.session_url)
+    st = {"start": time.time()}
+    try:
+        auth.get_providers(session)
+        time.sleep(0.3)
+        csrf = auth.get_csrf_token(session)
+        time.sleep(0.3)
+        au = auth.signin_openai(session, csrf, email)
+        time.sleep(0.3)
+        auth.follow_authorize(session, au, attempts=1)
+        time.sleep(0.5)
+
+        # register(设密码)
+        token, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_PWD, cfg=cfg)
+        headers = session.auth_api_headers(referer=PASSWORD_REFERER)
+        headers["openai-sentinel-token"] = token
+        resp = session.post(REGISTER_URL, headers=headers,
+                            data=json.dumps({"username": email, "password": password}))
+        if resp.status_code != 200:
+            print(f"[register] 失败 {resp.status_code}: {resp.text[:150]}")
+            return None
+        reg = resp.json()
+
+        # send_otp
+        send_url = reg.get("continue_url") or "https://auth.openai.com/api/accounts/email-otp/send"
+        r = session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
+                        allow_redirects=True)
+        print(f"[send_otp] HTTP {r.status_code} ({time.time()-st['start']:.1f}s)")
+
+        # 收码(after_ts 用流程开始, 邮件可能在 authorize 就发)
+        otp_after = st["start"]
+        client = build_mail_client(account, proxy=resolved.session_url or None,
+                                   impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"))
+        identity = mail_identity_key(account)
+        cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
+        used_cache = UsedCodeCache(cache_path)
+        exclude = used_cache.seen_codes(identity)
+        otp_timeout = int(cfg.get("mail", {}).get("otp_wait", 150) or 150)
+        otp = client.wait_for_otp(after_ts=otp_after, timeout=otp_timeout,
+                                  interval=3, settle_seconds=5, exclude_codes=exclude)
+        used_cache.remember(identity, otp, email=email, status="submitted")
+        print(f"[OTP] 收到 {otp} ({time.time()-st['start']:.1f}s)")
+
+        # validate_otp
+        vr = auth.validate_email_otp(session, otp, None)
+
+        # create_account(vm t + browser so)
+        tok2, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg)
+        so_b = None
+        try:
+            from gptreg.browser_sentinel import harvest_browser_sentinel
+            br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
+                                          proxy=resolved.session_url, headless=True, timeout_s=90)
+            if br.get("ok") and br.get("so_header"):
+                so_b = br["so_header"]
+        except Exception:
+            pass
+        h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
+        h2["openai-sentinel-token"] = tok2
+        if so_b:
+            h2["openai-sentinel-so-token"] = so_b
+        resp2 = session.post("https://auth.openai.com/api/accounts/create_account",
+                             headers=h2, data=json.dumps({"name": display_name, "birthdate": bday}))
+        print(f"[create_account] HTTP {resp2.status_code} ({time.time()-st['start']:.1f}s)")
+        if resp2.status_code != 200:
+            return None
+
+        # callback + session
+        cr = resp2.json()
+        cu = cr.get("continue_url") or cr.get("url")
+        if not cu:
+            print("[callback] 无 continue_url")
+            return None
+        auth.follow_oauth_callback(session, cu)
+        info = auth.fetch_session(session)
+        at = info.get("accessToken")
+        if not at:
+            print("[session] 无 accessToken")
+            return None
+        cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
+                    "secure": bool(getattr(c, "secure", False))}
+                   for c in session.session.cookies.jar]
+        print(f"[session] access_token 拿到 ({time.time()-st['start']:.1f}s)")
+        return {"at": at, "device_id": session.device_id, "cookies": cookies}
+    finally:
+        resolved.close()
+
+
+def main() -> int:
+    import argparse as _ap
+    import random as _r
+    import string as _s
+
+    ap = _ap.ArgumentParser()
+    ap.add_argument("--email", default="")
+    ap.add_argument("--alias", action="store_true")
+    ap.add_argument("--proxy", default="http://127.0.0.1:10808")
+    args = ap.parse_args()
+
+    cfg = load_config()
+    t0 = time.time()
+
+    # 号池选主号
+    account = None
+    for line in Path("mail_pool.txt").read_text(encoding="utf-8").splitlines():
+        a = parse_mail_line(line.strip())
+        if not a:
+            continue
+        if args.email and _base(a["email"]) != _base(args.email):
+            continue
+        account = a
+        break
+    if not account:
+        print("号池找不到收码账号")
+        return 1
+    base_email = account["email"]
+    if args.alias:
+        name, dom = base_email.split("@")
+        tag = "".join(_r.choice(_s.ascii_lowercase + _s.digits) for _ in range(6))
+        email = f"{name}+{tag}@{dom}"
+    else:
+        email = base_email
+    password = "".join(_r.choice(_s.ascii_letters + _s.digits + "!@#$%") for _ in range(14))
+    display_name, bday = "James Miller", "1998-05-12"
+    print(f"注册邮箱: {email}  密码: {password}")
+
+    # 1. 注册
+    t1 = time.time()
+    reg = _register(cfg, args, account, email, password, display_name, bday, base_email)
+    print(f"[阶段1 注册] {(time.time()-t1):.1f}s")
+    if not reg:
+        print("[x] 注册失败")
+        return 2
+
+    # 1.5 落盘 accounts.jsonl(测活/后续管理需要 access_token/cookies)
+    try:
+        record = {
+            "email": email,
+            "password": password,
+            "access_token": reg["at"],
+            "device_id": reg["device_id"],
+            "name": display_name,
+            "birthdate": bday,
+            "mail_main": base_email,
+            "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "sentinel_obs": {
+                "challenge_mode": "quickjs_pwd_v3",
+                "create_has_so": True,
+                "create_so_len": 0,
+                "t_len": 0,
+                "flow": FLOW_PWD,
+                "create_flow": FLOW_OAUTH,
+                "totp_enrolled": True,
+            },
+            "session_cookies": reg["cookies"],
+            "health": "ok",
+        }
+        acc_file = ROOT / "output" / "accounts.jsonl"
+        with acc_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        print("[落盘] 账号已保存到 accounts.jsonl")
+    except Exception as exc:
+        print(f"[warn] 落盘失败: {exc}")
+
+    # 2. 立即 mfa/enroll
+    t2 = time.time()
+    resolved = resolve_proxy(cfg, override=args.proxy)
+    s = BrowserSession(cfg, proxy=resolved.session_url)
+    s.device_id = reg["device_id"]
+    for c in reg["cookies"]:
+        for dom in (c["domain"].lstrip("."), c["domain"]):
+            if dom:
+                try:
+                    s.session.cookies.set(c["name"], c["value"], domain=dom, path=c["path"])
+                except Exception:
+                    pass
+    h6 = s.chatgpt_headers(referer="https://chatgpt.com/")
+    h6["authorization"] = f"Bearer {reg['at']}"
+    h6["oai-device-id"] = reg["device_id"]
+    h6.pop("content-type", None)
+    h6["content-type"] = "application/json"
+    resp_enroll = s.post("https://chatgpt.com/backend-api/accounts/mfa/enroll",
+                         headers=h6, data=json.dumps({"factor_type": "totp"}), timeout=30)
+    print(f"[mfa/enroll] HTTP {resp_enroll.status_code} ({time.time()-t2:.1f}s)")
+    resolved.close()
+    if resp_enroll.status_code != 200:
+        print(f"[x] enroll 失败: {resp_enroll.text[:200]}")
+        return 3
+
+    # 3. 提取 secret
+    txt = resp_enroll.text
+    secret = None
+    m_otp = re.search(r"otpauth://[^\s\"']+", txt)
+    m_sec = re.search(r"[A-Z2-7]{32}", txt)
+    if m_otp:
+        secret = m_otp.group(0)
+        m2 = re.search(r"[?&]secret=([A-Z2-7]+)", secret)
+        if m2:
+            secret = m2.group(1)
+    elif m_sec:
+        secret = m_sec.group(0)
+    if not secret:
+        print(f"[x] 未提取到 secret: {txt[:300]}")
+        return 4
+
+    print("\n" + "=" * 50)
+    print(f"账号: {email}")
+    print(f"密码: {password}")
+    print(f"TOTP: {secret}")
+    print(f"otpauth: otpauth://totp/ChatGPT:{email}?secret={secret}&issuer=ChatGPT")
+    print("=" * 50)
+    out = ROOT / "output" / "totp_accounts.txt"
+    with out.open("a", encoding="utf-8") as f:
+        f.write(f"{email}----{password}----{secret}\n")
+    print(f"已保存 {out}")
+    print(f"[总耗时] {(time.time()-t0):.1f}s")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
