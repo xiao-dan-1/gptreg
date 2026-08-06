@@ -510,3 +510,46 @@ Graph API 对新邮件有**间歇性 ~150s 索引延迟**(实测 4s~152s 波动)
 ### 反馈改进
 - check_survival 加总耗时/慢账号/进度显示(提交 b126ca3)
 - 慢账号(EricWaller 38.3s/LarryHoffman 22.8s)便于定位网络卡点
+
+## 🔥 TOTP 纯协议激活突破(2026-08-06)——enroll 后必补 activate_enrollment
+
+### 修正重大认知:之前 3 个「TOTP 账号」全是假激活
+verify_pwd_totp 注册后 mfa/enroll 拿到 secret,但**没走激活步骤** → mfa_info 恒 mfa_enabled:false,
+登录 password/verify 直接给 code 不要求 TOTP。UI 方案(enable_totp/dispatch 点击)拿到的 secret 同样未激活。
+
+### 完整激活链(纯协议, 已实证)
+1. `POST /backend-api/accounts/mfa/enroll` `{"factor_type":"totp"}`
+   → 200 `{"secret":..., "session_id":..., "factor":{"id":...}}`
+2. **`POST /backend-api/accounts/mfa/user/activate_enrollment`**
+   `{"code":pyotp码, "session_id":..., "factor_id":..., "factor_type":"totp"}` → 200 `{"success":true}`
+   (422 证实必填: session_id + factor_type; 传 factor_id 字段而非 id 会 422)
+3. 复查 mfa_info → `mfa_enabled:true`, `factors.totp:[{...}]`, native_default_factor_id 已设
+
+### 登录 TOTP 验证链(2FA 激活后)
+1. password/verify(密码) → 不再直接给 code, 进入 **mfa_challenge**
+   → `{"continue_url":".../mfa-challenge/{factor_id}", "page":{"type":"mfa_challenge","payload":{"factor_id":...}}}`
+2. **`POST /api/accounts/mfa/verify`** `{"type":"totp","id":factor_id,"code":pyotp码}`
+   → 200 `{"continue_url":".../callback/openai?code=..."}`
+   (缺 type → 400 Missing type; type 过但缺 id → 400 Missing id; 错码 → 403 incorrect_code)
+3. follow callback → access_token → 测活 ok
+
+### 完整闭环实测(ArderyAlcocer1469, 未用过主号)
+注册 40.5s(create_account 200 + at) → enroll 2.4s → activate 3.4s(mfa_enabled:true)
+→ 密码+TOTP 码登录 15s → at → 测活 **ok**。整链 100% 走通。
+
+### 主号状态关键
+- register/create_account 400(invalid_auth_step / user_already_exists) = 主号被 OpenAI 标记(曾注册过)
+- **必须用未用过的主号**才注册成功(号池 149 个, 其中 69 个未用过)
+
+### 工程修复
+- verify_pwd_totp.py: enroll 后补 activate_enrollment(pyotp 码 confirm + mfa_info 复查), 提交 ac635e1
+- 新探针: probe_totp_login(登录链)/probe_totp_login2(TOTP 登录验证)/verify_totp_flow(登录+抓at+mfa全链)
+  /check_totp_status(mfa_info 权威状态)/probe_enroll(_new)(enroll+activate 实验)
+
+### 技术注意
+- **page.evaluate fetch 调 backend-api 被 Cloudflare 拦(403 HTML)**; Python requests(带 at+cookies)正常 ——
+  verify_totp_flow 里 mfa 接口必须用 requests 而非页面 fetch
+- **mfa/enroll 需 fresh recent_auth**(旧 at → 401 recent_auth_required); 注册后立即操作
+- 登录限流(429 rate_limit)频发: 同账号/IP 连续登录触发, 每次登录需隔 10-15 分钟
+- at 提取: 浏览器登录态下从前端 /backend-api 请求的 Authorization 头抓(RS256 JWT),
+  非 __Secure-next-auth.session-token(JWE 加密, 不可当 at 用)
