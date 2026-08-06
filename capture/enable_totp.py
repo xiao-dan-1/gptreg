@@ -77,6 +77,14 @@ def main() -> int:
         pw["password"] = unquote(pp.password or "")
     print(f"代理: {r.label()}")
 
+    # 分阶段计时(墙钟秒)
+    t0 = time.time()
+    def _el(since: float, tag: str) -> float:
+        t = round(time.time() - since, 1)
+        print(f"    [耗时] {tag}: {t}s")
+        return t
+    _el(t0, "脚本启动")
+
     with sync_playwright() as p:
         b = p.chromium.launch(
             channel="chrome", headless=True,
@@ -98,16 +106,29 @@ def main() -> int:
                 except Exception:
                     pass
         page = ctx.new_page()
+        t_launch = time.time()
 
         # 1. 打开安全页
         page.goto("https://chatgpt.com/settings/security", wait_until="domcontentloaded", timeout=45000)
+        _el(t_launch, "启动浏览器+打开安全页")
+        t_sec = time.time()
         try:
             page.wait_for_selector("[data-testid=mfa-authenticator-toggle]", timeout=30000)
         except Exception:
-            print("[!] 安全页加载失败(或该账号无 MFA 区域)")
+            # 区分失败原因: 看页面 URL/是否有登录跳转
+            try:
+                cur_url = page.url
+                body_head = page.evaluate("() => (document.body.innerText||'').slice(0,120)")
+            except Exception:
+                cur_url = "?"
+                body_head = "?"
+            print(f"[!] 安全页加载失败 URL={cur_url}")
+            print(f"    body: {body_head!r}")
+            print(f"    (可能: cookies 过期 / 页面超时 / 该账号无 MFA 区域)")
             b.close()
             r.close()
             return 2
+        _el(t_sec, "等 mfa 开关出现")
         page.wait_for_timeout(2000)
         print(f"安全页 URL: {page.url}")
 
