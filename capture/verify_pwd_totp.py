@@ -243,23 +243,50 @@ def main() -> int:
     resp_enroll = s.post("https://chatgpt.com/backend-api/accounts/mfa/enroll",
                          headers=h6, data=json.dumps({"factor_type": "totp"}), timeout=30)
     print(f"[mfa/enroll] HTTP {resp_enroll.status_code} ({time.time()-t2:.1f}s)")
-    resolved.close()
     if resp_enroll.status_code != 200:
+        resolved.close()
         print(f"[x] enroll 失败: {resp_enroll.text[:200]}")
         return 3
 
-    # 3. 提取 secret
+    # 2.5 activate_enrollment: 用 pyotp 码确认, 让 2FA 真正激活
+    # (2026-08-06 实证: 只 enroll 不 activate → mfa_enabled 仍 false, 登录不要求 TOTP;
+    #  activate 后 mfa_enabled:true, password/verify 进入 mfa_challenge。enroll→activate 是必选链)
+    ej = resp_enroll.json()
+    enroll_secret = str(ej.get("secret") or "")
+    session_id = ej.get("session_id")
+    factor_id = (ej.get("factor") or {}).get("id")
+    print(f"[enroll] secret={enroll_secret[:10]}... session_id={str(session_id)[:16]} factor_id={str(factor_id)[:16]}")
+    if enroll_secret and session_id and factor_id:
+        import pyotp
+        code6 = pyotp.TOTP(enroll_secret).now()
+        resp_act = s.post("https://chatgpt.com/backend-api/accounts/mfa/user/activate_enrollment",
+                          headers=h6, data=json.dumps({
+                              "code": code6, "session_id": session_id,
+                              "factor_id": factor_id, "factor_type": "totp"}), timeout=30)
+        print(f"[activate_enrollment] HTTP {resp_act.status_code}: {resp_act.text[:200]} ({time.time()-t2:.1f}s)")
+        try:
+            resp_info = s.get("https://chatgpt.com/backend-api/accounts/mfa_info", headers=h6, timeout=30)
+            mfa_on = '"mfa_enabled":true' in resp_info.text
+            print(f"[mfa_info] mfa_enabled={mfa_on} {(resp_info.text or '')[:120]}")
+        except Exception:
+            pass
+    else:
+        print("[warn] enroll 响应缺 session_id/factor_id, 跳过 activate")
+    resolved.close()
+
+    # 3. 提取 secret(优先 enroll 响应的 secret 字段, 兜底 regex)
     txt = resp_enroll.text
-    secret = None
-    m_otp = re.search(r"otpauth://[^\s\"']+", txt)
-    m_sec = re.search(r"[A-Z2-7]{32}", txt)
-    if m_otp:
-        secret = m_otp.group(0)
-        m2 = re.search(r"[?&]secret=([A-Z2-7]+)", secret)
-        if m2:
-            secret = m2.group(1)
-    elif m_sec:
-        secret = m_sec.group(0)
+    secret = enroll_secret
+    if not secret:
+        m_otp = re.search(r"otpauth://[^\s\"']+", txt)
+        m_sec = re.search(r"[A-Z2-7]{32}", txt)
+        if m_otp:
+            secret = m_otp.group(0)
+            m2 = re.search(r"[?&]secret=([A-Z2-7]+)", secret)
+            if m2:
+                secret = m2.group(1)
+        elif m_sec:
+            secret = m_sec.group(0)
     if not secret:
         print(f"[x] 未提取到 secret: {txt[:300]}")
         return 4
