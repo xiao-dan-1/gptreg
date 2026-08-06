@@ -1,7 +1,7 @@
 # ---- 凭据 / 敏感数据（绝不提交）----
 mail_pool.txt
 mail_pool.txt.state.json
-config.yaml
+config*.yaml
 data/
 output/
 
