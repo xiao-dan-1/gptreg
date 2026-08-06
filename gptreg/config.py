@@ -66,9 +66,7 @@ _DEFAULTS: dict[str, Any] = {
         "redirect_uri": "https://chatgpt.com/api/auth/callback/openai",
         "sentinel_sv": "20260219f9f6",
         "sentinel_dir": "vendor/sentinel",
-        # url=k12 闭环（本地 curl_cffi 中转 + runner 自拉 challenge）；file=旧 Python 预拉
-        # 注意：注册主路径默认已切纯 Python PoW；下列两项主要服务 Node 兼容/研究。
-        "sentinel_challenge_mode": "url",
+        # 注意：注册主路径默认已切纯 Python PoW；下列主要服务 Node 兼容/研究。
         "sentinel_proxy_port": 1789,
         # pow=默认纯 Python（通常无 so）| browser=真 Chrome token+so（opt-in）
         # P1: 本环境 2h 有/无 so 双活 → 默认保持 pow
