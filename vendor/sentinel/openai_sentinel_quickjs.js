@@ -85,6 +85,14 @@ function createElement(tagName) {
     addEventListener() {},
     removeEventListener() {},
     getBoundingClientRect() {
+      const g = globalThis.__font_gbcr;
+      if (g && typeof g === "object") {
+        return {
+          x: Number(g.x || 0), y: Number(g.y || 0), width: Number(g.width || 0),
+          height: Number(g.height || 0), top: Number(g.top || 0), left: Number(g.left || 0),
+          right: Number(g.right || 0), bottom: Number(g.bottom || 0),
+        };
+      }
       return { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
     },
   };
@@ -201,6 +209,14 @@ function installRuntime(payload) {
   const _loaderScriptEl = createElement("script");
   _loaderScriptEl.src = String(payload.script_src || "https://sentinel.openai.com/backend-api/sentinel/sdk.js");
   scripts.push(_loaderScriptEl);
+  // 附加 scripts（实验：模拟浏览器真实 document.scripts，SCRIPTS opcode 读 src 匹配）
+  if (Array.isArray(payload.extra_scripts)) {
+    for (const _src of payload.extra_scripts) {
+      const _el = createElement("script");
+      _el.src = String(_src);
+      scripts.push(_el);
+    }
+  }
   const documentElement = createElement("html");
   documentElement.clientWidth = screen.width;
   documentElement.clientHeight = screen.height;
@@ -259,14 +275,68 @@ function installRuntime(payload) {
   // perf_scale>1 时加速性能时钟：turnstile 程序有 ABSCOND(|now-prev|>2000ms)→加载 blob1 慢路径，
   // vm 执行太快永不触发。加速时钟用于验证该分支是否影响 t 长度。
   const _perfScale = Number(payload.perf_scale || 1) || 1;
+  // perf_jump=true：performance.now 每次调用比上次 +2500ms（强制触发 ABSCOND 慢路径），
+  // 验证时序分支是否贡献 t 长度。首次调用返回真实值。
+  let _jumpInit = false;
+  let _jumpLast = 0;
   const performance = {
     now: () => {
       const v = Date.now() - _timeOrigin;
-      return v > 0 ? v * _perfScale : 0;
+      const base = v > 0 ? v * _perfScale : 0;
+      if (payload.perf_jump) {
+        if (!_jumpInit) { _jumpInit = true; _jumpLast = base; return base; }
+        _jumpLast += 2500;
+        return _jumpLast;
+      }
+      return base;
     },
     timeOrigin: _timeOrigin,
     memory: { jsHeapSizeLimit: Number(payload.js_heap_size_limit || 4395630592) },
   };
+  // 运行时 trace：始终记录 performance.now / Math.random 调用序列（对比学习），
+  // 有 payload.runtime_trace 时按 browser 序列复刻（验证 t 是否确定性可复刻）。
+  const _trNow = [], _trRand = [];
+  const _basePN = performance.now.bind(performance);
+  const _baseMR = globalThis.Math.random;
+  const _nt = (payload.runtime_trace && Array.isArray(payload.runtime_trace.now)) ? payload.runtime_trace.now : [];
+  const _rt = (payload.runtime_trace && Array.isArray(payload.runtime_trace.rand)) ? payload.runtime_trace.rand : [];
+  let _ni = 0, _ri = 0;
+  performance.now = () => {
+    const v = _ni < _nt.length ? _nt[_ni++] : _basePN();
+    _trNow.push(v);
+    return v;
+  };
+  globalThis.Math.random = () => {
+    const v = _ri < _rt.length ? _rt[_ri++] : _baseMR();
+    _trRand.push(v);
+    return v;
+  };
+  defineHidden("__trace_now", _trNow);
+  defineHidden("__trace_rand", _trRand);
+  // 捕获 unhandled rejection（假 so 根因：_t() 执行 TypeError 可能是 promise rejection）
+  if (typeof process !== "undefined" && process.on) {
+    try {
+      process.on("unhandledRejection", (reason) => {
+        globalThis.__so_rej = (reason && reason.stack) || String(reason);
+      });
+    } catch (e) { /* ignore */ }
+  }
+  // 包装 Reflect.set 捕获 "Assignment to constant variable"（vm 特有全局不可写 → TypeError 根因定位）
+  if (payload.debug_reflect) {
+    const _origRS = Reflect.set.bind(Reflect);
+    Reflect.set = function (target, prop, value) {
+      try {
+        return _origRS(target, prop, value);
+      } catch (e) {
+        globalThis.__reflect_err = {
+          prop: String(prop), targetType: target === null ? "null" : typeof target,
+          targetStr: (target && typeof target === "object") ? String(Object.getPrototypeOf(target)) : "",
+          msg: String(e && e.message || e),
+        };
+        throw e;
+      }
+    };
+  }
 
   class TextEncoderPoly {
     encode(text) {
@@ -389,7 +459,31 @@ function installRuntime(payload) {
     }));
   } catch (e) { /* 尽力 */ }
   globalThis.localStorage = _ls;
+  // 附加自定义 localStorage 键（实验：补全真浏览器实际键，缩小 Object.keys 缺口）
+  if (payload.ls_extra && typeof payload.ls_extra === "object") {
+    for (const _k of Object.keys(payload.ls_extra)) {
+      try { _ls.setItem(_k, String(payload.ls_extra[_k])); } catch (e) { /* ignore */ }
+    }
+  }
+  // __reactRouterContext 注入（实验：blob2 读 state.loaderData.root.clientBootstrap.cf*）
+  if (payload.react_router_full && typeof payload.react_router_full === "object") {
+    try { globalThis.__reactRouterContext = payload.react_router_full; } catch (e) { /* ignore */ }
+  } else if (payload.react_router) {
+    try { globalThis.__reactRouterContext = { state: { loaderData: {} } }; } catch (e) { /* ignore */ }
+  }
   globalThis.sessionStorage = createStorage();
+  // 字体渲染测量真值（实验：createElement().getBoundingClientRect 返回真浏览器值）
+  if (payload.font_gbcr && typeof payload.font_gbcr === "object") {
+    globalThis.__font_gbcr = payload.font_gbcr;
+  }
+  // 附加 window 全局（实验：穷举注入浏览器页面全局，定位 t 缺口）
+  if (payload.win_extra && typeof payload.win_extra === "object") {
+    for (const _k of Object.keys(payload.win_extra)) {
+      try {
+        if (!(_k in globalThis)) globalThis[_k] = payload.win_extra[_k];
+      } catch (e) { /* ignore */ }
+    }
+  }
   // __sentinel_*/SentinelSDK 是真浏览器全局（backend-api 加载器创建，可枚举），保持忠实
   globalThis.__sentinel_init_pending = [];
   globalThis.__sentinel_token_pending = [];
@@ -409,6 +503,13 @@ function installRuntime(payload) {
         value: globalThis[_n], writable: true, configurable: true, enumerable: false,
       });
     } catch (e) { /* 非可配置则忽略 */ }
+  }
+  // strip_node_globals=true（实验）：把 process/Buffer 设 undefined，SDK Reflect.set 它们不抛
+  // "Assignment to constant variable"（vm 特有全局不可写 → TypeError 根因假设）。
+  if (payload.strip_node_globals) {
+    for (const _n of ["process", "Buffer", "global"]) {
+      try { globalThis[_n] = undefined; } catch (e) { /* ignore */ }
+    }
   }
 
   globalThis.setTimeout = (cb, ms) => {
@@ -642,10 +743,38 @@ function loadPatchedSdk(sdkSource) {
   sdk = sdk.replace(INSTANCE_PATCH, INSTANCE_REPLACEMENT);
   sdk = sdk.replace(EXPOSE_PATCH, EXPOSE_REPLACEMENT);
   sdk = sdk.replace('e(""+kn)}),500', 'e(""+kn)}),120000');
+  // 捕获 snapshot_dx(Nt) 执行错误栈：TypeError 在这里被 catch 吞掉(假 so 根因定位)
+  // 注意：实时 sdk 用 Nt(e[n(1)])（混淆索引），非 e.snapshot_dx
+  sdk = sdk.replace(
+    'try{return await Nt(e[n(1)])}catch{return null}',
+    'try{if(typeof globalThis.__snap_inject==="function")globalThis.__snap_inject();return await Nt(e[n(1)])}catch(e){globalThis.__so_n_err=(e&&e.stack)||String(e);return null}'
+  );
+  globalThis.__patch_n = sdk.includes("__so_n_err") ? "OK" : "MISS";
+  // 捕获 SETREF handler 内部错误（TypeError: Assignment to constant variable 定位）
+  sdk = sdk.replace(
+    "(n,e)=>St[t(10)](n,St[t(25)](e))",
+    "(n,e)=>{try{return St[t(10)](n,St[t(25)](e))}catch(er){globalThis.__setref_err={n:String(n),e:String(e),nval:String(St.get(n)).slice(0,60),eval:String(St.get(e)).slice(0,60),stack:(er&&er.stack)||String(er)};throw er}}"
+  );
+  // patch XOR handler 记录实际 key(St.get(e)) + 字段(St.get(n)) —— 解码 so 的关键
+  sdk = sdk.replace(
+    'St[t(10)](G,((n,e)=>St[t(10)](n,Rt(""+St[t(25)](n),""+St.get(e)))))',
+    'St[t(10)](G,((n,e)=>{(globalThis.__xor_full=(globalThis.__xor_full||[])).push([String(n),String(St.get(e)),String(St.get(n)).slice(0,60)]);return St[t(10)](n,Rt(""+St[t(25)](n),""+St.get(e)))}))'
+  );
+  // dump jt 的 St(At) 操作码表映射，定位 op=8 是哪个 handler
+  sdk = sdk.replace(
+    "St[t(10)](ht,(()=>{}))}(),Ct=0,St.set(it,n)",
+    "St[t(10)](ht,(()=>{}))}(),globalThis.__St=St,globalThis.__At_dump=[...St.entries()].map(([k,v])=>[String(k),typeof v==='function'?(v+'').slice(0,220):typeof v]),Ct=0,St.set(it,n)"
+  );
+  // 记录 jt 执行器 catch 的完整错误栈（假 so 根因：TypeError 在 _t() 执行时抛，这里被吞）
+  sdk = sdk.replace(
+    "catch(t){s(btoa(Ct+\": \"+t))}",
+    "catch(t){globalThis.__so_jt_err=(t&&t.stack)||String(t);s(btoa(Ct+\": \"+t))}"
+  );
+  globalThis.__patch_jt = sdk.includes("__so_jt_err") ? "OK" : "MISS";
   // 诊断：_t() 队列处理器加循环守卫（collector 死循环定位用）
   sdk = sdk.replace(
     "_t(){const t=xt;for(;St[t(25)](Y).length>0;){const[n,...e]=St[t(25)](Y).shift(),r=St.get(n)(...e);r&&typeof r[t(13)]===t(17)&&await r,Ct++}}",
-    "_t(){const t=xt;globalThis.__T_ITER=0,globalThis.__T_LOG=[];for(;St[t(25)](Y).length>0;){if(++globalThis.__T_ITER>500000){throw new Error('_t_LOOP '+JSON.stringify(globalThis.__T_LOG.slice(-5)))}const[n,...e]=St[t(25)](Y).shift();globalThis.__T_LOG.push([n,typeof St.get(n),e.length]);globalThis.__T_LOG.length>50&&globalThis.__T_LOG.shift();r=St.get(n)(...e);r&&typeof r[t(13)]===t(17)&&await r,Ct++}}"
+    "_t(){const t=xt;globalThis.__T_ITER=0;for(;St[t(25)](Y).length>0;){if(++globalThis.__T_ITER>500000){throw new Error('_t_LOOP')}const[n,...e]=St[t(25)](Y).shift();try{globalThis.__T_LAST=[n,typeof St.get(n),e.length];var __r=St.get(n)(...e);}catch(er){globalThis.__T_ERR={op:n,optype:typeof St.get(n),nargs:e.length,args:e.map(x=>{try{const v=St.get(x);return [String(x),v===undefined?'undef':(typeof v==='object'?'obj':String(v).slice(0,80))]}catch{return [String(x),'?']}}),stack:(er&&er.stack)||String(er)};throw er;}__r&&typeof __r[t(13)]===t(17)&&await __r,Ct++}}"
   );
   sdk = sdk.replace("function D(t,n){I.set(t,n)}", "function D(t,n){I.set(t,n);globalThis.__debug_D=D;}");
   sdk = sdk.replace("function se(t,n){const e=Hn,r=re(t);", "globalThis.__debug_se=se;function se(t,n){const e=Hn,r=re(t);");
@@ -701,9 +830,45 @@ async function run(payload, sdkSource) {
     // 快速测试 collector 异步协调：se + 延迟 → dump __oai_so_*（不跑慢 _n）
     const _flow = String(payload.flow || "");
     try {
+      // 模拟 solve 完整流程：getEnforcementToken(产 p，初始化字节码 VM 状态) + D 注册
+      if (!payload.skip_fp && globalThis.__debugP && typeof globalThis.__debugP.getEnforcementToken === 'function') {
+        try { await globalThis.__debugP.getEnforcementToken(payload.challenge || {}); } catch (e) { /* ignore */ }
+      }
+      // solve 独有：bindProof(challenge, request_p) —— 可能是 collector 启动关键
+      if (typeof globalThis.SentinelSDK !== 'undefined' && typeof globalThis.SentinelSDK.__debug_bindProof === 'function') {
+        try { globalThis.SentinelSDK.__debug_bindProof(payload.challenge || {}, String(payload.request_p || "")); } catch (e) { /* ignore */ }
+      }
+      // se 前注册 D(challenge, request_p)：collector_dx 解密需要 key（solve 里 getEnforcementToken 会做，
+      // collect_test 之前漏了 → collector 解密失败不启动 = 字段 null 根因）
+      if (typeof globalThis.__debug_D === "function") {
+        try { globalThis.__debug_D(payload.challenge || {}, String(payload.request_p || "")); } catch (e) { /* ignore */ }
+      }
+      // 模拟 solve：_n(t 求解，初始化字节码 VM 状态 St/jt，collector 复用）
+      if (!payload.skip_n && globalThis.SentinelSDK && typeof globalThis.SentinelSDK.__debug_n === 'function') {
+        const _dx = (payload.challenge || {}).turnstile && (payload.challenge || {}).turnstile.dx;
+        if (_dx) { try { await globalThis.SentinelSDK.__debug_n(payload.challenge || {}, _dx); } catch (e) { /* ignore */ } }
+      }
       if (!payload.skip_se && typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, payload.challenge || {});
       // 让 collector 注册监听器（其 jt 异步，需 yield）
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, Number(payload.se_wait_ms || 500)));
+      // dump 初始化状态（se 后无事件，collector 是否初始化字段）
+      const oai_before = {};
+      for (const k of Object.keys(globalThis)) {
+        if (k.startsWith("__oai_so_")) oai_before[k] = String(globalThis[k]).slice(0, 60);
+      }
+      // 手动写字段测试：验证 vm 里 globalThis.__oai_so_* 可写性（字段写入失败根因）
+      try { Reflect.set(globalThis, "__oai_so_test", 123); globalThis.__write_test = "OK:" + String(globalThis.__oai_so_test); }
+      catch (e) { globalThis.__write_test = "ERR:" + String(e); }
+      // 模拟 solve：调 sessionObserverToken，验证是否触发 collector 完整执行（字段初始化）
+      if (!payload.skip_snapshot && typeof globalThis.SentinelSDK !== 'undefined' && typeof globalThis.SentinelSDK.sessionObserverToken === 'function') {
+        try { await globalThis.SentinelSDK.sessionObserverToken(_flow); } catch (e) { globalThis.__sot_err = String(e); }
+      }
+      const oai_after_snap = {};
+      for (const k of Object.keys(globalThis)) {
+        if (k.startsWith('__oai_so_')) oai_after_snap[k] = String(globalThis[k]).slice(0, 60);
+      }
+      if (payload.skip_events) return { oai_before, oai_after: oai_after_snap, event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
+               write_test: globalThis.__write_test, oai_test: globalThis.__oai_so_test, sot_err: globalThis.__sot_err || null };
       // 真实间隔事件：yield 让 collector 处理，事件到达已注册的监听器
       const fire = globalThis.__fire_event;
       if (typeof fire === "function") {
@@ -724,7 +889,8 @@ async function run(payload, sdkSource) {
       for (const k of Object.keys(globalThis)) {
         if (k.startsWith("__oai_so_")) oai[k] = String(globalThis[k]).slice(0, 80);
       }
-      return { oai_so: oai };
+      return { oai_before, oai_after: oai, event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
+               t_last: globalThis.__T_LAST || null, t_iter: globalThis.__T_ITER || null };
     } catch (e) {
       return { error: String(e && e.message || e) };
     }
@@ -742,21 +908,113 @@ async function run(payload, sdkSource) {
     const challenge = payload.challenge || {};
     const requestP = String(payload.request_p || "").trim();
     if (!requestP) throw new Error("missing request_p");
-    const finalP = await globalThis.__debugP.getEnforcementToken(challenge);
+    // skip_fp=true 跳过 getEnforcementToken（纯 t 实验不需要 p，省 ~120s）
+    const _t0 = Date.now();
+    let finalP = "";
+    if (!payload.skip_fp) finalP = await globalThis.__debugP.getEnforcementToken(challenge);
+    const _t1 = Date.now();
     globalThis.SentinelSDK.__debug_bindProof(challenge, requestP);
     const dx = challenge && challenge.turnstile ? challenge.turnstile.dx : null;
     if (typeof globalThis.__debug_D === "function") globalThis.__debug_D(challenge, requestP);
-    const tValue = dx ? await globalThis.SentinelSDK.__debug_n(challenge, dx) : null;
+    const tValue = (!payload.skip_n && dx) ? await globalThis.SentinelSDK.__debug_n(challenge, dx) : null;
+    const _t2 = Date.now();
     // [so] se + sessionObserverToken 产真 so（getEnforcementToken 已设寄存器）
     let so = null;
+    // skip_so=true 时跳过 sessionObserverToken —— collector 的 jt 死循环会阻塞事件循环、
+    // 拖慢 solve 到 ~120s（纯 t 实验用不到 so，先隔离变量）。
+    if (payload.skip_so) {
+      so = null;
+    } else {
     try {
       const _flow = String(payload.flow || "");
       if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, challenge);
-      // 注意: 不要在这里等待/延迟——collector 的 jt 与 snapshot 的 jt 共享全局 St/Y，会互相干扰挂起。
+      globalThis.__se_log_after_se = Array.isArray(globalThis.__event_log) ? [...globalThis.__event_log] : [];
+      globalThis.__se_oai_after_se = (() => { const o = {}; for (const k of Object.keys(globalThis)) { if (k.startsWith('__oai_so_')) o[k] = String(globalThis[k]).slice(0, 40); } return o; })();
+      // so_wait_collector_ms>0：se 后等 collector 完成再 snapshot（隔离共享 St 状态冲突实验）。
+      // wrapper 修复后真实定时器可用，collector 死循环不再永久阻塞。
+      if (payload.so_wait_collector_ms && Number(payload.so_wait_collector_ms) > 0) {
+        await new Promise((r) => setTimeout(r, Number(payload.so_wait_collector_ms)));
+      }
       // 行为模拟默认关（opt-in）：DerrickMclean9927 实测 ~21min 死（快于全空基线 ~1h），
       // 半填充行为状态比干净空状态更可疑。
       if (payload.simulate_behavior) await simulateBehavior();
       // 注入 __oai_so_* 行为字段（绕过挂起的 collector；值遵循真实浏览器模板 browser_oai_so_fields.json）
+      // patch_oai_so: 绕过 SUBRUN 污染，补 browser 基线字段值（计数=0, 时序=时间戳）
+      if (payload.patch_oai_so) {
+        try {
+          const _now = Date.now();
+          const _pn = (typeof performance !== 'undefined' && performance.now) ? performance.now() : _now;
+          for (const _k of ['__oai_so_i','__oai_so_k','__oai_so_kp','__oai_so_we','__oai_so_wb','__oai_so_fn',
+                             '__oai_so_pc','__oai_so_hc','__oai_so_bc','__oai_so_bm','__oai_so_cn','__oai_so_sn',
+                             '__oai_so_st','__oai_so_sw','__oai_so_ht','__oai_so_spt','__oai_so_cs','__oai_so_cs2',
+                             '__oai_so_fs','__oai_so_fs2','__oai_so_ss','__oai_so_ss2','__oai_so_sp','__oai_so_wl']) {
+            if (globalThis[_k] == null) globalThis[_k] = 0;
+          }
+          if (globalThis.__oai_so_t0 == null) globalThis.__oai_so_t0 = _now - 60000;
+          if (globalThis.__oai_so_s == null) globalThis.__oai_so_s = _pn;
+          if (globalThis.__oai_so_m == null) globalThis.__oai_so_m = _pn;
+          if (globalThis.__oai_so_p == null) globalThis.__oai_so_p = _pn;
+          if (globalThis.__oai_so_fs == null) globalThis.__oai_so_fs = _pn;
+          globalThis.__patch_check = String(globalThis.__oai_so_i) + '/' + String(globalThis.__oai_so_k) + '/' + String(globalThis.__oai_so_t0);
+        } catch (e) { /* ignore */ }
+      }
+      // 黑盒探测：极端值注入，测 create 层是否校验字段值范围
+      if (payload.snap_extreme) {
+        globalThis.__snap_inject = () => {
+          globalThis.__oai_so_i = 100000;
+          globalThis.__oai_so_k = 99999;
+          globalThis.__oai_so_s = 99999999;
+          globalThis.__oai_so_cs = 88888888;
+          globalThis.__oai_so_t0 = 1;
+          globalThis.__oai_so_lx = 1000000;
+          globalThis.__oai_so_ly = 1000000;
+          globalThis.__oai_so_m = 77777777;
+          globalThis.__oai_so_sp = 5000000;
+        };
+      }
+      // 第一性原理：绕过 collector，在 snapshot 读取点注入自然字段值(browser 分布量级+随机化)
+      if (payload.snap_inject) {
+        globalThis.__snap_inject = () => {
+          globalThis.__snap_called = (globalThis.__snap_called || 0) + 1;
+          try {
+            // 用浏览器真实分布(so_distribution.json)：i 40-60, s 4000-30000, cs 1000-1400,
+            // sp 0-400, fs2=fs², ss2=ss², sx0/sy0 屏幕内起点
+            const _move = 40 + Math.floor(Math.random() * 20); // i: 42-56
+            globalThis.__oai_so_i = _move;
+            globalThis.__oai_so_k = Math.floor(Math.random() * 5); // 0-4
+            globalThis.__oai_so_kp = 0;
+            globalThis.__oai_so_we = Math.random() < 0.5 ? 1 : 0;
+            globalThis.__oai_so_wb = Math.random() < 0.5 ? 1 : 0;
+            globalThis.__oai_so_s = 4000 + Math.random() * 26000; // 4000-30000
+            globalThis.__oai_so_t0 = Date.now() - (30000 + Math.random() * 120000);
+            globalThis.__oai_so_m = 5000 + Math.random() * 30000;
+            globalThis.__oai_so_p = 2000 + Math.random() * 25000;
+            globalThis.__oai_so_cs = 1000 + Math.random() * 400; // 1000-1400
+            globalThis.__oai_so_cs2 = globalThis.__oai_so_cs * (50 + Math.random() * 20); // cs2≈59*cs
+            globalThis.__oai_so_ss = 20000 + Math.random() * 280000;
+            globalThis.__oai_so_ss2 = globalThis.__oai_so_ss * globalThis.__oai_so_ss;
+            globalThis.__oai_so_lx = 300 + Math.floor(Math.random() * 500);
+            globalThis.__oai_so_ly = 200 + Math.floor(Math.random() * 200);
+            globalThis.__oai_so_sx0 = 330 + Math.floor(Math.random() * 90);
+            globalThis.__oai_so_sy0 = 280 + Math.floor(Math.random() * 90);
+            globalThis.__oai_so_sp = Math.random() * 400;
+            globalThis.__oai_so_fs = 6000 + Math.random() * 21000;
+            globalThis.__oai_so_fs2 = globalThis.__oai_so_fs * globalThis.__oai_so_fs;
+            globalThis.__oai_so_fn = 4;
+            globalThis.__oai_so_sn = 35 + Math.floor(Math.random() * 15);
+            globalThis.__oai_so_sw = 4;
+            globalThis.__oai_so_spt = 1 + Math.floor(Math.random() * 8);
+            globalThis.__oai_so_wl = 6000 + Math.random() * 34000;
+            globalThis.__oai_so_ht = Math.random() * 3;
+            globalThis.__oai_so_pc = Math.random() < 0.5 ? 1 : 0;
+            globalThis.__oai_so_hc = Math.random() < 0.8 ? 1 : 0;
+            globalThis.__oai_so_cn = 35 + Math.floor(Math.random() * 15);
+            globalThis.__oai_so_st = 0;
+            globalThis.__oai_so_bc = 0;
+            globalThis.__oai_so_bm = 0;
+          } catch (e) { /* ignore */ }
+        };
+      }
       if (payload.inject_oai_so) {
         try {
           const _now = Date.now();
@@ -790,7 +1048,8 @@ async function run(payload, sdkSource) {
         const s = await globalThis.SentinelSDK.sessionObserverToken(_flow);
         so = (typeof s === "string") ? s : JSON.stringify(s);
       }
-    } catch (e) { /* so 失败不影响 t */ }
+    } catch (e) { globalThis.__so_error = (e && e.stack) || String(e); }
+    }
     // 调试：dump session observer 采集的 __oai_so_* 状态
     const oai_so = {};
     try {
@@ -802,6 +1061,28 @@ async function run(payload, sdkSource) {
       final_p: finalP,
       t: tValue,
       so: so,
+      ms_fp: _t1 - _t0,
+      ms_n: _t2 - _t1,
+      se_log_after_se: globalThis.__se_log_after_se || null,
+      se_oai_after_se: globalThis.__se_oai_after_se || null,
+      so_error: globalThis.__so_n_err || globalThis.__so_error || null,
+      so_jt_err: globalThis.__so_jt_err || null,
+      so_rej: globalThis.__so_rej || null,
+      reflect_err: globalThis.__reflect_err || null,
+      t_err: globalThis.__T_ERR || null,
+      t_last: globalThis.__T_LAST || null,
+      patch_check: globalThis.__patch_check || null,
+      snap_called: globalThis.__snap_called || null,
+      rt_keys: globalThis.__rt_keys || null,
+      xor_full: globalThis.__xor_full || null,
+      setref_err: globalThis.__setref_err || null,
+      regs: globalThis.__St ? { i: String(globalThis.__St.get(21.49)), lx: String(globalThis.__St.get(43.41)), k: String(globalThis.__St.get(86.2)) } : null,
+      key_regs: globalThis.__St ? { k25: String(globalThis.__St.get(25.96)), k97: String(globalThis.__St.get(97.76)), k010: String(globalThis.__St.get(0.10)) } : null,
+      at_dump: globalThis.__At_dump || null,
+      patch_n: globalThis.__patch_n || null,
+      patch_jt: globalThis.__patch_jt || null,
+      trace_now: Array.isArray(globalThis.__trace_now) ? globalThis.__trace_now : [],
+      trace_rand: Array.isArray(globalThis.__trace_rand) ? globalThis.__trace_rand : [],
       fp_reads: Array.isArray(globalThis.__debug_fp_reads) ? globalThis.__debug_fp_reads : [],
       event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
       oai_so: oai_so,

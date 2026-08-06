@@ -119,6 +119,12 @@ def _sentinel_source(session: BrowserSession, source: str | None = None) -> str:
         return "node"
     if mode in {"quickjs", "qjs"}:
         return "quickjs"
+    if mode in {"browser_t_quickjs_so", "bt_vs", "btqs", "true_t_vm_so"}:
+        return "browser_t_quickjs_so"
+    if mode in {"quickjs_t_browser_so", "qt_bs", "qtbs", "vm_t_true_so"}:
+        return "quickjs_t_browser_so"
+    if mode in {"quickjs_pwd_v3", "pwd", "pwd_v3", "qt_pwd"}:
+        return "quickjs_pwd_v3"
     return "pow"
 
 
@@ -132,172 +138,41 @@ def make_sentinel_headers(
 ) -> tuple[str, str | None]:
     """生成 sentinel-token + 可选 so-token。
 
-    source:
-      - pow（默认）: 纯 Python FNV-1a，t=\"\"，通常无 so
-      - browser: 真 Chrome token() + sessionObserverToken()（opt-in）
-    假 so（SyntaxError / MDogU3ludGF4）一律丢弃，禁止伪造。
-    P1：本环境 create 有/无 so ≥2h 双活，默认保持 pow。
+    按 source 查 sentinel_engine 注册表调用对应引擎(新增引擎不改本函数,开闭原则)。
+    source: pow | browser | quickjs | quickjs_pwd_v3 | browser_t_quickjs_so | quickjs_t_browser_so | node
     """
     mode = _sentinel_source(session, source)
+    from gptreg.sentinel_engine import get_engine
 
-    if mode == "browser":
-        from gptreg.browser_sentinel import harvest_for_session
-
-        token, so, meta = harvest_for_session(session, flow)
-        # 再滤一遍假 so
-        if so and ("SyntaxError" in so or "MDogU3ludGF4" in so):
-            logger.warning("[Sentinel] browser so-header 假值，丢弃 flow=%s", flow)
-            so = None
-        logger.info(
-            "[Sentinel] headers ready flow=%s mode=browser has_so=%s so_len=%s t_len=%s elapsed=%s",
-            flow,
-            bool(so),
-            len(so or ""),
-            meta.get("t_len"),
-            meta.get("elapsed_s"),
-        )
-        # 挂观测，供 pipeline 读取
-        session._last_sentinel_meta = {  # type: ignore[attr-defined]
-            "mode": "browser",
-            "has_so": bool(so),
-            "so_len": len(so or ""),
-            "t_len": meta.get("t_len"),
-            "sdk_keys": meta.get("sdk_keys"),
-            "elapsed_s": meta.get("elapsed_s"),
-            "so_api_err": meta.get("so_api_err"),
-        }
-        return token, so
-
-    if mode == "quickjs":
-        # Node VM 跑官方 sdk.js 产**真 t + 真 so**（协议产真 t/so 突破，capture/protocol-real-t-20260803/）。
-        # 无浏览器；每 token ~60s（t 解释器慢，so 快）。
-        from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
-
-        token, so = get_sentinel_token_via_quickjs(
-            session, session.device_id, flow=flow, cfg=session.cfg,
-        )
+    result = get_engine(mode).generate(session, flow, session.cfg)
+    token, so = result.token, result.so
+    t_len = result.meta.get("t_len") or 0
+    if not t_len:
         try:
             tj = json.loads(token)
-            _t_len = len(str(tj.get("t") or ""))
+            t_len = len(str(tj.get("t") or ""))
         except Exception:
-            _t_len = 0
-        _so_len = len(so or "")
-        session._last_sentinel_meta = {  # type: ignore[attr-defined]
-            "mode": "quickjs",
-            "has_so": bool(so),
-            "so_len": _so_len,
-            "t_len": _t_len,
-        }
-        logger.info(
-            "[Sentinel] headers ready flow=%s mode=quickjs t_len=%s so_len=%s (真 t+真 so)",
-            flow, _t_len, _so_len,
-        )
-        return token, so
-
-    if mode == "node":
-        # 默认 create 路线（2026-08 起）：Node VM 跑 sdk.js 产 token（t 非空即过 create）。
-        # 无浏览器、快；t 为假值但非空即可。参考 turb-gpt-free-register protocol 驱动。
-        from gptreg.sentinel import generate_sentinel_token_via_node
-
-        challenge = request_sentinel(session, flow)
-        token = generate_sentinel_token_via_node(
-            session.cfg, challenge, flow, session.device_id,
-            user_agent=session.user_agent,
-        )
-        # 丢弃假 so（node runner 无 sessionObserverToken，通常无）
-        try:
-            parsed = json.loads(token)
-            so_val = parsed.get("so")
-            if isinstance(so_val, str) and (
-                "SyntaxError" in so_val or so_val.startswith("MDogU3ludGF4")
-            ):
-                parsed.pop("so", None)
-                token = json.dumps(parsed, separators=(",", ":"))
-        except Exception:
-            pass
-        so = build_so_header(token, session.device_id, flow)
-        try:
-            tj = json.loads(token)
-            _t_len = len(str(tj.get("t") or ""))
-        except Exception:
-            _t_len = 0
-        session._last_sentinel_meta = {  # type: ignore[attr-defined]
-            "mode": "node",
-            "has_so": bool(so),
-            "so_len": len(so or ""),
-            "t_len": _t_len,
-        }
-        logger.info(
-            "[Sentinel] headers ready flow=%s mode=node has_so=%s so_len=%s t_len=%s",
-            flow, bool(so), len(so or ""), _t_len,
-        )
-        return token, so
-
-    browser_cfg = session.cfg.get("browser") or {}
-    pow_engine = SentinelPoW(
-        ua=session.user_agent,
-        sv=getattr(session, "sentinel_sv", "") or "",
-        device_id=session.device_id,
-        cores=browser_cfg.get("hardware_concurrency"),
-        screen_w=int(browser_cfg.get("screen_width") or 1920),
-        screen_h=int(browser_cfg.get("screen_height") or 1080),
-    )
-    token = pow_engine.build(session.session, session.device_id, flow)
-    chatreq_obs = getattr(pow_engine, "last_chatreq_obs", None) or {}
-
-    # 丢弃假 so
-    try:
-        parsed = json.loads(token)
-        so_val = parsed.get("so")
-        if isinstance(so_val, str) and ("SyntaxError" in so_val or so_val.startswith("MDogU3ludGF4")):
-            parsed.pop("so", None)
-            token = json.dumps(parsed, separators=(",", ":"))
-            logger.warning("[Sentinel] 丢弃假 so（SyntaxError）flow=%s", flow)
-        # starmiaoa build_sentinel_token 返回 oai_sc=0+c；写 cookie 对齐（registrar 未必用）
-        c_tok = str(parsed.get("c") or "").strip()
-        if c_tok and hasattr(session, "set_oai_sc"):
-            session.set_oai_sc(c_tok)
-    except Exception:
-        pass
-
-    proto = session.cfg.get("protocol") or {}
-    pow_so_source = str(proto.get("pow_so_source") or "none").strip().lower()
-    so = resolve_pow_so_header(
-        token, session.device_id, flow, pow_so_source=pow_so_source
-    )
-    # 仅丢 SyntaxError/jsdom 假 so；小PP HAR so 放行（pow_so_source=xiaopp）
-    if so and ("SyntaxError" in so or "MDogU3ludGF4" in so):
-        logger.warning("[Sentinel] so-header 含 SyntaxError，丢弃")
-        so = None
-
-    if chatreq_obs.get("so_required") and not so:
-        logger.warning(
-            "[Sentinel] chatReq 要求 so 但 pow 路径无 so flow=%s collector_dx_len=%s pow_so_source=%s",
-            flow,
-            chatreq_obs.get("so_collector_dx_len"),
-            pow_so_source,
-        )
-
-    logger.info(
-        "[Sentinel] headers ready flow=%s mode=pow has_so=%s so_len=%s so_required=%s pow_so_source=%s collector_dx_len=%s",
-        flow,
-        bool(so),
-        len(so or ""),
-        chatreq_obs.get("so_required"),
-        pow_so_source,
-        chatreq_obs.get("so_collector_dx_len"),
-    )
+            t_len = 0
     session._last_sentinel_meta = {  # type: ignore[attr-defined]
-        "mode": "pow",
+        "mode": mode,
         "has_so": bool(so),
         "so_len": len(so or ""),
-        "pow_so_source": pow_so_source,
-        "chatreq": chatreq_obs,
+        "t_len": t_len,
+        **result.meta,
     }
-    session._last_chatreq_obs = chatreq_obs  # type: ignore[attr-defined]
+    if mode == "pow":
+        chatreq_obs = result.meta.get("chatreq") or {}
+        session._last_chatreq_obs = chatreq_obs  # type: ignore[attr-defined]
+        if chatreq_obs.get("so_required") and not so:
+            logger.warning(
+                "[Sentinel] chatReq 要求 so 但 pow 路径无 so flow=%s collector_dx_len=%s pow_so_source=%s",
+                flow, chatreq_obs.get("so_collector_dx_len"), result.meta.get("pow_so_source"),
+            )
+    logger.info(
+        "[Sentinel] headers ready flow=%s mode=%s has_so=%s so_len=%s t_len=%s",
+        flow, mode, bool(so), len(so or ""), t_len,
+    )
     return token, so
-
-
 
 
 def validate_email_otp(session: BrowserSession, code: str, sentinel_header: str | None = None) -> dict:

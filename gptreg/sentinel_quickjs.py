@@ -52,7 +52,11 @@ process.stdin.on('end',async()=>{try{
     await new Promise(r=>__rST(r,1));  // 真实定时器，让事件循环跑起来（macrotask 不被饿死）
   }
   if(String(globalThis.__vm_error||'').trim())throw new Error(String(globalThis.__vm_error));
-  process.stdout.write(String(globalThis.__vm_output_json||''));
+  // 根因级性能修复：_n 内部注册 120s 看门狗 timer，若不主动 exit，Node 会等 timer 到点才
+  // 自然退出 → 每次 solve 白等 120s。同步写 stdout 后立即 exit。
+  const __out=String(globalThis.__vm_output_json||'');
+  try{fs.writeSync(1,__out)}catch(e){process.stdout.write(__out)}
+  process.exit(0);
 }catch(e){process.stderr.write((e&&e.stack||String(e)));process.exit(1);}});
 """.strip()
 
@@ -147,6 +151,33 @@ def _fingerprint_payload(cfg: dict[str, Any], device_id: str, sv: str) -> dict:
     }
 
 
+def _seed_extra() -> dict[str, Any]:
+    """QJS_SEED=1 时读 data/seed_quickjs.json，把浏览器采集的种子注入 solve payload。
+
+    种子 = 真浏览器一次性采集的 __reactRouterContext / localStorage / 字体测量真值，
+    用于「种子 + 重算」验证：补全 vm 缺的静态环境值，测是否改善 t 保真度/存活。
+    """
+    if os.environ.get("QJS_SEED") != "1":
+        return {}
+    p = Path(__file__).resolve().parent.parent / "data" / "seed_quickjs.json"
+    if not p.exists():
+        logger.warning("QJS_SEED=1 但 data/seed_quickjs.json 不存在")
+        return {}
+    try:
+        s = json.loads(p.read_text(encoding="utf-8"))
+        extra: dict[str, Any] = {}
+        if isinstance(s.get("react_router_full"), dict):
+            extra["react_router_full"] = s["react_router_full"]
+        if isinstance(s.get("ls_extra"), dict):
+            extra["ls_extra"] = s["ls_extra"]
+        if isinstance(s.get("font_gbcr"), dict):
+            extra["font_gbcr"] = s["font_gbcr"]
+        return extra
+    except Exception:
+        logger.warning("解析 seed_quickjs.json 失败", exc_info=True)
+        return {}
+
+
 def _dump_solved_tokens(
     device_id: str, request_p: str, final_p: str, t: str, so_header: str | None, flow: str
 ) -> None:
@@ -236,6 +267,28 @@ def get_sentinel_token_via_quickjs(
         "challenge": challenge,
         "flow": flow,
     })
+    # 种子注入（QJS_SEED=1 时）：浏览器采集的 rctx/localStorage/字体真值
+    seed = _seed_extra()
+    if seed:
+        solve_payload.update(seed)
+        logger.info("[quickjs] 注入种子 %s", list(seed.keys()))
+    # 行为字段注入（QJS_INJECT=1 时）：等 collector 完成后注入 __oai_so_* 字段，
+    # 让 vm so 编码真实行为值（纯协议存活关键：vm so 行为字段空必死）
+    if os.environ.get("QJS_SO_WAIT"):
+        solve_payload["so_wait_collector_ms"] = int(os.environ.get("QJS_SO_WAIT", "1000"))
+    if os.environ.get("QJS_INJECT") == "1":
+        solve_payload["inject_oai_so"] = True
+        logger.info("[quickjs] 注入 __oai_so_* 行为字段（QJS_INJECT=1）")
+    if os.environ.get("QJS_PATCH") == "1":
+        solve_payload["patch_oai_so"] = True
+        solve_payload["so_wait_collector_ms"] = int(os.environ.get("QJS_SO_WAIT", "800"))
+        logger.info("[quickjs] 补 browser 基线字段绕过 SUBRUN 污染（QJS_PATCH=1）")
+    if os.environ.get("QJS_SNAP_INJECT") == "1":
+        solve_payload["snap_inject"] = True
+        logger.info("[quickjs] snapshot 读取点注入自然字段值（QJS_SNAP_INJECT=1，第一性原理攻法）")
+    if os.environ.get("QJS_SNAP_EXTREME") == "1":
+        solve_payload["snap_extreme"] = True
+        logger.info("[quickjs] 黑盒探测：极端字段值注入（QJS_SNAP_EXTREME=1）")
     solved = _run_action(script, sdk_file, "solve", solve_payload, timeout_ms, env_extra=env_extra)
     elapsed = time.time() - t0
     final_p = str(solved.get("final_p") or "")
@@ -250,9 +303,24 @@ def get_sentinel_token_via_quickjs(
         separators=(",", ":"), ensure_ascii=False,
     )
     # so：从 solve 输出提取，组装 openai-sentinel-so-token
+    # QJS_SO_TEMPLATE 指向 JSON {so_val: "..."}：用预采集 browser 真 so_val 替代 vm 假 so
+    # （vm snapshot_dx 抛 TypeError 产假 so，控制变量实验证明假 so 必死、真 so 配 vm t 能活）。
     so_header: str | None = None
     so_raw = solved.get("so")
-    if so_raw:
+    _so_tpl = os.environ.get("QJS_SO_TEMPLATE", "").strip()
+    if _so_tpl:
+        try:
+            _td = json.loads(Path(_so_tpl).read_text(encoding="utf-8"))
+            _tval = str(_td.get("so_val") or "")
+            if _tval:
+                so_header = json.dumps(
+                    {"so": _tval, "c": c_value, "id": device_id, "flow": flow},
+                    separators=(",", ":"), ensure_ascii=False,
+                )
+                logger.info("[quickjs] 用模板 so_val(len=%s) 替代 vm 假 so", len(_tval))
+        except Exception as exc:
+            logger.warning("QJS_SO_TEMPLATE 读取失败: %s", exc)
+    if so_header is None and so_raw:
         so_val = so_raw
         if isinstance(so_raw, str):
             try:

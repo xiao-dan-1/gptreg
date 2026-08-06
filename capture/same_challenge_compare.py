@@ -49,6 +49,7 @@ def main() -> int:
     from playwright.sync_api import sync_playwright
     browser_t = None
     browser_challenge = None
+    browser_request_p = ""
     with sync_playwright() as p:
         browser = p.chromium.launch(
             channel="chrome", headless=True,
@@ -64,10 +65,20 @@ def main() -> int:
         page.context.add_cookies([{"name": "oai-did", "value": device_id, "domain": ".openai.com", "path": "/"}])
 
         def pass_through(route):
-            nonlocal browser_challenge
+            nonlocal browser_challenge, browser_request_p
             resp = route.fetch()
             try:
                 browser_challenge = resp.json()
+                # dx 用 req 请求体里的 p(=request_p) 做 XOR key —— 同 challenge 对比必须用
+                # 浏览器自己的 request_p 喂 vm solve,否则 vm 解不出真 t(SyntaxError 假 t)。
+                body = route.request.post_data or ""
+                try:
+                    bj = json.loads(body)
+                    bj_p = str(bj.get("p") or "")
+                    if bj_p:
+                        browser_request_p = bj_p
+                except Exception:
+                    pass
             except Exception:
                 pass
             route.fulfill(response=resp)
@@ -113,11 +124,13 @@ def main() -> int:
         return 1
 
     # 2) vm solve(C_browser) → vm_t（同一 challenge）
-    vm_req = _run_action(script, sdk_file, "requirements", fp, 120000)
-    vm_request_p = str(vm_req.get("request_p") or "")
-    print("vm request_p len:", len(vm_request_p))
+    #    dx 用浏览器 req 的 request_p 加密,vm 必须用同一个 key 解,否则产假 t。
+    if not browser_request_p:
+        print("未捕获浏览器 request_p —— 无法做真同 challenge 对比")
+        return 1
+    print("浏览器 request_p len:", len(browser_request_p))
     solve_payload = dict(fp)
-    solve_payload.update({"request_p": vm_request_p, "challenge": challenge, "flow": FLOW})
+    solve_payload.update({"request_p": browser_request_p, "challenge": challenge, "flow": FLOW})
     t0 = time.time()
     solved = _run_action(script, sdk_file, "solve", solve_payload, 120000)
     vm_t = str(solved.get("t") or "")
@@ -148,6 +161,8 @@ def main() -> int:
         "device_id": device_id, "vm_t_len": len(vm_t), "browser_t_len": len(browser_t),
         "shared_prefix": pref, "divergence_browser": len(div_b), "divergence_vm": len(div_v),
         "divergence_match_pct": round(100 * matches / max(m, 1), 1),
+        "browser_t_b64": browser_t, "vm_t_b64": vm_t,
+        "browser_request_p": browser_request_p,
     }, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0
 

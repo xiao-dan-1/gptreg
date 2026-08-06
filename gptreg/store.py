@@ -30,6 +30,7 @@ def save_success(
     name: str,
     birthdate: str,
     extra: dict[str, Any] | None = None,
+    session_cookies: list[dict[str, Any]] | None = None,
 ) -> Path:
     out_dir = ensure_output_dir(cfg)
     output = cfg.get("output", {})
@@ -38,6 +39,14 @@ def save_success(
     record = {
         "email": email,
         "access_token": access_token,
+        # 刷新凭证:session 响应里的 refreshToken(OAuth offline_access scope),可能没有
+        "refresh_token": (
+            session_info.get("refreshToken")
+            or session_info.get("refresh_token")
+            or ""
+        ),
+        # 会话 cookies:认证根本,有 cookies 就能调 /api/auth/session 无限刷新
+        "session_cookies": session_cookies or [],
         "mail_type": account.get("mail_type"),
         "material_line": material,
         "copy_line": copy_line,

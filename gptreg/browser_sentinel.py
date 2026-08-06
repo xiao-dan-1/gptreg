@@ -175,7 +175,16 @@ def harvest_browser_sentinel(
         ],
     }
     if proxy:
-        launch_kwargs["proxy"] = {"server": proxy}
+        # Playwright 不解析 server URL 里的 user:pass,必须拆成 username/password 字段
+        # (本地无认证代理 10808/7890 未暴露;辣椒靠 chain_via 隧道绕开;cliproxy 直连带认证则必须拆)
+        from urllib.parse import unquote, urlparse
+
+        _pp = urlparse(proxy if "://" in proxy else "http://" + proxy)
+        _pw: dict[str, Any] = {"server": f"{_pp.scheme or 'http'}://{_pp.hostname}:{_pp.port}"}
+        if _pp.username:
+            _pw["username"] = unquote(_pp.username)
+            _pw["password"] = unquote(_pp.password or "")
+        launch_kwargs["proxy"] = _pw
 
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_kwargs)
