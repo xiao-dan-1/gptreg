@@ -78,7 +78,9 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
                         allow_redirects=True)
         print(f"[send_otp] HTTP {r.status_code} ({time.time()-st['start']:.1f}s)")
 
-        # 收码(after_ts 用流程开始, 邮件可能在 authorize 就发)
+        # 收码(after_ts 用流程开始, 邮件可能在 authorize 就发; 超时自动重发, 最多 otp_max_attempts 次)
+        # (2026-08-06 批量: 部分主号 IMAP 降级 Graph 有 ~150s 索引延迟, 单次 150s 收码超时→整批失败;
+        #  超时重发一次可救回, 与 verify_pwd_v3 一致)
         otp_after = st["start"]
         client = build_mail_client(account, proxy=resolved.session_url or None,
                                    impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"))
@@ -86,9 +88,25 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
         cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
         used_cache = UsedCodeCache(cache_path)
         exclude = used_cache.seen_codes(identity)
-        otp_timeout = int(cfg.get("mail", {}).get("otp_wait", 150) or 150)
-        otp = client.wait_for_otp(after_ts=otp_after, timeout=otp_timeout,
-                                  interval=3, settle_seconds=5, exclude_codes=exclude)
+        mail_cfg = cfg.get("mail", {})
+        otp_timeout = int(mail_cfg.get("otp_wait", 150) or 150)
+        otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 2) or 2))
+        otp = None
+        for attempt in range(otp_max_attempts):
+            try:
+                otp = client.wait_for_otp(after_ts=otp_after, timeout=otp_timeout,
+                                          interval=3, settle_seconds=5, exclude_codes=exclude)
+                break
+            except Exception as exc:
+                if attempt >= otp_max_attempts - 1:
+                    raise
+                print(f"  [OTP] 第{attempt+1}次收码失败({type(exc).__name__}: {str(exc)[:60]})，重发验证码...")
+                time.sleep(1)
+                r_retry = session.get(send_url,
+                                      headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
+                                      allow_redirects=True)
+                print(f"  重发: HTTP {r_retry.status_code} 落点={str(getattr(r_retry, 'url', ''))[:50]}")
+                otp_after = time.time()
         used_cache.remember(identity, otp, email=email, status="submitted")
         print(f"[OTP] 收到 {otp} ({time.time()-st['start']:.1f}s)")
 
