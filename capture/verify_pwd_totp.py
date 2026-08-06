@@ -48,7 +48,7 @@ def _base(m: str) -> str:
 def _register(cfg, args, account, email, password, display_name, bday, base_email):
     """复用 verify_pwd_v3 注册逻辑, 返回 (access_token, device_id, cookies) 或 None。"""
     from gptreg.config import load_config
-    resolved = resolve_proxy(cfg, override=(args.proxy or None))
+    resolved = resolve_proxy(cfg, override=args.proxy)
     session = BrowserSession(cfg, proxy=resolved.session_url)
     st = {"start": time.time()}
     try:
@@ -171,7 +171,7 @@ def main() -> int:
     ap = _ap.ArgumentParser()
     ap.add_argument("--email", default="")
     ap.add_argument("--alias", action="store_true")
-    ap.add_argument("--proxy", default="", help="留空=走 config 动态链式代理(推荐); 指定 http:// 手动固定")
+    ap.add_argument("--proxy", default="http://127.0.0.1:10808")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -241,7 +241,7 @@ def main() -> int:
 
     # 2. 立即 mfa/enroll
     t2 = time.time()
-    resolved = resolve_proxy(cfg, override=(args.proxy or None))
+    resolved = resolve_proxy(cfg, override=args.proxy)
     s = BrowserSession(cfg, proxy=resolved.session_url)
     s.device_id = reg["device_id"]
     for c in reg["cookies"]:

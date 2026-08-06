@@ -86,7 +86,7 @@ def _run_once(
     tag: str,
 ) -> tuple[int, str | None]:
     """执行一次完整注册(独立 resolve_proxy→换 IP)。返回 (exit_code, err_str|None)。"""
-    resolved = resolve_proxy(cfg, override=(args.proxy or None))
+    resolved = resolve_proxy(cfg, override=args.proxy)
     session = BrowserSession(cfg, proxy=resolved.session_url)
     print(f"[{tag}] 代理: {resolved.label()}")
 
@@ -324,7 +324,7 @@ def main() -> int:
     ap = _ap.ArgumentParser()
     ap.add_argument("--email", default="")
     ap.add_argument("--alias", action="store_true")
-    ap.add_argument("--proxy", default="", help="留空=走 config 动态链式代理(推荐); 指定 http:// 手动固定")
+    ap.add_argument("--proxy", default="http://127.0.0.1:10808")
     args = ap.parse_args()
 
     cfg = load_config()

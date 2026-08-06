@@ -662,130 +662,14 @@ class GmailApiClient:
         raise MailClientError(f"等待 {self.email} OTP 超时（>{timeout}s，可能只有旧码）")
 
 
-class XDAuvMailClient:
-    """通过 outlook.xdauv.xyz 服务收码（服务端海外干净 IP，解决本地 IMAP 部分账号被 MS 拒）。
-
-    背景(2026-08-07): 本地 IMAP 对部分账号报 "authenticated but not connected"
-    (MS 对大陆 IP 发起的 OAuth IMAP 账号级风控); cliproxy 住宅 IP 也被 MS 拒(IMAP TLS 中止)。
-    服务端部署海外(干净 IP), 对全部账号收码成功(~8s)。本 client 直接调服务 /api/fetch。
-    """
-
-    ENDPOINT = "https://outlook.xdauv.xyz/api/fetch"
-
-    def __init__(
-        self,
-        account: dict[str, Any],
-        proxy: str | None = None,
-        impersonate: str = "chrome142",
-        timeout: int = 30,
-    ):
-        self.email = account.get("email") or ""
-        self.account = account
-        self.proxy = proxy or None
-        self.impersonate = impersonate
-        self.timeout = timeout
-
-    def _account_text(self) -> str:
-        raw = self.account.get("raw_line") or ""
-        if raw:
-            return raw
-        return "----".join([
-            str(self.account.get("email", "")),
-            str(self.account.get("password", "")),
-            str(self.account.get("client_id", "")),
-            str(self.account.get("refresh_token", "")),
-        ])
-
-    def _fetch(self) -> list[dict]:
-        payload = {
-            "account_text": self._account_text(),
-            "mailbox": "INBOX",
-            "limit": 20,
-            "filter_recipient": True,
-        }
-        proxies = {"http": self.proxy, "https": self.proxy} if self.proxy else None
-        r = cr.post(self.ENDPOINT, json=payload, timeout=self.timeout,
-                    impersonate=self.impersonate, proxies=proxies)
-        if r.status_code != 200:
-            raise MailClientError(f"XDAuv /api/fetch HTTP {r.status_code}: {(r.text or '')[:150]}")
-        d = r.json()
-        for row in d.get("rows", []) or []:
-            if not row.get("ok"):
-                raise MailClientError(f"XDAuv 账号失败: {str(row.get('error'))[:150]}")
-        return d.get("messages", []) or []
-
-    def wait_for_otp(
-        self,
-        after_ts: float | None = None,
-        timeout: int = 150,
-        interval: int = 3,
-        settle_seconds: int = 5,
-        exclude_codes: set[str] | None = None,
-        on_poll: Callable[[dict], None] | None = None,
-    ) -> str:
-        exclude = set(str(c) for c in (exclude_codes or set()))
-        deadline = time.time() + timeout
-        t_start = time.time()
-        reported: set[tuple[str, bool]] = set()
-        mid_warned = False
-        while time.time() < deadline:
-            try:
-                msgs = self._fetch()
-            except Exception as exc:
-                logger.warning("[XDAuv] fetch 异常: %s", exc)
-                time.sleep(interval)
-                continue
-            for m in msgs:
-                ts = _parse_ts(m.get("sent_at") or "")
-                if after_ts and ts and ts < after_ts:
-                    continue
-                item = {
-                    "subject": m.get("subject") or "",
-                    "text": m.get("body_preview") or "",
-                    "content": m.get("body_preview") or "",
-                }
-                otp = extract_otp(item)
-                if not otp:
-                    continue
-                excluded = otp in exclude
-                marker = (otp, excluded)
-                if on_poll and marker not in reported:
-                    reported.add(marker)
-                    try:
-                        on_poll({"code": otp, "excluded": excluded, "source": "xdauv",
-                                 "elapsed_s": round(time.time() - t_start, 1)})
-                    except Exception:
-                        pass
-                # 新邮件(ts>=after_ts)即使码重复也采用(同主号 alias 复用码)
-                delay = time.time() - t_start
-                logger.info("[XDAuv] 到件 OTP=%s 延迟 %.1fs (email=%s)", otp, delay, self.email)
-                if settle_seconds > 0:
-                    time.sleep(settle_seconds)
-                return otp
-            if not mid_warned and time.time() - t_start > timeout / 2:
-                mid_warned = True
-                logger.info("[XDAuv] 等待 %s OTP 已 %.0fs 仍无新邮件", self.email, time.time() - t_start)
-            time.sleep(interval)
-        raise MailClientError(f"XDAuv 等待 {self.email} OTP 超时（>{timeout}s）")
-
-
 def build_mail_client(
     account: dict[str, Any],
     proxy: str | None = None,
     impersonate: str = "chrome142",
-) -> MSMailClient | GmailApiClient | IMAPOAuthClient | XDAuvMailClient:
+) -> MSMailClient | GmailApiClient | IMAPOAuthClient:
     mail_type = account.get("mail_type") or "ms_oauth"
     if mail_type == "gmail_api":
         return GmailApiClient(account, proxy=proxy, impersonate=impersonate)
-    # ms_oauth 优先 outlook.xdauv.xyz 服务收码(海外干净 IP, 解决本地 IMAP 部分账号被 MS 拒;
-    # 仅当 mail.use_xdauv 显式 false 才退回 IMAP/XOAUTH2)
-    try:
-        from gptreg.config import load_config
-
-        if (load_config().get("mail") or {}).get("use_xdauv", True):
-            return XDAuvMailClient(account, proxy=proxy, impersonate=impersonate)
-    except Exception:
-        pass
     # ms_oauth 走 IMAP(XOAUTH2)，绕开 Graph ~150s 索引延迟(实测稳定 0.6s)
     return IMAPOAuthClient(account, proxy=proxy, impersonate=impersonate)
 
