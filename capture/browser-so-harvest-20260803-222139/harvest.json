@@ -1,0 +1,70 @@
+{
+  "created_at": "2026-08-03T22:22:08",
+  "flow": "oauth_create_account",
+  "proxy": "http://127.0.0.1:7890",
+  "headless": true,
+  "times": 1,
+  "results": [
+    {
+      "device_id": "0d1818f9-4283-4772-a6ab-b0bd56914dcc",
+      "flow": "oauth_create_account",
+      "page_url": "https://auth.openai.com/about-you",
+      "proxy": "http://127.0.0.1:7890",
+      "headless": true,
+      "final_url": "https://auth.openai.com/about-you",
+      "nav_error": null,
+      "sdk_load_mode": "remote_url",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2802,
+      "so_raw_head": "{\"so\":\"QhEcAR8OBQwPE3pUe2Jzawthdllafm10cHJ0WVZyenJ7URMVERYMHw4EDA8TemITCBMVERcMHwwRFBdyaA4TFx0bAR4bBA8RFBdyaA4TFx0bBhYbC",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 480,
+      "so_is_fake": false,
+      "so_header_len": 2802,
+      "so_header_present": true,
+      "p_len": 561,
+      "c_len": 2232,
+      "error": null,
+      "t_len": 1160,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "B\u001b\u001f\u0005\u001b\b\b\f\t\u0017z{MRtNldpg\r}lb^sqI~szhEU\u0017\u0015\u001b\u001f\u001d\u0001\f\u001b\u0014\u0011dQM~ackhxkYXl{\u0002g}xEvtxJK{M]`z\u0003\fXnvuVk\b|WakJ{rRl{mb|kok\nlk\b\u0017\u0006m\u0000Ovd\u0001shbMjh\u001f[dhTJRfkJ{rMR[yXs_nEG\fj\t`q`kJ{rd|oi\u0003onah\u0006g",
+      "token_json": {
+        "p": "gAAAAABWzMwMDAsIk1vbiBBdWcgMDMgMjAyNiAyMjoyMjowNiBHTVQrMDgwMCAoQ2hpbmEgU3RhbmRhcmQgVGltZSkiLDQzOTU2MzA1OTIsOTQsIk1vemlsbGEvNS4wIChXaW5kb3dzIE5UIDEwLjA7IFdpbjY0OyB4NjQpIEFwcGxlV2ViS2l0LzUzNy4zNiAoS0hUTUwsIGxpa2UgR2Vja28pIENocm9tZS8xNDIuMC4wLjAgU2FmYXJpLzUzNy4zNiIsImh0dHBzOi8vc2VudGluZWwub3BlbmFpLmNvbS9iYWNrZW5kLWFwaS9zZW50aW5lbC9zZGsuanMiLG51bGwsImVuLVVTIiwiZW4tVVMiLDIsImxvZ2lu4oiSW29iamVjdCBOYXZpZ2F0b3JMb2dpbl0iLCJsb2NhdGlvbiIsIl9fb2FpX3NvX3NuIiwyNTU1MSwiMTdhMGFhOGQtNGNiMC00Yzc5LWFiOTMtZmEzZjE3Y2VhZDZiIiwiIiw4LDE3ODU3NjY5MDA0OTguNywwLDAsMCwwLDAsMCwwXQ==~S",
+        "t": "QhsfBRsICAwJF3p7TVJ0TmxkcGcNfWxiXnNxSX5zemhFVRcVGx8dAQwbFBFkUU1+YWNraHhrWVhsewJnfXhFdnR4Skt7TV1gegMMWG52dVZrCHxXYWtKe3JSbHttYnxrb2sKbGsIFwZtfwBPdmQBc2hiTWpoH1tkaFRKUmZrSntyTVJbeVhzX25FRwxqCWBxYGtKe3JkfG9pA29uYWgGZ25Ra2N2eFJ5ck1SW3pYUWFoeHZXf3hnfnZOUm12YG9of2ZBX1p4S39uVV1rdE5KT2dSBAQMHxcLDAAGBhsDDGBeCGl8A29oYUlxdGhvRlFkVWNfZnMJeGxEcHd9bGp9e15FeXRSe2xkcAhdeV98YWpFR3RrVWxkZH5BTWtnWlhsRHB0eHxcdHtoRQ4XFRsfARsPAQwJF3hoEw4XFRsXARsKGxQRdngBExEZGwoXHQEMGxQRZGx/bGJgf3t/ZwUEGwIRABcNGREPG2hGR2J8aBZ5c2hBZXVCdHdoVHBjfh4GfW8JaGFyQWhvcU1ad2lyRnp9bGZ4bghsYm1SY2Z1QnR1aUsNYW14aVB8aBZ9dGtOSHUFTWh9ZUF7fll+UXhrXX1xQWBrcndsW3p1TXtteGlxfGgWfnZrUkh1BG9afXZWYXhZX2EbFQwADRcPGhEPG3pZDggbFQwHDRcPGBEPG3dUfkB0Q3cOFxUbGwIbAAEMCRd+Cx9rZAh7FmAEQVp8RHhjW3h5V28IdFJwCV1NZHBWbXxmQW5hQml9bW9sf2R7b3lrQgx+eQIEWmpoQ1dhfx58cgldTWRwSVh5AgFjenhxb2x/VnJnCl15ZVlJeH9mQWBhRmJWbX9KeGNVd39lBU1hf3VRXWofZVZvCFZ4Z1VNSmtwUVh5Ak1dbh8CZ2F/F3ttb3tKZ3B7YXt1DGhoaGlnfk4TDhcVGx8CGwkPDAkXeHhvcnR4eG9ydHh4b3J0eHhvcnR4eG9ydHgEExEZGw8ZHQALGxQDGwoIGwINDAAbAwUPCR4GAgAVDAoHFwoZEQ8bbHsCVGgJd3dzXn99YnAIa291TX9haFdlblFaUmNSdE1lc01ueQNWYGhoaVcbFQwFBRcOHREPG2BGR0Vhf15WY2xKelVzXVhvcXBjfhwGfWFod39yTnBtck1scGZeAQQbUw==",
+        "c": "gAAAAABqcKQM4AoaF-UawTi7Fop9l9XpflGh2TM0QLhRc-cJ2PjLJS_WPhAErCG9tIWLNSwrFcoTAUSCGClCgRP-oeHwOf_JYgIXj7RuR7bygAdbR4VRB80XSduoLv-le5iUGSEgIjyOEGE3ZA2xO0UVjzs8d1gjocAQ5MkgkCYPN5DAE2vd2V9L7AQ_-pSzQpbHg1FzQ-3DIf8Lm8_C56zRhu08uxnmo4Mn4ZdSDspLHP91-7sCZJ9H1CgaYIJUR5UY_VWOD31G8dce_B5LAJnJ0Vs2vKyXyuGWWNdxiw8y2c9AgNYqnhCgPFKiHB6zxT2cF-dEofZ-3XUWEeCKX3zlJTiFyNsaj6iIzknpU6_aVgZJpMitWOuV6AkjkhqwsfL6y8ex0HYECOOr4-MXYcz-57FLme46-q6w4tpOyk1W2IP2oMp2yrh3Xixh-s22V7f7x2ZWo4w7JHrdUx4yiwtgXbrQ38g1JQUmI75a37bm-oOmvDqIeksJ9YNDVjIgnL6QSIo7y7gA-YYgiCYTSWCyUOXUmGtA2mJISCb8GHMvZRl-6hLDkeBahww8jDdM3MeZV3oK6hPdmQF-7jGxI58l7D1dN3fjVejkswQJUfPxMj4HlFVhzfoEM0zgL5WAAHf3l5MFK3GQTBy6rfFzE3_fPENnGPYdg1XsakpAYmczK89nO4TqQhDEYlvEldH3dEVMGhtFmA7_XUpnXf3ahx3_ukU9dhaQV_yoluSwDHJZMxtgCGkENW0pBfEGJLbaPAceez1MAuW8YkG6DQEiFWbEPw38dPFab9mTQHGOarK7xZlWY7iAH0GAYIafcKSpWqKQwdsOTJLILWXYfE-Z6fT5V3jLw5g9jzZ5LgcWc3zMPO71DFT4MNCgPl3yfAULF13FtHv1g39mwhjQL0J0hlyEMhCj1zpL9p8Vj26JqnVPIrYsnrsOFRa5a7nF-zszztEe5iLHHHfYQdZOFvTYojMO_T9qQaplHHVRoT13SFUrepAG9Xi1uK-19KW5VkSIFoiQikRhyp6gtqaPAB5NQqskKS4k0A5hVyfhJbdXW3Ohc_wpHAfcUQDx1ouCsIaaQVcVTam8fUfOIyeWI3W2Y-AVzUhy7b3cYt3iJrQAsFNHU62dBWxBpOB6lwIbuvDJ-s_CR863bKIAD87qFEOiuGDq2QYQ8-HNJU5BOoeCvNnugon9LbX0ZjwAAyXL4Gus3R9aFxs5k2P_xkiTiAEsr-KGXxh5fOilEpu8312zYEBGReKWUWcghkXj0HQ9H3R_JJks1GAY-87A6XFZfZWPY7rCEz0j-3BqlXlZR6UAvRprPV4o2PMkgdRC7tD0ybBk_H1PrgPiFteQ2DzPBIxw5LV4eudJing-WCPohx0K0QeRIo_C5tUNT3pvthOQYt6Vdu8iLbozOBlNH0ZEasCxIcT24o8-93EN8PyrpqM2-TkUzW_3B1K3Ivs3ROcUYjRZX8vXQ4ClTxfbFq_MJs7tVYQPRt39FFFNvnBKC7zkWy4PhuXHtqscp_lx8jkuYUnNrZg91rg900AUjFTAf134V5gtnTIdFHGJRS48_l3cIZl0ekqYX0IV10-HTyxNIEzgSS1pfzQK1W0JpGJjWxozUhdCl4K9HMtZI6R9oPyUU-U8f3IelktrL-eqXzvGzZ2BYSCuSuIa6TdTFGSVKUp-_qBrcBCem_yIcFtGypL6GZsiu7JoucP1eGFXlCTVlFiyS9J-6rASq7mM-4-ltyoF4iQcHdZU8HRqf5H5QagdOE67s9yWB5LW6nsBh6EWsLmB52DD1LlDnv3SaJu0LmdUA6ba48VyMKxKG5A5-4ci5wIkbK0Kh52KC2A8IcfOm3g9hW9IX9O56OWcofClIpgvzD-pRUhmB0p9pP-eCt5Gm3bvSmAkBk9a4ddaGGo0hOOrZdE_Q8u66ib5R5xXhob5NTzBC2um02Ni59C2kiEtM5zXXhVnlxN-XX02K9OBWeaCHNvAGfFATnLAfmJvBfFzGPOtiJjXKWSLQVcwIMEJPjznFBzBjBevYqgGnFVUhF-suh0FsRs00EAz3H0ivpMmiz_TlkdV-pQLF2VgKQeiH2k2b-5q_SgvLOKnonzgR7XAqrfph_PAq4Y4RxpBJOd3pjyrdXze1iV0JMhuidC27ncSbF3gBQyh0y38fBAzeCBXpWbYYp60sHOXC9gqmCIpEKqMgAfJodCrhmIOpQH_tl-4jqTVd-qec9M=",
+        "id": "0d1818f9-4283-4772-a6ab-b0bd56914dcc",
+        "flow": "oauth_create_account"
+      },
+      "so_header": "{\"so\":\"QhEcAR8OBQwPE3pUe2Jzawthdllafm10cHJ0WVZyenJ7URMVERYMHw4EDA8TemITCBMVERcMHwwRFBdyaA4TFx0bAR4bBA8RFBdyaA4TFx0bBhYbCQgRFBdyaA4TFx0bAhkbBgoRFBdyaA4TFx0bBR0bBAgRFBdyeA4TFx0bAgADBxsJDHZwBA4MGRMAAgAHCRsJDHZwaGRvdGhpcXxWeXtiQX53Xg4TFx0bCx8bAwARFBdyeGJ5dHBgY2xnUnFwf150f0QTCBMVERkNHwwEDA8TemITCBMVERsEHwwBDA8TemITCBMVERYCHwAEDA8TenJ3CBMVERkAHwsEDA8TemITCBMVERoAHw0GDA8TemITCBMVER0NHw8FDA8TenEeUHN4dmJ3c1J2b2RWe3tJeHR4YmdWExURGQUfCwQMDxN6Sx5tcE5QfnZZTnZvQgl6e0lscn1ye1ETFREYBB8AERQXcmgOExdM\",\"c\":\"gAAAAABqcKQM4AoaF-UawTi7Fop9l9XpflGh2TM0QLhRc-cJ2PjLJS_WPhAErCG9tIWLNSwrFcoTAUSCGClCgRP-oeHwOf_JYgIXj7RuR7bygAdbR4VRB80XSduoLv-le5iUGSEgIjyOEGE3ZA2xO0UVjzs8d1gjocAQ5MkgkCYPN5DAE2vd2V9L7AQ_-pSzQpbHg1FzQ-3DIf8Lm8_C56zRhu08uxnmo4Mn4ZdSDspLHP91-7sCZJ9H1CgaYIJUR5UY_VWOD31G8dce_B5LAJnJ0Vs2vKyXyuGWWNdxiw8y2c9AgNYqnhCgPFKiHB6zxT2cF-dEofZ-3XUWEeCKX3zlJTiFyNsaj6iIzknpU6_aVgZJpMitWOuV6AkjkhqwsfL6y8ex0HYECOOr4-MXYcz-57FLme46-q6w4tpOyk1W2IP2oMp2yrh3Xixh-s22V7f7x2ZWo4w7JHrdUx4yiwtgXbrQ38g1JQUmI75a37bm-oOmvDqIeksJ9YNDVjIgnL6QSIo7y7gA-YYgiCYTSWCyUOXUmGtA2mJISCb8GHMvZRl-6hLDkeBahww8jDdM3MeZV3oK6hPdmQF-7jGxI58l7D1dN3fjVejkswQJUfPxMj4HlFVhzfoEM0zgL5WAAHf3l5MFK3GQTBy6rfFzE3_fPENnGPYdg1XsakpAYmczK89nO4TqQhDEYlvEldH3dEVMGhtFmA7_XUpnXf3ahx3_ukU9dhaQV_yoluSwDHJZMxtgCGkENW0pBfEGJLbaPAceez1MAuW8YkG6DQEiFWbEPw38dPFab9mTQHGOarK7xZlWY7iAH0GAYIafcKSpWqKQwdsOTJLILWXYfE-Z6fT5V3jLw5g9jzZ5LgcWc3zMPO71DFT4MNCgPl3yfAULF13FtHv1g39mwhjQL0J0hlyEMhCj1zpL9p8Vj26JqnVPIrYsnrsOFRa5a7nF-zszztEe5iLHHHfYQdZOFvTYojMO_T9qQaplHHVRoT13SFUrepAG9Xi1uK-19KW5VkSIFoiQikRhyp6gtqaPAB5NQqskKS4k0A5hVyfhJbdXW3Ohc_wpHAfcUQDx1ouCsIaaQVcVTam8fUfOIyeWI3W2Y-AVzUhy7b3cYt3iJrQAsFNHU62dBWxBpOB6lwIbuvDJ-s_CR863bKIAD87qFEOiuGDq2QYQ8-HNJU5BOoeCvNnugon9LbX0ZjwAAyXL4Gus3R9aFxs5k2P_xkiTiAEsr-KGXxh5fOilEpu8312zYEBGReKWUWcghkXj0HQ9H3R_JJks1GAY-87A6XFZfZWPY7rCEz0j-3BqlXlZR6UAvRprPV4o2PMkgdRC7tD0ybBk_H1PrgPiFteQ2DzPBIxw5LV4eudJing-WCPohx0K0QeRIo_C5tUNT3pvthOQYt6Vdu8iLbozOBlNH0ZEasCxIcT24o8-93EN8PyrpqM2-TkUzW_3B1K3Ivs3ROcUYjRZX8vXQ4ClTxfbFq_MJs7tVYQPRt39FFFNvnBKC7zkWy4PhuXHtqscp_lx8jkuYUnNrZg91rg900AUjFTAf134V5gtnTIdFHGJRS48_l3cIZl0ekqYX0IV10-HTyxNIEzgSS1pfzQK1W0JpGJjWxozUhdCl4K9HMtZI6R9oPyUU-U8f3IelktrL-eqXzvGzZ2BYSCuSuIa6TdTFGSVKUp-_qBrcBCem_yIcFtGypL6GZsiu7JoucP1eGFXlCTVlFiyS9J-6rASq7mM-4-ltyoF4iQcHdZU8HRqf5H5QagdOE67s9yWB5LW6nsBh6EWsLmB52DD1LlDnv3SaJu0LmdUA6ba48VyMKxKG5A5-4ci5wIkbK0Kh52KC2A8IcfOm3g9hW9IX9O56OWcofClIpgvzD-pRUhmB0p9pP-eCt5Gm3bvSmAkBk9a4ddaGGo0hOOrZdE_Q8u66ib5R5xXhob5NTzBC2um02Ni59C2kiEtM5zXXhVnlxN-XX02K9OBWeaCHNvAGfFATnLAfmJvBfFzGPOtiJjXKWSLQVcwIMEJPjznFBzBjBevYqgGnFVUhF-suh0FsRs00EAz3H0ivpMmiz_TlkdV-pQLF2VgKQeiH2k2b-5q_SgvLOKnonzgR7XAqrfph_PAq4Y4RxpBJOd3pjyrdXze1iV0JMhuidC27ncSbF3gBQyh0y38fBAzeCBXpWbYYp60sHOXC9gqmCIpEKqMgAfJodCrhmIOpQH_tl-4jqTVd-qec9M=\",\"id\":\"0d1818f9-4283-4772-a6ab-b0bd56914dcc\",\"flow\":\"oauth_create_account\"}",
+      "elapsed_s": 27.931
+    }
+  ],
+  "summary": {
+    "ok_n": 1,
+    "has_so_n": 1,
+    "syntax_t_n": 0
+  },
+  "pass_criteria": {
+    "has_so_stable": ">=1 and preferably all times",
+    "t_not_syntaxerror": true,
+    "so_header_len_near_jennifer": "~2900"
+  },
+  "note": "P0 目标：真页稳定 has_so=true 且 t 非 SyntaxError。成功后再接协议 create opt-in；禁止伪造 so。"
+}

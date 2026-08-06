@@ -1,0 +1,69 @@
+{
+  "created_at": "2026-08-03T22:22:08",
+  "flow": "oauth_create_account",
+  "proxy": "http://127.0.0.1:7890",
+  "headless": true,
+  "times": 1,
+  "results": [
+    {
+      "device_id": "0d1818f9-4283-4772-a6ab-b0bd56914dcc",
+      "flow": "oauth_create_account",
+      "page_url": "https://auth.openai.com/about-you",
+      "proxy": "http://127.0.0.1:7890",
+      "headless": true,
+      "final_url": "https://auth.openai.com/about-you",
+      "nav_error": null,
+      "sdk_load_mode": "remote_url",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2802,
+      "so_raw_head": "{\"so\":\"QhEcAR8OBQwPE3pUe2Jzawthdllafm10cHJ0WVZyenJ7URMVERYMHw4EDA8TemITCBMVERcMHwwRFBdyaA4TFx0bAR4bBA8RFBdyaA4TFx0bBhYbC",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 480,
+      "so_is_fake": false,
+      "so_header_len": 2802,
+      "so_header_present": true,
+      "p_len": 561,
+      "c_len": 2232,
+      "error": null,
+      "t_len": 1160,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "B\u001b\u001f\u0005\u001b\b\b\f\t\u0017z{MRtNldpg\r}lb^sqI~szhEU\u0017\u0015\u001b\u001f\u001d\u0001\f\u001b\u0014\u0011dQM~ackhxkYXl{\u0002g}xEvtxJK{M]`z\u0003\fXnvuVk\b|WakJ{rRl{mb|kok\nlk\b\u0017\u0006m\u0000Ovd\u0001shbMjh\u001f[dhTJRfkJ{rMR[yXs_nEG\fj\t`q`kJ{rd|oi\u0003onah\u0006g",
+      "elapsed_s": 27.931,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    }
+  ],
+  "summary": {
+    "ok_n": 1,
+    "has_so_n": 1,
+    "syntax_t_n": 0
+  },
+  "pass_criteria": {
+    "has_so_stable": ">=1 and preferably all times",
+    "t_not_syntaxerror": true,
+    "so_header_len_near_jennifer": "~2900"
+  },
+  "note": "P0 目标：真页稳定 has_so=true 且 t 非 SyntaxError。成功后再接协议 create opt-in；禁止伪造 so。"
+}
