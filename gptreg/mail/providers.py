@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 TOKEN_ENDPOINT = "https://login.live.com/oauth20_token.srf"
 MAIL_ENDPOINT = "https://outlook.office.com/api/v2.0/me/messages"
 
+# IMAP XOAUTH2 专用：MS 官方端点 + IMAP scope(缺 scope → access_token 无 IMAP 权限
+# → 报 "authenticated but not connected")。login.live.com 旧端点对 IMAP scope 支持不全。
+IMAP_TOKEN_ENDPOINT = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+IMAP_SCOPE = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
+
 # IMAP 搜索 OpenAI 发件人（noreply@tm.openai.com 含 "openai"）
 IMAP_OPENAI_SENDER = "openai"
 
@@ -329,13 +334,14 @@ class IMAPOAuthClient:
             "client_id": self.client_id,
             "grant_type": "refresh_token",
             "refresh_token": self.refresh_token,
+            "scope": IMAP_SCOPE,
         }
-        # IMAP 直连：token 交换直连 login.live.com（不走 OpenAI 注册代理），
-        # 避免链式隧道/动态代理对 curl 的影响；IMAP 993 本身也是直连。
+        # token 交换用 MS 官方端点 + IMAP scope(缺 scope → token 无 IMAP 权限
+        # → "authenticated but not connected")。直连不走注册代理。
         for proxies in (None, self._proxies() if self.proxy else None):
             try:
                 r = cr.post(
-                    TOKEN_ENDPOINT,
+                    IMAP_TOKEN_ENDPOINT,
                     data=data,
                     timeout=self.timeout,
                     impersonate=self.impersonate,
@@ -362,7 +368,9 @@ class IMAPOAuthClient:
         if not at:
             raise MailClientError(f"IMAP 换 access_token 失败: {self.email}")
         conn = imaplib.IMAP4_SSL(self.IMAP_HOST, self.IMAP_PORT)
-        auth_str = f"user={self.email}\x01auth=Bearer {at}\x01\x01"
+        # XOAUTH2 的 user= 必须用登录基础邮箱(去 +tag 别名), 别名会导致认证异常
+        login = self.email.split("+")[0] + "@" + self.email.split("@")[1] if "+" in self.email else self.email
+        auth_str = f"user={login}\x01auth=Bearer {at}\x01\x01"
         conn.authenticate("XOAUTH2", lambda x: auth_str.encode())
         self._conn = conn
         return conn

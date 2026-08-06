@@ -277,7 +277,13 @@ def resolve_proxy(cfg: dict[str, Any], override: str | None = None) -> ResolvedP
     return ResolvedProxy(session_url=upstream, upstream_url=upstream, region=region, sid=sid)
 
 
-def _read_until_headers(sock: socket.socket) -> bytes:
+def _read_until_headers(sock: socket.socket) -> tuple[bytes, bytes]:
+    """读 HTTP 头，返回 (headers, extra)。
+
+    extra = \r\n\r\n 之后已读到的多余字节——目标可能在 CONNECT 200 响应后立即发
+    数据（SSH banner / IMAP greeting / TLS 前的协议首包），若被 recv(4096) 一起
+    读走而丢弃，后续 relay 永远等不到这包数据 → 连接中止。必须保留并补发。
+    """
     data = b""
     while b"\r\n\r\n" not in data:
         chunk = sock.recv(4096)
@@ -286,7 +292,10 @@ def _read_until_headers(sock: socket.socket) -> bytes:
         data += chunk
         if len(data) > 65536:
             break
-    return data
+    idx = data.find(b"\r\n\r\n")
+    if idx == -1:
+        return data, b""
+    return data[:idx], data[idx + 4 :]
 
 
 def _parse_hop(url: str) -> tuple[str, int, str]:
@@ -369,7 +378,7 @@ class StickyChainTunnel:
             _basic = "Bas" + "ic "
 
             # 读客户端完整首请求（CONNECT host:port 或绝对路径）
-            first = _read_until_headers(client)
+            first, _ = _read_until_headers(client)
             if not first:
                 return
             first_line = first.split(b"\r\n", 1)[0].decode(errors="replace")
@@ -393,7 +402,7 @@ class StickyChainTunnel:
                 connect_hop2 += _pa + ": " + _basic + hop1_auth + "\r\n"
             connect_hop2 += "\r\n"
             hop1_sock.sendall(connect_hop2.encode())
-            hop1_resp = _read_until_headers(hop1_sock)
+            hop1_resp, _ = _read_until_headers(hop1_sock)
             hop1_status = hop1_resp.split(b"\r\n", 1)[0]
             if b" 200 " not in hop1_status:
                 logger.warning(
@@ -410,7 +419,7 @@ class StickyChainTunnel:
                     connect_target += _pa + ": " + _basic + hop2_auth + "\r\n"
                 connect_target += "\r\n"
                 hop1_sock.sendall(connect_target.encode())
-                hop2_resp = _read_until_headers(hop1_sock)
+                hop2_resp, extra2 = _read_until_headers(hop1_sock)
                 hop2_status = hop2_resp.split(b"\r\n", 1)[0]
                 if b" 200 " not in hop2_status:
                     logger.warning(
@@ -422,6 +431,13 @@ class StickyChainTunnel:
                     return
                 # 3) 告诉客户端隧道已建立，随后双向透传 TLS
                 client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                # 目标在 CONNECT 200 后立即发的早期数据(SSH banner/IMAP greeting)必须补发,
+                # 否则 relay 从 hop1_sock recv 永远等不到这包 → 连接中止
+                if extra2:
+                    try:
+                        client.sendall(extra2)
+                    except OSError:
+                        pass
             else:
                 # 明文代理请求：注入 hop2 认证后原样转发
                 marker = (_pa + ":").encode()
