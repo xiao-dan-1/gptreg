@@ -80,3 +80,22 @@ def save_success(
         with full_path.open("a", encoding="utf-8") as f:
             f.write(copy_line + "\n")
     return out_dir
+
+
+def save_account(cfg: dict[str, Any], *, record: dict[str, Any]) -> Path:
+    """统一落盘单条完整账号到 accounts.jsonl(主库, 唯一事实源)。
+
+    各注册脚本(verify_pwd_totp/v3/probe)共用。record 为完整账号字段:
+      email/password/access_token/refresh_token/session_cookies/totp_secret/
+      device_id/sentinel_obs/status/updated_at 等。
+    """
+    out_dir = ensure_output_dir(cfg)
+    output = cfg.get("output", {})
+    accounts_path = out_dir / output.get("accounts_jsonl", "accounts.jsonl")
+    rec = dict(record)
+    if "saved_at" not in rec:
+        rec["saved_at"] = datetime.now().isoformat(timespec="seconds")
+    with _LOCK:
+        with accounts_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    return out_dir

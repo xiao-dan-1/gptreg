@@ -242,11 +242,30 @@ def main() -> int:
         mfa_on = '"mfa_enabled":true' in resp_i.text
         print(f"[OK] mfa_info mfa_enabled={mfa_on}")
 
+        # 13. 统一落盘 accounts.jsonl(含 totp_secret/refresh_token/status) → 可测活
+        from gptreg.store import save_account
+
+        cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
+                    "secure": bool(getattr(c, "secure", False))}
+                   for c in s.session.cookies.jar]
+        save_account(load_config(), record={
+            "email": email,
+            "password": password,
+            "access_token": at,
+            "refresh_token": info.get("refreshToken") or info.get("refresh_token") or "",
+            "device_id": s.device_id,
+            "name": "James Miller",
+            "birthdate": "1998-05-12",
+            "mail_main": base_email,
+            "totp_secret": sec,
+            "status": "ok",
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "sentinel_obs": {"challenge_mode": "quickjs_pwd_v3", "totp_enrolled": True},
+            "session_cookies": cookies,
+        })
+        print("[落盘] 账号已保存到 accounts.jsonl(含 totp_secret)")
+
         print(f"\n账号: {email}\n密码: {password}\nTOTP: {sec}")
-        out = ROOT / "output" / "totp_accounts.txt"
-        with out.open("a", encoding="utf-8") as f:
-            f.write(f"{email}----{password}----{sec}\n")
-        print(f"已保存 {out}")
         T.dump(t0)
     finally:
         resolved.close()

@@ -154,6 +154,8 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
             "at": at,
             "device_id": session.device_id,
             "cookies": cookies,
+            # 刷新凭证: OAuth offline_access scope 的 refreshToken(有则可无限刷新)
+            "refresh_token": info.get("refreshToken") or info.get("refresh_token") or "",
             # sentinel 观测: create_account 用 quickjs t + browser so
             "t_len": len(tok2),
             "so_len": len(so_b or ""),
@@ -209,35 +211,7 @@ def main() -> int:
         print("[x] 注册失败")
         return 2
 
-    # 1.5 落盘 accounts.jsonl(测活/后续管理需要 access_token/cookies)
-    try:
-        record = {
-            "email": email,
-            "password": password,
-            "access_token": reg["at"],
-            "device_id": reg["device_id"],
-            "name": display_name,
-            "birthdate": bday,
-            "mail_main": base_email,
-            "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "sentinel_obs": {
-                "challenge_mode": "quickjs_pwd_v3",
-                "create_has_so": reg["has_so"],
-                "create_so_len": reg["so_len"],
-                "t_len": reg["t_len"],
-                "flow": FLOW_PWD,
-                "create_flow": FLOW_OAUTH,
-                "totp_enrolled": True,
-            },
-            "session_cookies": reg["cookies"],
-            "health": "ok",
-        }
-        acc_file = ROOT / "output" / "accounts.jsonl"
-        with acc_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        print("[落盘] 账号已保存到 accounts.jsonl")
-    except Exception as exc:
-        print(f"[warn] 落盘失败: {exc}")
+    # 1.5 落盘延后到 enroll+secret 后统一写入(含 totp_secret/refresh_token/status)
 
     # 2. 立即 mfa/enroll
     t2 = time.time()
@@ -307,16 +281,40 @@ def main() -> int:
         print(f"[x] 未提取到 secret: {txt[:300]}")
         return 4
 
+    # 3.5 统一落盘 accounts.jsonl 主库(含 totp_secret/refresh_token/status)
+    from gptreg.store import save_account
+
+    save_account(cfg, record={
+        "email": email,
+        "password": password,
+        "access_token": reg["at"],
+        "refresh_token": reg["refresh_token"],
+        "device_id": reg["device_id"],
+        "name": display_name,
+        "birthdate": bday,
+        "mail_main": base_email,
+        "totp_secret": secret,
+        "status": "ok",
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "sentinel_obs": {
+            "challenge_mode": "quickjs_pwd_v3",
+            "create_has_so": reg["has_so"],
+            "create_so_len": reg["so_len"],
+            "t_len": reg["t_len"],
+            "flow": FLOW_PWD,
+            "create_flow": FLOW_OAUTH,
+            "totp_enrolled": True,
+        },
+        "session_cookies": reg["cookies"],
+    })
+    print("[落盘] 账号已保存到 accounts.jsonl(含 totp_secret)")
+
     print("\n" + "=" * 50)
     print(f"账号: {email}")
     print(f"密码: {password}")
     print(f"TOTP: {secret}")
     print(f"otpauth: otpauth://totp/ChatGPT:{email}?secret={secret}&issuer=ChatGPT")
     print("=" * 50)
-    out = ROOT / "output" / "totp_accounts.txt"
-    with out.open("a", encoding="utf-8") as f:
-        f.write(f"{email}----{password}----{secret}\n")
-    print(f"已保存 {out}")
     print(f"[总耗时] {(time.time()-t0):.1f}s")
     return 0
 
