@@ -260,7 +260,13 @@ def main() -> int:
             "totp_secret": sec,
             "status": "ok",
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "sentinel_obs": {"challenge_mode": "quickjs_pwd_v3", "totp_enrolled": True},
+            "sentinel_obs": {
+                "challenge_mode": "quickjs_pwd_v3",
+                "create_has_so": bool(so_b),
+                "create_so_len": len(so_b or ""),
+                "t_len": len(token),
+                "totp_enrolled": True,
+            },
             "session_cookies": cookies,
         })
         print("[落盘] 账号已保存到 accounts.jsonl(含 totp_secret)")
