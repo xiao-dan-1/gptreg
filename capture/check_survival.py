@@ -36,6 +36,7 @@ def main() -> int:
 
     emails = {e.strip() for e in args.emails.split(",") if e.strip()}
     accounts = []
+    skipped_no_token = []
     for line in Path(ROOT / "output" / "accounts.jsonl").read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -44,16 +45,24 @@ def main() -> int:
             d = json.loads(line)
         except Exception:
             continue
-        if not d.get("access_token"):
-            continue
         if emails and d.get("email") not in emails:
             continue
         so = d.get("sentinel_obs") or {}
         if args.mode and so.get("challenge_mode") != args.mode:
             continue
+        if not d.get("access_token"):
+            skipped_no_token.append(d.get("email"))
+            continue
         accounts.append(d)
     if args.limit:
         accounts = accounts[-args.limit:]
+
+    if skipped_no_token:
+        print(f"[提示] 跳过 {len(skipped_no_token)} 个无 access_token 的账号(需登录补 token 才能测活):")
+        for e in skipped_no_token[:8]:
+            print(f"    {e}")
+        if len(skipped_no_token) > 8:
+            print(f"    ... 共 {len(skipped_no_token)} 个")
 
     print(f"检查 {len(accounts)} 个账号:")
     results = []

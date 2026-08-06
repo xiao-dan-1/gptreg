@@ -39,7 +39,7 @@ def _api_headers(s, referer: str) -> dict:
 
 
 def login_get_token(cfg, proxy_url: str, email: str, password: str, totp_secret: str):
-    """密码+TOTP 登录 → (access_token, device_id, cookies)。失败返回 None。"""
+    """密码+TOTP 登录 → ((at, device_id, cookies) 或 None, reason)。"""
     r = resolve_proxy(cfg, override=proxy_url)
     s = BrowserSession(cfg, proxy=r.session_url)
     try:
@@ -59,8 +59,7 @@ def login_get_token(cfg, proxy_url: str, email: str, password: str, totp_secret:
                     headers=h, data=json.dumps({"username": {"kind": "email", "value": email}}),
                     allow_redirects=False, timeout=30)
         if r2.status_code != 200:
-            print(f"  [x] authorize/continue {r2.status_code}")
-            return None
+            return None, f"authorize/continue HTTP {r2.status_code}(会话/邮箱问题)"
 
         tok_pw, _ = get_sentinel_token_via_quickjs(s, s.device_id, flow="password_verify", cfg=cfg)
         h = _api_headers(s, f"{ISSUER}/log-in/password")
@@ -69,10 +68,11 @@ def login_get_token(cfg, proxy_url: str, email: str, password: str, totp_secret:
                     headers=h, data=json.dumps({"password": password}),
                     allow_redirects=False, timeout=30)
         if r3.status_code != 200:
-            print(f"  [x] password/verify {r3.status_code}")
-            return None
+            return None, f"password/verify HTTP {r3.status_code}(密码可能错误/账号状态)"
         c3 = r3.json()
         factor_id = (c3.get("page") or {}).get("payload", {}).get("factor_id")
+        if not factor_id:
+            return None, "账号 2FA 未激活(无 TOTP factor), 需重新 enroll+activate"
 
         import pyotp
         code6 = pyotp.TOTP(totp_secret).now()
@@ -81,25 +81,21 @@ def login_get_token(cfg, proxy_url: str, email: str, password: str, totp_secret:
                     data=json.dumps({"type": "totp", "id": factor_id, "code": code6}),
                     allow_redirects=False, timeout=30)
         if r4.status_code != 200:
-            print(f"  [x] mfa/verify {r4.status_code}: {r4.text[:80]}")
-            return None
+            return None, f"mfa/verify HTTP {r4.status_code}: {r4.text[:60]}"
         cont = r4.json().get("continue_url") or ""
         if not cont:
-            print("  [x] mfa/verify 无 continue_url")
-            return None
+            return None, "mfa/verify 无 continue_url"
         auth.follow_oauth_callback(s, cont)
         info = auth.fetch_session(s)
         at = info.get("accessToken")
         if not at:
-            print("  [x] 无 accessToken")
-            return None
+            return None, "无 accessToken"
         cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
                     "secure": bool(getattr(c, "secure", False))}
                    for c in s.session.cookies.jar]
-        return at, s.device_id, cookies
+        return (at, s.device_id, cookies), ""
     except Exception as exc:
-        print(f"  [x] 登录异常: {type(exc).__name__}: {str(exc)[:80]}")
-        return None
+        return None, f"{type(exc).__name__}: {str(exc)[:80]}"
     finally:
         r.close()
 
@@ -136,9 +132,9 @@ def main() -> int:
             proxy = args.proxy
         email, password, secret = d["email"], d.get("password", ""), d["totp_secret"]
         print(f"\n[{i}/{len(targets)}] 登录 {email} ...")
-        got = login_get_token(cfg, proxy or None, email, password, secret)
+        got, reason = login_get_token(cfg, proxy or None, email, password, secret)
         if not got:
-            print("  [x] 补 token 失败")
+            print(f"  [x] 补 token 失败: {reason}")
             time.sleep(3)
             continue
         at, did, cookies = got
@@ -147,6 +143,8 @@ def main() -> int:
         d["session_cookies"] = cookies
         d["refresh_token"] = d.get("refresh_token") or ""
         d["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        if not d.get("sentinel_obs"):
+            d["sentinel_obs"] = {"challenge_mode": "quickjs_pwd_v3", "totp_enrolled": True}
         ok += 1
         print(f"  [OK] at 前20: {at[:20]}... cookies={len(cookies)}")
         time.sleep(3)
