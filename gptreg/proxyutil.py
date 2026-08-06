@@ -377,8 +377,10 @@ class StickyChainTunnel:
             _pa = "Proxy-" + "Authorization"
             _basic = "Bas" + "ic "
 
-            # 读客户端完整首请求（CONNECT host:port 或绝对路径）
-            first, _ = _read_until_headers(client)
+            # 读客户端完整首请求（CONNECT host:port 或绝对路径）。extra = \r\n\r\n 之后
+            # 已读到的请求体字节(recv 可能一次读进 headers+body), 非 CONNECT 转发时必须补发,
+            # 否则目标收到没 body 的 POST(同类吞数据 bug 的客户端侧残留)。
+            first, first_extra = _read_until_headers(client)
             if not first:
                 return
             first_line = first.split(b"\r\n", 1)[0].decode(errors="replace")
@@ -446,13 +448,13 @@ class StickyChainTunnel:
                     if idx != -1:
                         auth_line = (_pa + ": " + _basic + hop2_auth + "\r\n").encode()
                         first = first[: idx + 2] + auth_line + first[idx + 2 :]
-                hop1_sock.sendall(first)
+                hop1_sock.sendall(first + first_extra)  # first_extra = 请求体(补发, 勿丢)
 
-            done = threading.Event()
-
+            # 双向透传。relay 两个方向独立完成: 任一方向 EOF 只 shutdown 自己方向,
+            # 不 kill 另一方向(共享 done 曾导致半关闭时反向响应被掐断)。
             def relay(src: socket.socket, dst: socket.socket) -> None:
                 try:
-                    while not done.is_set():
+                    while True:
                         try:
                             data = src.recv(65536)
                         except socket.timeout:
@@ -463,7 +465,6 @@ class StickyChainTunnel:
                 except OSError:
                     pass
                 finally:
-                    done.set()
                     try:
                         dst.shutdown(socket.SHUT_WR)
                     except OSError:
@@ -473,7 +474,9 @@ class StickyChainTunnel:
             t2 = threading.Thread(target=relay, args=(hop1_sock, client), daemon=True)
             t1.start()
             t2.start()
-            done.wait(timeout=300)
+            # 等两个方向都完成(各自 EOF/关闭), 不再因任一方向提前中断另一方向
+            t1.join(timeout=300)
+            t2.join(timeout=300)
         except Exception as exc:
             logger.debug("[Proxy] 隧道连接异常: %s", exc)
         finally:

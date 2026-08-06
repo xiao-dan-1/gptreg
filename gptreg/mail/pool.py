@@ -131,22 +131,26 @@ class MailPool:
             self._failed = dict(data.get("failed") or {})
 
     def _save_state(self) -> None:
-        payload = {
-            "used": sorted(self._used),
-            "bad": sorted(self._bad),
-            "failed": dict(self._failed),
-            "saved_at": int(time.time()),
-        }
-        tmp = self.state_file.with_suffix(self.state_file.suffix + ".tmp")
-        try:
-            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(self.state_file)
-        except Exception:
+        # 锁内快照+写临时文件: 并发 workers 锁外迭代 set/dict 曾抛
+        # RuntimeError(Set changed size)或共写同一 .tmp 损坏 state.json → 已用邮箱状态丢失、
+        # 下次重复 claim 产出重复账号。持久化必须整体持锁。
+        with self._lock:
+            payload = {
+                "used": sorted(self._used),
+                "bad": sorted(self._bad),
+                "failed": dict(self._failed),
+                "saved_at": int(time.time()),
+            }
+            tmp = self.state_file.with_suffix(self.state_file.suffix + ".tmp")
             try:
-                if tmp.exists():
-                    tmp.unlink()
+                tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                tmp.replace(self.state_file)
             except Exception:
-                pass
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except Exception:
+                    pass
 
     def claim(self) -> dict[str, Any] | None:
         with self._lock:

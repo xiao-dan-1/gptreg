@@ -18,6 +18,39 @@ def ensure_output_dir(cfg: dict[str, Any]) -> Path:
     return out
 
 
+def _append_or_replace(path: Path, record: dict[str, Any]) -> None:
+    """写 accounts.jsonl：按 email 去重(同邮箱最新记录替换旧行)，无则追加。
+
+    accounts.jsonl 曾是纯 append → 同邮箱多版本、凭据新旧混杂(旧 access_token/refresh_token
+    残留)。改为 upsert：读现有行，同 email 替换为最新，其余保留。
+    """
+    email = record.get("email")
+    line = json.dumps(record, ensure_ascii=False)
+    if not email:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        return
+    lines: list[str] = []
+    replaced = False
+    if path.exists():
+        for ln in path.read_text(encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            try:
+                d = json.loads(ln)
+            except Exception:
+                lines.append(ln)
+                continue
+            if d.get("email") == email and not replaced:
+                lines.append(line)
+                replaced = True
+            else:
+                lines.append(ln)
+    if not replaced:
+        lines.append(line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def save_success(
     cfg: dict[str, Any],
     *,
@@ -58,6 +91,9 @@ def save_success(
         "account": session_info.get("account"),
         "expires": session_info.get("expires"),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
+        # 对齐 save_account schema: 状态追踪字段
+        "status": "ok",
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
     }
     if extra:
         # 观测字段（sentinel_obs/health 等）；不覆盖核心键
@@ -71,8 +107,7 @@ def save_success(
     full_path = out_dir / output.get("full_lines_txt", "full_lines.txt")
 
     with _LOCK:
-        with accounts_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        _append_or_replace(accounts_path, record)
         with tokens_path.open("a", encoding="utf-8") as f:
             f.write(access_token + "\n")
         with emails_path.open("a", encoding="utf-8") as f:
@@ -96,6 +131,5 @@ def save_account(cfg: dict[str, Any], *, record: dict[str, Any]) -> Path:
     if "saved_at" not in rec:
         rec["saved_at"] = datetime.now().isoformat(timespec="seconds")
     with _LOCK:
-        with accounts_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        _append_or_replace(accounts_path, rec)
     return out_dir

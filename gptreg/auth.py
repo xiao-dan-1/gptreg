@@ -92,23 +92,6 @@ def follow_authorize(session: BrowserSession, authorize_url: str, attempts: int 
     raise last_exc or RuntimeError("follow authorize 失败")
 
 
-def request_sentinel(session: BrowserSession, flow: str) -> dict:
-    from gptreg.sentinel import log_chatreq_obs
-
-    p = generate_requirements_token(session.cfg, session.device_id)
-    body = build_sentinel_request_body(p, session.device_id, flow)
-    url = "https://sentinel.openai.com/backend-api/sentinel/req"
-    logger.info("[Sentinel] req flow=%s", flow)
-    resp = session.post(url, headers=session.sentinel_headers(), data=body)
-    resp.raise_for_status()
-    data = resp.json()
-    # 诊断探针：chatReq.so / collector_dx（不产 so、不改 token）
-    session._last_chatreq_obs = log_chatreq_obs(  # type: ignore[attr-defined]
-        data, flow=flow, http=getattr(resp, "status_code", None)
-    )
-    return data
-
-
 def _sentinel_source(session: BrowserSession, source: str | None = None) -> str:
     """pow | browser（真页真 t）| node（假 t）| quickjs（Node VM 真 t，突破）。"""
     raw = (source if source is not None else (session.cfg.get("protocol") or {}).get("sentinel_source") or "pow")

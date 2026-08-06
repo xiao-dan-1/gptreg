@@ -185,3 +185,10 @@ class BrowserSession:
                 return f"{scheme}://***@{host}"
             except Exception:
                 return "已配置"
+
+    def close(self) -> None:
+        """显式关闭底层 curl_cffi Session(连接池), 避免批量长跑累积连接/句柄。"""
+        try:
+            self.session.close()
+        except Exception:
+            pass

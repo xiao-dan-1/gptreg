@@ -385,6 +385,7 @@ class IMAPOAuthClient:
         self.timeout = timeout
         self._conn: imaplib.IMAP4_SSL | None = None
         self._access_token: str | None = None
+        self._access_token_exp: float = 0.0
         # Graph 兜底：部分邮箱 OAuth token 缺 IMAP scope（authenticated but not connected），
         # 这类邮箱 IMAP 连不上但 Graph 正常，需自动降级。
         self._fallback: MSMailClient | None = None
@@ -399,7 +400,9 @@ class IMAPOAuthClient:
         return self._fallback
 
     def _get_access_token(self, force: bool = False) -> str | None:
-        if not force and self._access_token:
+        # 缓存带过期校验(expires_in), 过期重换; MS 若轮换 refresh token 则更新 self.refresh_token
+        # (否则降级 Graph 用旧 rt 会 invalid_grant, 长驻 client 用 stale token 持续失败)
+        if not force and self._access_token and time.time() < self._access_token_exp - 60:
             return self._access_token
         data = {
             "client_id": self.client_id,
@@ -423,6 +426,10 @@ class IMAPOAuthClient:
                 at = j.get("access_token")
                 if at:
                     self._access_token = at
+                    self._access_token_exp = time.time() + int(j.get("expires_in") or 3600)
+                    new_rt = j.get("refresh_token")
+                    if new_rt:
+                        self.refresh_token = new_rt
                     return at
                 logger.warning("[IMAP] token 交换 status=%s: %s", r.status_code, str(j)[:150])
             except Exception as exc:
@@ -442,7 +449,11 @@ class IMAPOAuthClient:
         # XOAUTH2 的 user= 必须用登录基础邮箱(去 +tag 别名), 别名会导致认证异常
         login = self.email.split("+")[0] + "@" + self.email.split("@")[1] if "+" in self.email else self.email
         auth_str = f"user={login}\x01auth=Bearer {at}\x01\x01"
-        status, _ = conn.xoauth2(auth_str)
+        try:
+            status, _ = conn.xoauth2(auth_str)
+        except Exception:
+            conn.close()  # xoauth2 抛异常(socket 错)时也要关连接, 否则泄漏
+            raise
         parts = status.split(" ", 2)
         if not (len(parts) >= 2 and parts[1] == "OK"):
             conn.close()
@@ -463,7 +474,11 @@ class IMAPOAuthClient:
         ctx = ssl.create_default_context()
         if not chain_via:
             raw = socket.create_connection((self.IMAP_HOST, self.IMAP_PORT), timeout=20)
-            tls_sock = ctx.wrap_socket(raw, server_hostname=self.IMAP_HOST)
+            try:
+                tls_sock = ctx.wrap_socket(raw, server_hostname=self.IMAP_HOST)
+            except Exception:
+                raw.close()
+                raise
             return _ManualImap(tls_sock, self.IMAP_HOST)
         # 手动 CONNECT 隧道经 chain_via(实测可连 MS IMAP; PySocks 的 HTTP 隧道对 993 透传不稳)
         u = urlparse(chain_via if "://" in chain_via else "http://" + chain_via)
@@ -484,7 +499,11 @@ class IMAPOAuthClient:
         if b" 200 " not in resp.split(b"\r\n", 1)[0]:
             sock.close()
             raise MailClientError(f"chain_via CONNECT {self.IMAP_HOST}:{self.IMAP_PORT} 失败: {resp[:80]}")
-        tls_sock = ctx.wrap_socket(sock, server_hostname=self.IMAP_HOST)
+        try:
+            tls_sock = ctx.wrap_socket(sock, server_hostname=self.IMAP_HOST)
+        except Exception:
+            sock.close()
+            raise
         return _ManualImap(tls_sock, self.IMAP_HOST)
 
     def _ensure_conn(self) -> imaplib.IMAP4_SSL:
@@ -509,14 +528,6 @@ class IMAPOAuthClient:
                 pass
             self._conn = None
 
-    def _latest_uid(self, conn: imaplib.IMAP4_SSL) -> int:
-        conn.select("INBOX", readonly=True)
-        typ, data = conn.search(None, "FROM", IMAP_OPENAI_SENDER)
-        if typ != "OK" or not data or not data[0]:
-            return 0
-        ids = [int(x) for x in data[0].split()]
-        return max(ids) if ids else 0
-
     def _latest_since(self, conn: "_ManualImap", after_ts: float) -> tuple[str, int, float] | None:
         """返回最新且 Date>=after_ts 的 OpenAI 邮件 (otp, uid, date_ts)。无则 None。
 
@@ -537,7 +548,9 @@ class IMAPOAuthClient:
         for uid in reversed(ids[-10:]):
             try:
                 status, ut = conn.fetch(str(uid), "(BODY.PEEK[HEADER.FIELDS (DATE SUBJECT)] BODY.PEEK[TEXT])")
-                if not status.endswith(" OK"):
+                # _tagged 返回完整 tag 行如 "A0001 OK FETCH completed", endswith(" OK") 恒 False →
+                # 本地 IMAP 收码曾 100% 静默超时。正确判断: 第二段 == "OK"
+                if not (len(status.split(" ", 2)) >= 2 and status.split(" ", 2)[1] == "OK"):
                     continue
                 header = b""
                 body = b""
@@ -589,44 +602,6 @@ class IMAPOAuthClient:
             return extract_otp(item)
         except Exception:
             return None
-
-    def _fetch_otp(self, conn: imaplib.IMAP4_SSL, uid: int) -> str | None:
-        """按 UID 拉邮件正文并提取 OTP。构造与 extract_otp 兼容的 dict。"""
-        typ, msg_data = conn.fetch(str(uid), "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)] BODY.PEEK[TEXT])")
-        if typ != "OK":
-            return None
-        raw = b""
-        header = b""
-        for part in msg_data:
-            if isinstance(part, tuple):
-                block = part[1]
-                # 区分 header 与 body 块：header 以 "Subject:" 等开头
-                if b"Subject:" in block[:200] or b"From:" in block[:200]:
-                    header += block
-                else:
-                    raw += block
-        msg = email.message_from_bytes(header or b"")
-        # 从正文提纯文本
-        body_text = ""
-        try:
-            m2 = email.message_from_bytes(raw)
-            for part in m2.walk():
-                if part.get_content_type() == "text/plain":
-                    payload = part.get_payload(decode=True) or b""
-                    body_text = payload.decode("utf-8", "replace")
-                    break
-            if not body_text:
-                body_text = raw.decode("utf-8", "replace")
-        except Exception:
-            body_text = raw.decode("utf-8", "replace")
-        item = {
-            "subject": str(msg.get("Subject") or ""),
-            "from": str(msg.get("From") or ""),
-            "text": body_text,
-            "content": body_text,
-        }
-        otp = extract_otp(item)
-        return otp
 
     def wait_for_otp(
         self,
@@ -931,6 +906,12 @@ def _parse_ts(raw: str) -> float:
             base = text.replace("Z", "")[:19]
             return float(calendar.timegm(time.strptime(base, "%Y-%m-%dT%H:%M:%S")))
         if " " in text:
+            # 带时区偏移 "YYYY-MM-DD HH:MM:SS ±ZZZZ"(XDAuv sent_at 可能) → 转 UTC;
+            # 否则按 UTC 解释。曾把带偏移的按 UTC 解析, 偏差数小时 → after_ts 过滤判错新旧。
+            m = re.match(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*([+-]\d{4})?$", text)
+            if m and m.group(2):
+                from datetime import datetime
+                return datetime.strptime(text, "%Y-%m-%d %H:%M:%S %z").timestamp()
             base = text[:19]
             return float(calendar.timegm(time.strptime(base, "%Y-%m-%d %H:%M:%S")))
     except Exception:

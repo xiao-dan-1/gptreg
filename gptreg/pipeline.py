@@ -595,8 +595,12 @@ def run_batch(
             res["retry_tag"] = tag
             bucket = res["fail_bucket"]
             if res.get("create_acknowledged"):
-                # create 已 200 但后续失败：邮箱侧可能已占用
-                mail_pool.mark_bad(email, reason=res.get("error", ""))
+                # create 已 200 但后续失败。瞬时基建失败(网络/超时)不烧邮箱 → mark_failed 可重试;
+                # 明确账号占用(已存在/吊销)才 mark_bad 永久弃号。曾把健康检查网络抖动误判永久烧号。
+                if bucket in ("tls_ssl", "proxy", "otp_mail"):
+                    mail_pool.mark_failed(email)
+                else:
+                    mail_pool.mark_bad(email, reason=res.get("error", ""))
             elif bucket == "create_disallow":
                 # OpenAI 拒建号 ≠ 邮箱封死；OTP 往往仍通。记 fail 进 retrying，勿 mark_bad
                 mail_pool.mark_failed(email)
@@ -609,7 +613,7 @@ def run_batch(
         bucket = result.get("fail_bucket")
         # 基建类失败（TLS/代理/OTP 超时）当次换 IP 重试一次：
         # register_one 内部每次重新 resolve_proxy，重跑即换 sid/IP。
-        if not result.get("success") and bucket in ("tls_ssl", "proxy"):
+        if not result.get("success") and bucket in ("tls_ssl", "proxy", "otp_mail"):
             logger.warning(
                 "[批量] #%s %s 失败(%s)，换 IP 重试一次: %s",
                 index + 1,
