@@ -134,7 +134,15 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
                     "secure": bool(getattr(c, "secure", False))}
                    for c in session.session.cookies.jar]
         print(f"[session] access_token 拿到 ({time.time()-st['start']:.1f}s)")
-        return {"at": at, "device_id": session.device_id, "cookies": cookies}
+        return {
+            "at": at,
+            "device_id": session.device_id,
+            "cookies": cookies,
+            # sentinel 观测: create_account 用 quickjs t + browser so
+            "t_len": len(tok2),
+            "so_len": len(so_b or ""),
+            "has_so": bool(so_b),
+        }
     finally:
         resolved.close()
 
@@ -198,9 +206,9 @@ def main() -> int:
             "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "sentinel_obs": {
                 "challenge_mode": "quickjs_pwd_v3",
-                "create_has_so": True,
-                "create_so_len": 0,
-                "t_len": 0,
+                "create_has_so": reg["has_so"],
+                "create_so_len": reg["so_len"],
+                "t_len": reg["t_len"],
                 "flow": FLOW_PWD,
                 "create_flow": FLOW_OAUTH,
                 "totp_enrolled": True,
