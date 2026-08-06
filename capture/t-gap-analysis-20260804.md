@@ -488,3 +488,25 @@ Graph API 对新邮件有**间歇性 ~150s 索引延迟**(实测 4s~152s 波动)
 - 密码V3 有 register 步骤建立完整会话(oai-client-auth-info/oai-sc cookie),OTP-only 缺
 
 **结论:OTP-only 已非可行路径,主线为密码V3(register+IMAP+create真so)**
+
+## 全量测活更新(2026-08-06 11:40)——19/74 存活
+
+### 数据(check_survival.py, 74 账号全测, 总耗时 118.6s)
+| 模式 | 存活 | 总 |
+|---|---|---|
+| browser | 8 | 17 |
+| quickjs_pwd_v3 | 8 | 16 |
+| quickjs_t_browser_so | 3 | 4 |
+| quickjs | 0 | 25 |
+| node / pow / browser_t_quickjs_so | 0 | 7 |
+| (None 旧) | 0 | 5 |
+
+### 关键
+- **存活模式不变**:browser / pwd_v3 / quickjs_t_browser_so 存活,quickjs 纯 vm 全死
+- **pwd_v3 存活提升**:上次 4/11 → 本次 8/16(新注册 LarryHoffman/TracyHenry/AmberLee/ByrneBridenbecker 全活)
+- **browser 稳定**:8/17 活(真 so 路径),多数旧 browser 因 token 过期非账号死亡
+- 大量 token_expired 是老账号 10 天 token 自然过期,非账号失效
+
+### 反馈改进
+- check_survival 加总耗时/慢账号/进度显示(提交 b126ca3)
+- 慢账号(EricWaller 38.3s/LarryHoffman 22.8s)便于定位网络卡点
