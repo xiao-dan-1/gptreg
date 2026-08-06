@@ -22,10 +22,11 @@ from urllib.parse import urlparse, unquote  # noqa: E402
 
 
 def _latest_pwd_account() -> dict:
-    lines = [l for l in (ROOT / "data" / "pwd_accounts.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
-    if not lines:
+    lines = [json.loads(l) for l in (ROOT / "output" / "accounts.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    pwd = [d for d in lines if "密码账号" in (d.get("note") or "")]
+    if not pwd:
         raise RuntimeError("无密码账号,先跑 verify_pwd_v3")
-    return json.loads(lines[-1])
+    return pwd[-1]
 
 
 def _dump(page, tag):

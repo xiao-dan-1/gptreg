@@ -272,10 +272,12 @@ def main() -> int:
     print(f"账号: {email}")
     print(f"密码: {password}")
     print(f"TOTP: {secret}")
-    out = ROOT / "output" / "totp_accounts.txt"
-    with out.open("a", encoding="utf-8") as f:
-        f.write(f"{email}----{password}----{secret}\n")
-    print(f"已保存 {out}")
+    from gptreg.store import save_account
+    save_account(cfg, record={
+        "email": email, "password": password, "totp_secret": secret,
+        "status": "ok", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    print("已保存到 accounts.jsonl(含 totp_secret)")
     r.close()
     return 0
 

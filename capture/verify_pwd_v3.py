@@ -223,11 +223,11 @@ def _run_once(
                 "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "note": "密码账号已创建(register 200),create_account 400 user_already_exists",
                 "timing_s": timing_pwd,
+                "status": "ok",
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
-            pwd_file = ROOT / "data" / "pwd_accounts.jsonl"
-            pwd_file.parent.mkdir(parents=True, exist_ok=True)
-            with pwd_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(pwd_rec, ensure_ascii=False) + "\n")
+            from gptreg.store import save_account
+            save_account(cfg, record=pwd_rec)
             print(f"  ✅ 密码账号已创建并保存: {email} 密码={password} (可密码登录) 耗时={timing_pwd['total_s']}s")
             return 0, None
 

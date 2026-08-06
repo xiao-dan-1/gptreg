@@ -188,10 +188,12 @@ def main() -> int:
     print(f"    -> {ri.status_code}: {ri.text[:600]}")
 
     # 7. 输出
-    out = ROOT / "output" / "totp_accounts.txt"
-    with out.open("a", encoding="utf-8") as f:
-        f.write(f"{email}----{password}----{secret}\n")
-    print(f"\n[保存] {email}----{password}----{secret}")
+    from gptreg.store import save_account
+    save_account(cfg, record={
+        "email": email, "password": password, "totp_secret": secret,
+        "status": "ok", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    print(f"[保存] {email} 已写入 accounts.jsonl(含 totp_secret)")
     print(f"[总耗时] {(time.time()-t0):.0f}s")
     resolved.close()
     return 0

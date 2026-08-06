@@ -359,10 +359,12 @@ def main() -> int:
         print(f"TOTP: {secret}")
         print(f"otpauth: otpauth://totp/ChatGPT:{email}?secret={secret}&issuer=ChatGPT")
         print("=" * 50)
-        out = ROOT / "output" / "totp_accounts.txt"
-        with out.open("a", encoding="utf-8") as f:
-            f.write(f"{email}----{password}----{secret}\n")
-        print(f"已保存 {out}")
+        from gptreg.store import save_account
+        save_account(cfg, record={
+            "email": email, "password": password, "totp_secret": secret,
+            "status": "ok", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
+        print("已保存到 accounts.jsonl(含 totp_secret)")
 
         print(f"\n=== 捕获的 mfa/totp 网络请求({len(mfa_log)}) ===")
         for m in mfa_log:
