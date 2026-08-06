@@ -410,6 +410,7 @@ class IMAPOAuthClient:
         ids = [int(x) for x in data[0].split()]
         if not ids:
             return None
+        logger.debug("[IMAP/diag] _latest_since after_ts=%s ids=%s", after_ts, ids[-3:])
         # 从最新往前找，最多看最近 10 封
         for uid in reversed(ids[-10:]):
             try:
@@ -428,8 +429,10 @@ class IMAPOAuthClient:
                 msg = email.message_from_bytes(header or b"")
                 date_raw = str(msg.get("Date") or "")
                 ts = _parse_ts(date_raw)
+                logger.debug("[IMAP/diag] uid=%s date=%s ts=%s", uid, date_raw[:30], ts)
                 if after_ts and ts and ts < after_ts:
                     # Date 早于发码 → 旧邮件，继续往前找（更旧的不可能是本次）
+                    logger.debug("[IMAP/diag]   跳过旧邮件 ts=%s < after_ts=%s", ts, after_ts)
                     continue
                 otp = self._extract_otp_from_raw(header, body)
                 if otp:

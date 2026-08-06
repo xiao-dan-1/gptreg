@@ -150,7 +150,9 @@ def _run_once(
         for attempt in range(otp_max_attempts):
             try:
                 otp = client.wait_for_otp(
-                    after_ts=otp_after,
+                    # after_ts 用流程开始时刻(signin前)：邮件可能在 authorize 时就已到
+                    # (2026-08-06 实测 send_otp 前邮件已到,otp_after 会晚于邮件→全过滤)。
+                    after_ts=st["start"],
                     timeout=otp_timeout,
                     interval=3, settle_seconds=5,
                     exclude_codes=exclude,

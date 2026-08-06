@@ -30,8 +30,9 @@ _DEFAULTS: dict[str, Any] = {
         "poll_interval": 3,
         "max_wait": 90,
         "settle_seconds": 5,
-        # IMAP 秒级到件：单次等待缩短为 otp_wait，超时自动重发码 otp_max_attempts 次
-        "otp_wait": 45,
+        # 单次 OTP 等待。IMAP 秒级读信,但 OpenAI 发码到邮件到达可能 1.5-2.5 分钟
+        # (2026-08-06 实测),otp_wait 需覆盖发码延迟,不宜过短(曾 45s 错过到达)
+        "otp_wait": 150,
         "otp_max_attempts": 2,
         "used_code_cache": "data/used_otp_codes.json",
         "use_alias": False,
