@@ -68,11 +68,8 @@ def make_alias(email: str) -> str:
 
 
 def _base(m: str) -> str:
-    """取主号：x+tag@dom → x@dom。入参可带 tag/域，或裸用户名(无 @)原样返回。"""
-    parts = (m or "").split("@")
-    if len(parts) < 2:
-        return parts[0].split("+")[0]
-    return parts[0].split("+")[0] + "@" + parts[1]
+    """取主号用户名：x+tag@dom → x；裸用户名(无 @)原样。统一返回用户名便于 --email 裸用户名匹配号池。"""
+    return (m or "").split("@")[0].split("+")[0]
 
 
 def _run_once(

@@ -41,10 +41,8 @@ ABOUT_YOU_REFERER = "https://auth.openai.com/about-you"
 
 
 def _base(m: str) -> str:
-    parts = (m or "").split("@")
-    if len(parts) < 2:
-        return parts[0].split("+")[0]
-    return parts[0].split("+")[0] + "@" + parts[1]
+    """取主号用户名：x+tag@dom → x；裸用户名(无 @)原样。统一返回用户名便于 --email 裸用户名匹配号池。"""
+    return (m or "").split("@")[0].split("+")[0]
 
 
 def _register(cfg, args, account, email, password, display_name, bday, base_email):
