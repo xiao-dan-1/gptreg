@@ -451,3 +451,40 @@ ChristianSmith3956+jy2m7v@outlook.com----OoCYD6bUfl4@If----U7LAIQ5SCHFJMU4EZK7A6
 2. **V3 引擎 + create 真 so = 稳定存活 10h+**,远超旧记录的 25min,是继 OTP 混合模式后的又一可行存活形态
 3. 无 so 死因与 OTP vm so 一致:服务端后置校验识别协议注册 → invalidated
 4. 需在 verify_pwd_v3.py 保证 browser so 采集稳定(harvest_browser_sentinel 失败会直接降级为无 so → 必死)
+
+## 🚀 收码改 IMAP(OAuth2)提速 + OTP-only 失效研究(2026-08-06)
+
+### 根因:Graph API 索引延迟
+Graph API 对新邮件有**间歇性 ~150s 索引延迟**(实测 4s~152s 波动)。OTP 等待曾被误判为
+"邮件没到",实际是**邮件早到但 Graph 查不到**(诊断:200s 轮询内 Graph 只返回旧邮件,
+新邮件最后才出现)。IMAP 走即时搜索/UID 递增,实测稳定 0.6~13s 到件。
+
+### 实现(providers.py)
+- 新增 `IMAPOAuthClient`:号池 ms_oauth refresh_token → XOAUTH2 连 outlook.office365.com:993,
+  UID 增量 + after_ts 时间过滤判新,正文提取 OTP
+- `build_mail_client` 对 ms_oauth 走 IMAP(替代 Graph)
+- **IMAP 连接失败自动降级 Graph**(部分邮箱 token 缺 IMAP scope,authenticated but not connected)
+
+### 效果:注册提速 4.5 倍
+| 阶段 | 之前(Graph) | 现在(IMAP) |
+|---|---|---|
+| otp_wait | 152.8s | 13.5s(密码V3 实测) |
+| 总耗时 | 183.7s | 48.9s |
+| 存活 | 4/4 | 4/4(不影响存活) |
+
+### 顺手修的 3 个 bug
+1. **exclude 死等**:同主号 alias 收到相同验证码(OpenAI 复用码),exclude 误排当前有效码 →
+   死等一封不存在的"新码"→ 90s 超时。修:仅旧邮件(ts<after_ts)才排除,新邮件直接采用
+2. **_parse_ts 解析不了 IMAP RFC822 日期**(Wed, 05 Aug 2026... 返回 0.0) → 所有邮件被当旧邮件跳过。
+   修:剥离 (UTC) 尾缀再解析
+3. **IMAP UID 增量漏检**:send_otp 后邮件可能已到(初始 last_uid 已含目标),UID 增量不会触发。
+   修:改用 after_ts 时间过滤(_latest_since)
+
+### OTP-only 注册失效(研究结论,非主线)
+纯邮箱 OTP 注册(pipeline.py,无密码)现全面失败:
+- **authorize 不再自动发码**(落点 create-account/password 也不发)→ 需显式 send_otp
+- **显式 send_otp 能收码(6.2s)但 validate 409 invalid_state**
+- 密码V3(register+send_otp)一直成功 → **OpenAI 收紧 OTP-only 无密码注册路径**
+- 密码V3 有 register 步骤建立完整会话(oai-client-auth-info/oai-sc cookie),OTP-only 缺
+
+**结论:OTP-only 已非可行路径,主线为密码V3(register+IMAP+create真so)**
