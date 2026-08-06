@@ -330,14 +330,18 @@ class _ManualImap:
             line = self._readline()
             if line.startswith(tag + " "):
                 return line, untagged
-            m = re.search(r"\{(\d+)\}$", line)
-            if m:
+            # 处理行内/连续 literal。Outlook IMAP 的 FETCH 响应 literal 后**用空格分隔**
+            # (非标准 \r\n), 之前 read(2) 吃掉 ' B' 导致下一 literal 行缺字节 → header/body 错位。
+            # 改用 readline 读下一行并 strip 前导空白, 支持同一响应里多个 literal。
+            while True:
+                m = re.search(r"\{(\d+)\}$", line)
+                if not m:
+                    break
                 size = int(m.group(1))
                 literal = self.file.read(size)
-                self.file.read(2)  # \r\n
                 untagged.append((line, literal))
-            else:
-                untagged.append((line, None))
+                line = self._readline().lstrip("\r\n ")
+            untagged.append((line, None))
 
     def xoauth2(self, auth_str: str) -> tuple[str, list]:
         b64 = base64.b64encode(auth_str.encode("utf-8")).decode()
