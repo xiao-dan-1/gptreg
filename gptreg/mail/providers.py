@@ -1,12 +1,16 @@
 """邮箱 OTP 客户端：Outlook REST / IMAP / Gmail get-code。"""
 from __future__ import annotations
 
+import base64
 import calendar
 import email
 import hashlib
 import imaplib
 import json
 import logging
+import re
+import socket
+import ssl
 import threading
 import time
 from pathlib import Path
@@ -288,6 +292,73 @@ class MSMailClient:
         raise MailClientError(f"等待 {self.email} OTP 超时（>{timeout}s）")
 
 
+class _ManualImap:
+    """手动 IMAP 协议(经 chain_via 隧道)。
+
+    本机 Python 的 imaplib 是旧版(无 sock 参数, 无法注入已 CONNECT 的 socket),
+    故手动实现 XOAUTH2 / SELECT / SEARCH / FETCH(含 literal 解析)。
+    连接走 chain_via CONNECT 隧道 → 海外出口, 解决本地中国 IP 直连部分账号被 MS 拒。
+    """
+
+    def __init__(self, sock: socket.socket, host: str):
+        self.sock = sock
+        self.file = sock.makefile("rb")
+        self.tagnum = 0
+        self._read_greeting()
+
+    def _readline(self) -> str:
+        line = self.file.readline()
+        if not line:
+            raise MailClientError("IMAP 连接已关闭")
+        return line.decode("utf-8", "replace").rstrip("\r\n")
+
+    def _read_greeting(self) -> None:
+        for _ in range(10):
+            line = self._readline()
+            if line.startswith("* OK"):
+                return
+            if line.startswith("* BYE") or line.startswith("* NO"):
+                raise MailClientError(f"IMAP greeting 异常: {line[:80]}")
+        raise MailClientError("IMAP greeting 超时")
+
+    def _tagged(self, command: str) -> tuple[str, list[tuple[str, bytes | None]]]:
+        self.tagnum += 1
+        tag = "A%04d" % self.tagnum
+        self.sock.sendall(f"{tag} {command}\r\n".encode())
+        untagged: list[tuple[str, bytes | None]] = []
+        while True:
+            line = self._readline()
+            if line.startswith(tag + " "):
+                return line, untagged
+            m = re.search(r"\{(\d+)\}$", line)
+            if m:
+                size = int(m.group(1))
+                literal = self.file.read(size)
+                self.file.read(2)  # \r\n
+                untagged.append((line, literal))
+            else:
+                untagged.append((line, None))
+
+    def xoauth2(self, auth_str: str) -> tuple[str, list]:
+        b64 = base64.b64encode(auth_str.encode("utf-8")).decode()
+        return self._tagged(f"AUTHENTICATE XOAUTH2 {b64}")
+
+    def select(self, mailbox: str = "INBOX", readonly: bool = False) -> tuple[str, list]:
+        return self._tagged(f'SELECT "{mailbox}"')
+
+    def search_from(self, sender: str) -> tuple[str, list]:
+        return self._tagged(f'SEARCH FROM "{sender}"')
+
+    def fetch(self, num: str, parts: str) -> tuple[str, list]:
+        return self._tagged(f"FETCH {num} {parts}")
+
+    def close(self) -> None:
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
 class IMAPOAuthClient:
     """Outlook IMAP + XOAUTH2（OAuth 凭据连 IMAP，绕开 Graph 索引延迟）。
 
@@ -363,25 +434,66 @@ class IMAPOAuthClient:
             return None
         return {"http": self.proxy, "https": self.proxy}
 
-    def connect(self) -> imaplib.IMAP4_SSL:
+    def connect(self) -> "_ManualImap":
         at = self._get_access_token()
         if not at:
             raise MailClientError(f"IMAP 换 access_token 失败: {self.email}")
-        conn = imaplib.IMAP4_SSL(self.IMAP_HOST, self.IMAP_PORT)
+        conn = self._connect_imap()
         # XOAUTH2 的 user= 必须用登录基础邮箱(去 +tag 别名), 别名会导致认证异常
         login = self.email.split("+")[0] + "@" + self.email.split("@")[1] if "+" in self.email else self.email
         auth_str = f"user={login}\x01auth=Bearer {at}\x01\x01"
-        conn.authenticate("XOAUTH2", lambda x: auth_str.encode())
+        status, _ = conn.xoauth2(auth_str)
+        parts = status.split(" ", 2)
+        if not (len(parts) >= 2 and parts[1] == "OK"):
+            conn.close()
+            raise MailClientError(f"IMAP XOAUTH2 认证失败: {status[:100]}")
         self._conn = conn
         return conn
+
+    def _connect_imap(self) -> imaplib.IMAP4_SSL:
+        """连 IMAP。优先经 chain_via(7890) CONNECT 隧道——本地中国 IP 直连对部分账号
+        被 MS 拒(authenticated but not connected), 7890 出口(海外)能连。"""
+        from urllib.parse import urlparse
+
+        try:
+            from gptreg.config import load_config
+            chain_via = ((load_config().get("proxy") or {}).get("dynamic") or {}).get("chain_via") or ""
+        except Exception:
+            chain_via = ""
+        ctx = ssl.create_default_context()
+        if not chain_via:
+            raw = socket.create_connection((self.IMAP_HOST, self.IMAP_PORT), timeout=20)
+            tls_sock = ctx.wrap_socket(raw, server_hostname=self.IMAP_HOST)
+            return _ManualImap(tls_sock, self.IMAP_HOST)
+        # 手动 CONNECT 隧道经 chain_via(实测可连 MS IMAP; PySocks 的 HTTP 隧道对 993 透传不稳)
+        u = urlparse(chain_via if "://" in chain_via else "http://" + chain_via)
+        sock = socket.create_connection((u.hostname, u.port or 80), timeout=20)
+        req = f"CONNECT {self.IMAP_HOST}:{self.IMAP_PORT} HTTP/1.1\r\nHost: {self.IMAP_HOST}:{self.IMAP_PORT}\r\n"
+        if u.username:
+            b64 = base64.b64encode(f"{u.username}:{u.password or ''}".encode()).decode()
+            req += f"Proxy-Authorization: Basic {b64}\r\n"
+        req += "\r\n"
+        sock.sendall(req.encode())
+        sock.settimeout(20)
+        resp = b""
+        while b"\r\n\r\n" not in resp:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            resp += chunk
+        if b" 200 " not in resp.split(b"\r\n", 1)[0]:
+            sock.close()
+            raise MailClientError(f"chain_via CONNECT {self.IMAP_HOST}:{self.IMAP_PORT} 失败: {resp[:80]}")
+        tls_sock = ctx.wrap_socket(sock, server_hostname=self.IMAP_HOST)
+        return _ManualImap(tls_sock, self.IMAP_HOST)
 
     def _ensure_conn(self) -> imaplib.IMAP4_SSL:
         if self._conn is None:
             return self.connect()
         try:
-            # 轻探活：若断连则重连
-            typ, _ = self._conn.select("INBOX", readonly=True)
-            if typ != "OK":
+            status, _ = self._conn.select("INBOX")
+            parts = status.split(" ", 2)
+            if not (len(parts) >= 2 and parts[1] == "OK"):
                 self.close()
                 return self.connect()
         except Exception:
@@ -392,7 +504,7 @@ class IMAPOAuthClient:
     def close(self) -> None:
         if self._conn is not None:
             try:
-                self._conn.logout()
+                self._conn.close()
             except Exception:
                 pass
             self._conn = None
@@ -405,41 +517,43 @@ class IMAPOAuthClient:
         ids = [int(x) for x in data[0].split()]
         return max(ids) if ids else 0
 
-    def _latest_since(self, conn: imaplib.IMAP4_SSL, after_ts: float) -> tuple[str, int, float] | None:
+    def _latest_since(self, conn: "_ManualImap", after_ts: float) -> tuple[str, int, float] | None:
         """返回最新且 Date>=after_ts 的 OpenAI 邮件 (otp, uid, date_ts)。无则 None。
 
         相比 UID 增量：send_otp 后邮件可能已到（初始 last_uid 已含目标邮件），
         UID 增量会漏检；用 after_ts 时间过滤能覆盖"发码前已到"的场景。
+        手动 IMAP: SEARCH FROM + FETCH(header/text literal) 解析。
         """
-        conn.select("INBOX", readonly=True)
-        typ, data = conn.search(None, "FROM", IMAP_OPENAI_SENDER)
-        if typ != "OK" or not data or not data[0]:
-            return None
-        ids = [int(x) for x in data[0].split()]
+        conn.select("INBOX")
+        status, untagged = conn.search_from(IMAP_OPENAI_SENDER)
+        ids: list[int] = []
+        for line, _ in untagged:
+            if line.startswith("* SEARCH"):
+                ids = [int(x) for x in line.split()[2:]]
         if not ids:
             return None
         logger.debug("[IMAP/diag] _latest_since after_ts=%s ids=%s", after_ts, ids[-3:])
         # 从最新往前找，最多看最近 10 封
         for uid in reversed(ids[-10:]):
             try:
-                t, md = conn.fetch(str(uid), "(BODY.PEEK[HEADER.FIELDS (DATE SUBJECT)] BODY.PEEK[TEXT])")
-                if t != "OK" or not md:
+                status, ut = conn.fetch(str(uid), "(BODY.PEEK[HEADER.FIELDS (DATE SUBJECT)] BODY.PEEK[TEXT])")
+                if not status.endswith(" OK"):
                     continue
                 header = b""
                 body = b""
-                for part in md:
-                    if isinstance(part, tuple):
-                        block = part[1]
-                        if b"Date:" in block[:200] or b"Subject:" in block[:200]:
-                            header += block
-                        else:
-                            body += block
-                msg = email.message_from_bytes(header or b"")
+                for line, literal in ut:
+                    if literal:
+                        if "BODY[HEADER" in line:
+                            header = literal
+                        elif "BODY[TEXT" in line:
+                            body = literal
+                if not header:
+                    continue
+                msg = email.message_from_bytes(header)
                 date_raw = str(msg.get("Date") or "")
                 ts = _parse_ts(date_raw)
                 logger.debug("[IMAP/diag] uid=%s date=%s ts=%s", uid, date_raw[:30], ts)
                 if after_ts and ts and ts < after_ts:
-                    # Date 早于发码 → 旧邮件，继续往前找（更旧的不可能是本次）
                     logger.debug("[IMAP/diag]   跳过旧邮件 ts=%s < after_ts=%s", ts, after_ts)
                     continue
                 otp = self._extract_otp_from_raw(header, body)
