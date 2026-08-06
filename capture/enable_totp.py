@@ -158,6 +158,7 @@ def main() -> int:
                 pass
         if not direct_totp:
             # 3. re-auth:优先密码(Continue with password),无则邮箱验证码
+            _t_reauth = time.time()
             print(f"[2] re-auth UI: {page.url[:60]}")
             cwp = page.locator("text=Continue with password").first
             if not cwp.count():
@@ -167,8 +168,14 @@ def main() -> int:
                     pass
                 cwp = page.locator("text=Continue with password").first
             if cwp.count():
-                cwp.click(force=True)
-                print("[3] 点击 Continue with password")
+                try:
+                    cwp.click(force=True)
+                    print(f"[3] 点击 Continue with password ({time.time()-_t_reauth:.1f}s)")
+                except Exception as exc:
+                    print(f"[3] 点击 Continue with password 异常: {type(exc).__name__}: {str(exc)[:60]}")
+                # 点击后等页面切换
+                page.wait_for_timeout(2000)
+                print(f"[3.1] 点击后 URL: {page.url[:60]} ({time.time()-_t_reauth:.1f}s)")
             else:
                 print("[3] 无 Continue with password,走邮箱验证码")
                 otp_after = time.time()
@@ -191,7 +198,7 @@ def main() -> int:
                 pw_el = page.locator("input[type=password], input[name=password]").first
                 if pw_el.count():
                     pw_el.fill(password)
-                    print("[4] 填密码")
+                    print(f"[4] 填密码 ({time.time()-_t_reauth:.1f}s)")
                     try:
                         page.locator("button:has-text('Continue')").first.click()
                     except Exception:
@@ -204,7 +211,7 @@ def main() -> int:
                 url = page.url
                 if "chatgpt.com" in url and "callback" not in url and "auth.openai" not in url:
                     break
-            print(f"[5] 回调后 URL: {page.url[:80]}")
+            print(f"[5] 回调后 URL: {page.url[:80]} ({time.time()-_t_reauth:.1f}s)")
             # 6. 导航 action=enable URL
             page.goto("https://chatgpt.com/?action=enable&factor=totp#settings/Security",
                       wait_until="domcontentloaded", timeout=45000)
