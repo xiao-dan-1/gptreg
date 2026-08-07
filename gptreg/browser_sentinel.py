@@ -35,6 +35,44 @@ def _sdk_url(cfg: dict[str, Any]) -> str:
     return f"https://sentinel.openai.com/sentinel/{sv}/sdk.js"
 
 
+def _ensure_local_sdk(cfg: dict[str, Any], proxy: str | None = None) -> str:
+    """首次下载 sdk.js 到按 sv 缓存, 返回本地路径——页面注入本地文件,
+    跳过浏览器每次远程加载 ~15s(M10 实测 SDK 加载占 so 采集 72%)。
+    缓存按 sv 分目录: sv 更新时路径变, 自动重下, 不会用错旧版。
+    失败返回空串(调用方 fallback 浏览器远程加载)。"""
+    import tempfile
+    from pathlib import Path
+
+    sv = str((cfg.get("protocol") or {}).get("sentinel_sv") or "20260219f9f6")
+    cache = Path(tempfile.gettempdir()) / "openai-sentinel-demo" / sv / "sdk.js"
+    if cache.exists() and cache.stat().st_size > 0:
+        return str(cache)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from curl_cffi.requests import Session
+
+        s = Session(
+            impersonate=str((cfg.get("browser") or {}).get("impersonate", "chrome142")),
+            verify=False,
+        )
+        if proxy:
+            s.proxies = {"http": proxy, "https": proxy}
+        try:
+            resp = s.get(_sdk_url(cfg), timeout=30)
+            if resp.status_code == 200 and getattr(resp, "content", None):
+                tmp = cache.with_suffix(".tmp")
+                tmp.write_bytes(resp.content)
+                tmp.replace(cache)
+                logger.info("[Sentinel] sdk.js 已缓存 %s (%d bytes)", cache, len(resp.content))
+                return str(cache)
+            logger.warning("[Sentinel] sdk.js 下载 status=%s", resp.status_code)
+        finally:
+            s.close()
+    except Exception as exc:
+        logger.warning("[Sentinel] sdk.js 缓存失败, 走远程: %s", exc)
+    return ""
+
+
 def browser_proxy_from_cfg(cfg: dict[str, Any]) -> str | None:
     """浏览器出站：优先 chain_via（7890），再 default。"""
     protocol = cfg.get("protocol") or {}
@@ -237,8 +275,13 @@ def harvest_browser_sentinel(
 
             root = Path(cfg.get("_root") or Path(__file__).resolve().parent.parent)
             sdk_local = root / "vendor" / "sentinel" / "sdk.js"
+            # 优先本地缓存(按 sv, 首次下载后省 ~15s 远程加载)
+            cached = _ensure_local_sdk(cfg, proxy=proxy)
             try:
-                if use_local_sdk and sdk_local.exists():
+                if cached:
+                    page.add_script_tag(path=cached)
+                    out["sdk_load_mode"] = "local_cache"
+                elif use_local_sdk and sdk_local.exists():
                     page.add_script_tag(path=str(sdk_local))
                     out["sdk_load_mode"] = "local_file"
                 else:
