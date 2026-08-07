@@ -129,7 +129,10 @@ def _register_chain(
         diag["landing"] = final
 
         # register(设密码) —— 400 分类: 落 log-in=邮箱已注册 / 其他=IP 信誉
-        token, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_PWD, cfg=cfg)
+        # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
+        token, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_PWD, cfg=cfg,
+                                                  log=lambda m: None)
+        print(f"  [quickjs/t] register 真 t 就绪 t_len={len(token)} (so: 密码 register 无 so)")
         headers = session.auth_api_headers(referer=PASSWORD_REFERER)
         headers["openai-sentinel-token"] = token
         resp = session.post(REGISTER_URL, headers=headers,
@@ -190,8 +193,11 @@ def _register_chain(
         def _gen_t() -> None:
             _ct = time.time()
             try:
-                tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg)
+                # 静默 quickjs 默认 log(so_len 是 vm so, 会被忽略); so 由 browser 采集
+                tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg,
+                                                        log=lambda m: None)
                 holder["tok2"] = tok
+                print(f"  [quickjs/t] create 真 t 就绪 t_len={len(tok)} ({time.time()-_ct:.1f}s, so 由 browser 采集)")
             except Exception as exc:
                 holder["t_err"] = f"{type(exc).__name__}: {exc}"
             holder["t_s"] = time.time() - _ct
