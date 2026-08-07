@@ -120,6 +120,11 @@ def resolve_path(path: str | Path, base: Path | None = None) -> Path:
     return (base or ROOT) / p
 
 
+def _root(cfg: dict[str, Any]) -> Path:
+    """项目根路径(注册链路径解析用, 公共工具避免反向依赖)。"""
+    return Path(cfg.get("_root") or ".")
+
+
 def load_config(path: str | Path | None = None) -> dict[str, Any]:
     cfg_path = Path(path) if path else DEFAULT_CONFIG_PATH
     if not cfg_path.is_absolute():

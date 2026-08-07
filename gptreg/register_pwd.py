@@ -21,10 +21,9 @@ from typing import Any
 
 from gptreg import auth
 from gptreg.browser_sentinel import harvest_browser_sentinel
-from gptreg.config import resolve_path
+from gptreg.config import _root, resolve_path
 from gptreg.mail.pool import parse_mail_line  # noqa: F401  (CLI 选号复用)
 from gptreg.mail.providers import UsedCodeCache, build_mail_client, mail_identity_key
-from gptreg.pipeline import _root
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
 from gptreg.session import BrowserSession
