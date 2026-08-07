@@ -33,6 +33,10 @@ def _base(m: str) -> str:
 
 def main() -> int:
     import argparse as _ap
+    import logging as _logging
+
+    # 完整日志: 让 IMAP 降级/Graph 索引进度等 logger 输出可见(默认 lastResort 只显示 WARNING)
+    _logging.basicConfig(level=_logging.INFO, format="%(message)s")
 
     ap = _ap.ArgumentParser()
     ap.add_argument("--email", default="")
