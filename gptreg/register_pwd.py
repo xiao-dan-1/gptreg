@@ -377,10 +377,12 @@ def register_account(
             save_account(cfg, record=rec)
             return RegistrationResult(RegisterOutcome.HEALTH_FAILED, email,
                                       {"reason": f"health {health.get('status')} http={health.get('http')}"}, rec)
+        _en_t0 = time.time()
         totp = _enroll_totp(cfg, session, reg)  # type: ignore[arg-type]
         record = _build_record(reg, email, password, name, bday, mail_main, totp)
         save_account(cfg, record=record)
         diag = dict(reg.get("diag") or {})
+        diag["enroll_s"] = round(time.time() - _en_t0, 1)
         diag["elapsed_s"] = round(time.time() - t0, 1)
         return RegistrationResult(RegisterOutcome.SUCCESS, email, diag, record)
     except _EnrollFailed as exc:

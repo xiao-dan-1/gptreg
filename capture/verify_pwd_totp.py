@@ -86,10 +86,14 @@ def main() -> int:
     d = result.diag
 
     if result.outcome == RegisterOutcome.SUCCESS:
-        if "otp_s" in d:
-            print(f"[耗时] register+OTP={d.get('otp_s')}s create={d.get('create_s')}s "
-                  f"并行(t={d.get('t_s')}s so={d.get('so_s')}s)={d.get('create_parallel')}s "
-                  f"enroll 见落盘")
+        reg_s = d.get("register_s") or 0
+        otp_s = d.get("otp_s") or 0
+        create_s = d.get("create_s") or 0
+        if otp_s:
+            # 段增量(非累计时刻), 避免 create=35.6s 误解为 create 段耗时
+            print(f"[耗时] signin+register={reg_s:.1f}s OTP等待={otp_s - reg_s:.1f}s "
+                  f"create段={create_s - otp_s:.1f}s 并行(t={d.get('t_s')}s so={d.get('so_s')}s)={d.get('create_parallel')}s "
+                  f"enroll={d.get('enroll_s', '?')}s")
         elif "t_s" in d:
             print(f"[create/timing] quickjs t={d.get('t_s')}s so={d.get('so_s')}s 并行总={d.get('create_parallel')}s")
         if result.record:
