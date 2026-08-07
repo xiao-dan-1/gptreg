@@ -86,7 +86,11 @@ def main() -> int:
     d = result.diag
 
     if result.outcome == RegisterOutcome.SUCCESS:
-        if "t_s" in d:
+        if "otp_s" in d:
+            print(f"[耗时] register+OTP={d.get('otp_s')}s create={d.get('create_s')}s "
+                  f"并行(t={d.get('t_s')}s so={d.get('so_s')}s)={d.get('create_parallel')}s "
+                  f"enroll 见落盘")
+        elif "t_s" in d:
             print(f"[create/timing] quickjs t={d.get('t_s')}s so={d.get('so_s')}s 并行总={d.get('create_parallel')}s")
         if result.record:
             rec = result.record

@@ -144,6 +144,7 @@ def _register_chain(
             e.diag = {"landing_diag": _landing_diag(final), "reason": err}
             raise e
         reg = resp.json()
+        diag["register_s"] = round(time.time() - st["start"], 1)
 
         # send_otp
         send_url = reg.get("continue_url") or "https://auth.openai.com/api/accounts/email-otp/send"
@@ -178,6 +179,7 @@ def _register_chain(
                 otp_after = time.time()
         used_cache.remember(identity, otp, email=email, status="submitted")
         diag["otp"] = otp
+        diag["otp_s"] = round(time.time() - st["start"], 1)
 
         # validate
         auth.validate_email_otp(session, otp, None)
@@ -226,13 +228,15 @@ def _register_chain(
         if holder.get("t_err"):
             raise _SessionFailed(f"quickjs t 生成失败: {holder['t_err']}")
         if not so_b:
-            raise _SoFailed("browser so 采集失败(重试3次后仍无 so), 无 so 账号必死")
+            warn = holder.get("so_warn") or ""
+            raise _SoFailed(f"browser so 采集失败(重试3次后仍无 so): {str(warn)[:120]}")
 
         h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
         h2["openai-sentinel-token"] = tok2
         h2["openai-sentinel-so-token"] = so_b
         resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
         diag["create_http"] = resp2.status_code
+        diag["create_s"] = round(time.time() - st["start"], 1)
         if resp2.status_code != 200:
             raise _CreateFailed(f"create_account HTTP {resp2.status_code}: {resp2.text[:150]}")
         cr = resp2.json()
