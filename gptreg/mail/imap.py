@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 from curl_cffi import requests as cr
 
+from gptreg.mail.base import MailClient
 from gptreg.mail.ms_graph import MSMailClient
 from gptreg.mail.otp_cache import (IMAP_OPENAI_SENDER, IMAP_SCOPE, IMAP_TOKEN_ENDPOINT,
                                    MailClientError, _parse_ts)
@@ -91,7 +92,7 @@ class _ManualImap:
         except OSError:
             pass
 
-class IMAPOAuthClient:
+class IMAPOAuthClient(MailClient):
     """Outlook IMAP + XOAUTH2（OAuth 凭据连 IMAP，绕开 Graph 索引延迟）。
 
     Graph API 对新邮件有 ~150s 间歇性索引延迟（实测 0.6s~152s 波动），

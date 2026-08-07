@@ -7,12 +7,13 @@ from typing import Any, Callable
 
 from curl_cffi import requests as cr
 
+from gptreg.mail.base import MailClient
 from gptreg.mail.otp_cache import MAIL_ENDPOINT, TOKEN_ENDPOINT, _parse_ts
 from gptreg.otp import extract_otp, looks_like_openai_email
 
 logger = logging.getLogger(__name__)
 
-class MSMailClient:
+class MSMailClient(MailClient):
     """Outlook REST v2 + login.live.com refresh_token。"""
 
     def __init__(

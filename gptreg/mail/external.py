@@ -8,12 +8,13 @@ from typing import Any, Callable
 
 from curl_cffi import requests as cr
 
+from gptreg.mail.base import MailClient
 from gptreg.mail.otp_cache import MailClientError, _parse_ts
 from gptreg.otp import extract_code_from_any
 
 logger = logging.getLogger(__name__)
 
-class GmailApiClient:
+class GmailApiClient(MailClient):
     """mailsapi 等 get-code 接口。"""
 
     def __init__(
@@ -80,7 +81,7 @@ class GmailApiClient:
             time.sleep(interval)
         raise MailClientError(f"等待 {self.email} OTP 超时（>{timeout}s，可能只有旧码）")
 
-class XDAuvMailClient:
+class XDAuvMailClient(MailClient):
     """outlook.xdauv.xyz 服务收码（海外干净 IP，解决本地 IMAP 部分账号被 MS 拒）。
 
     服务端海外部署对全部号池账号收码成功(~8s)，包括本地 IMAP 连不上的账号
