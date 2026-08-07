@@ -151,16 +151,19 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
         def _gen_so() -> None:
             _ct = time.time()
             so = None
-            try:
-                from gptreg.browser_sentinel import harvest_browser_sentinel
-                br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
-                                              proxy=resolved.session_url, headless=True, timeout_s=90)
-                if br.get("ok") and br.get("so_header"):
-                    so = br["so_header"]
-                else:
-                    print(f"[warn] browser so 采集未成功: {str(br.get('error') or 'empty so')[:100]} (create 将无 so)")
-            except Exception as exc:
-                print(f"[warn] browser so 采集异常: {type(exc).__name__}: {str(exc)[:100]} (create 将无 so)")
+            # 无 so 账号必死(测活实证 2/2 吊销), so 采集失败重试 3 次, 仍失败主线程中止注册
+            from gptreg.browser_sentinel import harvest_browser_sentinel
+            for _try in range(3):
+                try:
+                    br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
+                                                  proxy=resolved.session_url, headless=True, timeout_s=90)
+                    if br.get("ok") and br.get("so_header"):
+                        so = br["so_header"]
+                        break
+                    print(f"[warn] browser so 采集未成功({_try+1}/3): {str(br.get('error') or 'empty so')[:80]}")
+                except Exception as exc:
+                    print(f"[warn] browser so 采集异常({_try+1}/3): {type(exc).__name__}: {str(exc)[:80]}")
+                time.sleep(1)
             _holder["so_b"] = so
             _holder["so_s"] = time.time() - _ct
 
@@ -174,6 +177,11 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
         tok2 = str(_holder.get("tok2") or "")
         so_b = _holder.get("so_b")
         print(f"[create/timing] quickjs t={_holder.get('t_s', 0):.1f}s so={_holder.get('so_s', 0):.1f}s 并行总={time.time()-_ct0:.1f}s")
+        if _holder.get("t_err"):
+            raise RuntimeError(f"quickjs t 生成失败: {_holder['t_err']}")
+        if not so_b:
+            # 无 so = 必死账号(测活实证), 中止注册避免白烧主号; 由 _register 上层捕获
+            raise RuntimeError("browser so 采集失败(重试3次后仍无 so), 中止注册——无 so 账号必死")
         h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
         h2["openai-sentinel-token"] = tok2
         if so_b:
@@ -290,6 +298,11 @@ def main() -> int:
             args.proxy = _re.sub(r"-sid-[^-]+-t-", f"-sid-{_new_sid}-t-", args.proxy, count=1)
             print(f"[retry] 换新 sid 重试 ({_att+2}/3)")
             time.sleep(1)
+        except Exception as _e:
+            # so 采集失败中止 / OTP 超时等: 优雅退出, 不 traceback 也不烧主号
+            print(f"[x] 注册失败(中止): {type(_e).__name__}: {str(_e)[:120]}")
+            reg = None
+            break
     print(f"[阶段1 注册] {(time.time()-t1):.1f}s")
     if not reg:
         print("[x] 注册失败")
