@@ -41,6 +41,10 @@ from gptreg.pipeline import _root  # noqa: E402
 FLOW_PWD = "username_password_create"
 FLOW_OAUTH = "oauth_create_account"
 REGISTER_URL = "https://auth.openai.com/api/accounts/user/register"
+
+
+class RegisterBlocked(RuntimeError):
+    """register 400 invalid_auth_step——出口 IP 被 OpenAI 风控, 换 sid(新出口)可重试。"""
 PASSWORD_REFERER = "https://auth.openai.com/create-account/password"
 ABOUT_YOU_REFERER = "https://auth.openai.com/about-you"
 
@@ -63,7 +67,7 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
         time.sleep(0.3)
         au = auth.signin_openai(session, csrf, email)
         time.sleep(0.3)
-        auth.follow_authorize(session, au, attempts=1)
+        final = auth.follow_authorize(session, au, attempts=1)
         time.sleep(0.5)
 
         # register(设密码)
@@ -73,8 +77,18 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
         resp = session.post(REGISTER_URL, headers=headers,
                             data=json.dumps({"username": email, "password": password}))
         if resp.status_code != 200:
+            land = final or "?"
+            if "email-verification" in land:
+                _diag = "email-verification → 主号可能已注册, 需用 plus 别名注册"
+            elif "log-in" in land or "/login" in land:
+                _diag = "log-in → 主号已注册(登录流程), register 不合法"
+            elif "create-account" in land:
+                _diag = "create-account/password → 未注册, 仍 400 多为出口 IP 信誉"
+            else:
+                _diag = land[:60]
             print(f"[register] 失败 {resp.status_code}: {resp.text[:150]}")
-            return None
+            print(f"[register/诊断] authorize 落点: {_diag}")
+            raise RegisterBlocked(f"register HTTP {resp.status_code}: {resp.text[:150]}")
         reg = resp.json()
 
         # send_otp
@@ -118,19 +132,48 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
         # validate_otp
         vr = auth.validate_email_otp(session, otp, None)
 
-        # create_account(vm t + browser so)
-        tok2, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg)
-        so_b = None
-        try:
-            from gptreg.browser_sentinel import harvest_browser_sentinel
-            br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
-                                          proxy=resolved.session_url, headless=True, timeout_s=90)
-            if br.get("ok") and br.get("so_header"):
-                so_b = br["so_header"]
-            else:
-                print(f"[warn] browser so 采集未成功: {str(br.get('error') or 'empty so')[:100]} (create 将无 so)")
-        except Exception as exc:
-            print(f"[warn] browser so 采集异常: {type(exc).__name__}: {str(exc)[:100]} (create 将无 so)")
+        # create_account: quickjs t 与 browser so 并行采集。
+        # 两路独立资源(Node 进程产 t / Chrome 采 so), 串行=等待慢者浪费 ~10-15s
+        import threading as _th
+
+        _holder: dict[str, object] = {}
+
+        def _gen_t() -> None:
+            _ct = time.time()
+            try:
+                tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg)
+                _holder["tok2"] = tok
+            except Exception as exc:
+                print(f"[x] quickjs t 生成失败: {type(exc).__name__}: {str(exc)[:120]}")
+                _holder["t_err"] = f"{type(exc).__name__}: {exc}"
+            _holder["t_s"] = time.time() - _ct
+
+        def _gen_so() -> None:
+            _ct = time.time()
+            so = None
+            try:
+                from gptreg.browser_sentinel import harvest_browser_sentinel
+                br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
+                                              proxy=resolved.session_url, headless=True, timeout_s=90)
+                if br.get("ok") and br.get("so_header"):
+                    so = br["so_header"]
+                else:
+                    print(f"[warn] browser so 采集未成功: {str(br.get('error') or 'empty so')[:100]} (create 将无 so)")
+            except Exception as exc:
+                print(f"[warn] browser so 采集异常: {type(exc).__name__}: {str(exc)[:100]} (create 将无 so)")
+            _holder["so_b"] = so
+            _holder["so_s"] = time.time() - _ct
+
+        _ct0 = time.time()
+        _th_t = _th.Thread(target=_gen_t)
+        _th_so = _th.Thread(target=_gen_so)
+        _th_t.start()
+        _th_so.start()
+        _th_t.join()
+        _th_so.join()
+        tok2 = str(_holder.get("tok2") or "")
+        so_b = _holder.get("so_b")
+        print(f"[create/timing] quickjs t={_holder.get('t_s', 0):.1f}s so={_holder.get('so_s', 0):.1f}s 并行总={time.time()-_ct0:.1f}s")
         h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
         h2["openai-sentinel-token"] = tok2
         if so_b:
@@ -181,7 +224,8 @@ def main() -> int:
 
     ap = _ap.ArgumentParser()
     ap.add_argument("--email", default="")
-    ap.add_argument("--alias", action="store_true")
+    ap.add_argument("--alias", action="store_true", help="强制用 plus 别名注册(默认走 config mail.use_alias)")
+    ap.add_argument("--no-alias", action="store_true", help="禁用别名, 用主号直接注册")
     ap.add_argument("--proxy", default=None, help="覆盖代理(默认走 config 动态链式, 勿用 10808 僵尸端口)")
     args = ap.parse_args()
 
@@ -202,7 +246,15 @@ def main() -> int:
         print("号池找不到收码账号")
         return 1
     base_email = account["email"]
-    if args.alias:
+    # 默认 plus 别名注册(config mail.use_alias=true)——号池主号很多已在 OpenAI 注册,
+    # 用主号直接注册会落 email-verification/log-in → register 400 invalid_auth_step;
+    # 别名(主号+随机tag)是全新邮箱, register 直接过(已实证)
+    use_alias = bool(cfg.get("mail", {}).get("use_alias", True))
+    if args.no_alias:
+        use_alias = False
+    elif args.alias:
+        use_alias = True
+    if use_alias:
         name, dom = base_email.split("@")
         tag = "".join(_r.choice(_s.ascii_lowercase + _s.digits) for _ in range(6))
         email = f"{name}+{tag}@{dom}"
@@ -211,12 +263,33 @@ def main() -> int:
     password = "".join(_r.choice(_s.ascii_letters + _s.digits + "!@#$%") for _ in range(14))
     display_name = random_display_name()
     bday = random_birthdate(cfg)
-    print(f"注册邮箱: {email}  密码: {password}")
+    print(f"注册邮箱: {email} (主号: {base_email}, {'别名' if use_alias else '直接用主号'})  密码: {password}")
     print(f"注册身份: {display_name} / {bday}")
 
-    # 1. 注册
+    # 1. 注册(register 400 IP 风控时自动换 sid 重试——单号自愈, 命中干净住宅 IP 即成功)
+    import re as _re
+
+    if not args.proxy:
+        # 默认走动态模板(cliproxy), 便于 register 400 时换 sid 自动重试
+        from gptreg.proxyutil import build_dynamic_proxy
+
+        args.proxy = build_dynamic_proxy(cfg)
     t1 = time.time()
-    reg = _register(cfg, args, account, email, password, display_name, bday, base_email)
+    reg = None
+    for _att in range(3):
+        try:
+            reg = _register(cfg, args, account, email, password, display_name, bday, base_email)
+            break
+        except RegisterBlocked as _rb:
+            print(f"[warn] register 被拒(IP 风控?): {str(_rb)[:80]}")
+            if _att >= 2 or "-sid-" not in (args.proxy or "") or "-t-" not in (args.proxy or ""):
+                print("[x] 注册失败(IP 风控, 无法换 sid 或已达上限)")
+                reg = None
+                break
+            _new_sid = "".join(_r.choice(_s.ascii_lowercase + _s.digits) for _ in range(8))
+            args.proxy = _re.sub(r"-sid-[^-]+-t-", f"-sid-{_new_sid}-t-", args.proxy, count=1)
+            print(f"[retry] 换新 sid 重试 ({_att+2}/3)")
+            time.sleep(1)
     print(f"[阶段1 注册] {(time.time()-t1):.1f}s")
     if not reg:
         print("[x] 注册失败")

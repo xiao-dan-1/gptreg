@@ -14,14 +14,16 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 ## 主路线架构
 
 ```
-主号(号池) ──动态链式代理──> OpenAI 注册
-  ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)
+主号(号池) ──动态链式代理──> OpenAI 注册(plus 别名: 主号+tag@domain)
+  ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)  [400时自动换sid重试]
   ├─ send_otp → 本地 IMAP 收码 → validate
-  ├─ create_account(quickjs 真 t + browser 真 so)
+  ├─ create_account(quickjs 真 t + browser 真 so, 并行采集)
   ├─ callback → session(access_token)
   ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活
   └─ save_account → accounts.jsonl(totp_secret + 凭据)
 ```
+
+> **默认 plus 别名注册**（config `mail.use_alias: true`）——号池主号很多已在 OpenAI 注册，主号直接注册会落 email-verification/log-in → register 400；别名是全新邮箱，register 直接过（已实证）。`--no-alias` 可强制用主号。
 
 ### Sentinel 策略（主路线）
 
@@ -83,8 +85,10 @@ register:
 ## 使用
 
 ```bash
-# 注册一个 2FA 账号（主路线，动态链式代理）
+# 注册一个 2FA 账号（主路线；默认 plus 别名, 解决主号已注册→register 400）
 python capture/verify_pwd_totp.py --email 主号
+# 不用别名(直接用主号, 仅当确认主号未注册过)
+python capture/verify_pwd_totp.py --email 主号 --no-alias
 
 # 指定代理（住宅 IP）
 python capture/verify_pwd_totp.py --email 主号 --proxy http://user:pass@host:port
@@ -147,8 +151,9 @@ data/                          OTP 缓存等
 
 ## 注意事项
 
-- **IP 风控**：`register 400 invalid_auth_step` = 出口 IP 被 OpenAI 标记，需换干净住宅 IP，不是代码 bug
-- **邮箱级风控**：同一主号多次注册失败会被 OpenAI 记住，换 IP 也无效（勿反复试同一主号）
+- **主号已注册（最常见根因）**：register 400 invalid_auth_step 先看输出诊断行（authorize 落点）——email-verification/log-in = 主号已在 OpenAI 注册，必须用 plus 别名（已默认）；create-account/password = 未注册
+- **IP 信誉**：落 create-account/password 仍 400 = 出口 IP 被 OpenAI 标记，需干净住宅 IP；单号注册已内置 register 400 自动换 sid 重试 3 次
+- **邮箱级风控**：同一邮箱多次注册失败会被 OpenAI 记住，换 IP 也无效（勿反复试同一邮箱）
 - **IMAP 账号级差异**：部分 Outlook 账号被 MS 拒 IMAP（`authenticated but not connected`），自动降级 Graph（较慢）
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才能注册成功；7890/10808 数据中心 IP 长期风控后不可用
 
