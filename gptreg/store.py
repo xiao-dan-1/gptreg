@@ -19,10 +19,11 @@ def ensure_output_dir(cfg: dict[str, Any]) -> Path:
 
 
 def _append_or_replace(path: Path, record: dict[str, Any]) -> None:
-    """写 accounts.jsonl：按 email 去重(同邮箱最新记录替换旧行)，无则追加。
+    """写 accounts.jsonl：按 email 去重(同邮箱只保留最新一条)，无则追加。
 
     accounts.jsonl 曾是纯 append → 同邮箱多版本、凭据新旧混杂(旧 access_token/refresh_token
-    残留)。改为 upsert：读现有行，同 email 替换为最新，其余保留。
+    残留)。改为 upsert：读现有行, 丢弃所有同 email 旧行, 末尾只留最新；存量重复行随之收敛。
+    写入走 tmp+os.replace 原子替换, 防崩溃/并发截断主库(曾用 write_text 先截断后写)。
     """
     email = record.get("email")
     line = json.dumps(record, ensure_ascii=False)
@@ -31,7 +32,6 @@ def _append_or_replace(path: Path, record: dict[str, Any]) -> None:
             f.write(line + "\n")
         return
     lines: list[str] = []
-    replaced = False
     if path.exists():
         for ln in path.read_text(encoding="utf-8").splitlines():
             if not ln.strip():
@@ -41,14 +41,21 @@ def _append_or_replace(path: Path, record: dict[str, Any]) -> None:
             except Exception:
                 lines.append(ln)
                 continue
-            if d.get("email") == email and not replaced:
-                lines.append(line)
-                replaced = True
-            else:
-                lines.append(ln)
-    if not replaced:
-        lines.append(line)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            if d.get("email") == email:
+                continue  # 丢弃旧版本, 末尾追加最新
+            lines.append(ln)
+    lines.append(line)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+        raise
 
 
 def save_success(

@@ -61,8 +61,11 @@ def classify_result(result: dict[str, Any] | None) -> str:
             return "create_disallow"
         return "create_other"
     if create_acked and ("http error 400" in err_l or "http 400" in err_l):
-        # 旧路径：raise_for_status 丢 body 时，create 已 ack + 400 ≈ disallow 主形态
-        return "create_disallow"
+        # create 已 ack 后的 400 多为回调/session 阶段, 非 create 拒建。
+        # 仅错误文本含 create 上下文才归 create_disallow, 否则归 session_fail
+        if "create_account" in err_l:
+            return "create_disallow"
+        return "session_fail"
     if any(x in err_l for x in ("curl: (35)", "sslerror", "openssl", "tls connect", "tls ")):
         return "tls_ssl"
     if any(
@@ -404,9 +407,16 @@ def register_one(
         )
         access_token = session_info["accessToken"]
 
-        # 注册后即时健康检查：秒封不算成功
-        health = auth.check_account_health(session, access_token)
-        health_status = health.get("status") or "error"
+        # 注册后即时健康检查：秒封不算成功。create 已 200 后瞬时网络抖动不应丢弃整号 → 重试 3 次
+        health: dict[str, Any] = {}
+        health_status = "error"
+        for _hc in range(3):
+            health = auth.check_account_health(session, access_token)
+            health_status = health.get("status") or "error"
+            if health_status == "ok":
+                break
+            logger.warning("[Auth] 健康检查 status=%s (重试 %s/3)", health_status, _hc + 1)
+            time.sleep(1.5 * (_hc + 1))
         if health_status != "ok":
             raise RuntimeError(
                 f"注册后健康检查失败 status={health_status} "
@@ -539,6 +549,10 @@ def register_one(
         return partial
     finally:
         resolved.close()
+        try:
+            session.close()
+        except Exception:
+            pass
 
 
 def run_batch(

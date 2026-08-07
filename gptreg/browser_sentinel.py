@@ -164,6 +164,10 @@ def harvest_browser_sentinel(
         "has_so": False,
         "so_len": 0,
         "error": None,
+        # 分阶段计时(nav/sdk_load/token), 定位 23s 瓶颈
+        "nav_s": None,
+        "sdk_s": None,
+        "token_s": None,
     }
 
     launch_kwargs: dict[str, Any] = {
@@ -218,6 +222,7 @@ def harvest_browser_sentinel(
                 page.goto(page_url, wait_until="domcontentloaded", timeout=timeout_ms)
             except Exception as exc:
                 out["nav_error"] = f"{type(exc).__name__}: {exc}"
+            out["nav_s"] = round(time.time() - t0, 2)
             out["final_url"] = page.url
 
             try:
@@ -240,6 +245,7 @@ def harvest_browser_sentinel(
                     page.add_script_tag(url=_sdk_url(cfg))
                     out["sdk_load_mode"] = "remote_url"
                 page.wait_for_timeout(500)
+                out["sdk_s"] = round(time.time() - t0, 2)
             except Exception as exc:
                 out["error"] = f"sdk_load: {type(exc).__name__}: {exc}"
                 out["elapsed_s"] = round(time.time() - t0, 3)
@@ -312,6 +318,7 @@ def harvest_browser_sentinel(
                 out["elapsed_s"] = round(time.time() - t0, 3)
                 return out
 
+            out["token_s"] = round(time.time() - t0, 2)
             token_text = (bundle or {}).get("token") or ""
             so_raw = (bundle or {}).get("so")
             out["sdk_keys"] = (bundle or {}).get("sdk_keys")
@@ -361,13 +368,18 @@ def harvest_browser_sentinel(
 
 
 def harvest_for_session(session: Any, flow: str) -> tuple[str, str | None, dict[str, Any]]:
-    """给 BrowserSession 用：返回 (token, so_header, meta)。"""
+    """给 BrowserSession 用：返回 (token, so_header, meta)。
+
+    proxy 优先用注册会话的代理(session.proxy, 动态住宅隧道口)——
+    之前固定 browser_proxy_from_cfg(7890 数据中心) 与注册出口(住宅)不一致,
+    so 采集在 7890 被 OpenAI 风控时失败 → create 无 so(存活差)。
+    """
     cfg = session.cfg
     result = harvest_browser_sentinel(
         cfg,
         flow=flow,
         device_id=session.device_id,
-        proxy=browser_proxy_from_cfg(cfg),
+        proxy=session.proxy or browser_proxy_from_cfg(cfg),
     )
     if not result.get("ok") or not result.get("token"):
         raise RuntimeError(result.get("error") or "browser sentinel failed")

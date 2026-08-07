@@ -171,16 +171,30 @@ class MSMailClient:
         self._access_token_exp = now + int(j.get("expires_in") or 3600)
         return at
 
-    def _fetch_messages(self, top: int = 25) -> list[dict]:
+    def _fetch_messages(self, top: int = 2, after_ts: float | None = None) -> list[dict]:
         at = self.get_access_token()
         if not at:
             return []
         params = {
-            "$select": "Id,Subject,From,BodyPreview,Body,ReceivedDateTime,IsRead",
+            # $select 只取需要的字段(微软官方最推荐优化项; IsRead 未用已剔除)
+            "$select": "Id,Subject,From,BodyPreview,Body,ReceivedDateTime",
             "$top": str(top),
             "$orderby": "ReceivedDateTime desc",
         }
-        headers = {"Authorization": f"Bearer {at}", "Accept": "application/json"}
+        if after_ts:
+            # 只拉发码窗口内的邮件, 减小每轮响应/解析;
+            # 留 60s 容差防本地时钟领先 MS 导致新邮件被判旧。
+            # $filter/$orderby 组合规则: orderby 属性必须在 filter 中且顺序一致(均 receivedDateTime), 否则 InefficientFilter
+            from datetime import datetime, timezone
+
+            iso = datetime.fromtimestamp(after_ts - 60, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            params["$filter"] = f"ReceivedDateTime ge {iso}"
+        # Prefer: body 以纯文本返回(非 HTML), 显著减小响应 payload——我们只需文本抽 OTP
+        headers = {
+            "Authorization": f"Bearer {at}",
+            "Accept": "application/json",
+            "Prefer": 'outlook.body-content-type="text"',
+        }
         try:
             r = cr.get(
                 MAIL_ENDPOINT,
@@ -240,9 +254,18 @@ class MSMailClient:
         settle_until: float | None = None
         reported: set[tuple[str, bool]] = set()
 
+        _last_progress_log = 0.0
         while time.time() < deadline:
             _now = time.time()
-            for msg in self._fetch_messages():
+            # Graph 新邮件有 ~150s 索引延迟, 周期性报告进度, 避免用户看静默等待
+            if _now - _last_progress_log >= 30:
+                _last_progress_log = _now
+                logger.info(
+                    "[MSMail/Graph] 等待中 t+%.0fs (Graph 新邮件索引延迟可达 150s), after=%s",
+                    _now - (after_ts or _now),
+                    time.strftime("%H:%M:%S", time.localtime(after_ts or _now)),
+                )
+            for msg in self._fetch_messages(after_ts=after_ts):
                 item = self._normalize_msg(msg)
                 if not looks_like_openai_email(item):
                     continue
@@ -633,7 +656,9 @@ class IMAPOAuthClient:
             # 该邮箱 IMAP 不可用(缺 scope/未开 IMAP)，降级 Graph 收码
             logger.warning("[IMAP] %s 连接失败，降级 Graph 收码", self.email)
             return self._graph_fallback().wait_for_otp(
-                after_ts=after_ts, timeout=timeout, interval=interval,
+                after_ts=after_ts, timeout=timeout,
+                # Graph 索引延迟 150s+, 1s 轮询无意义, 降级至少 3s
+                interval=max(3, interval),
                 settle_seconds=settle_seconds, exclude_codes=exclude_codes,
                 on_poll=on_poll,
             )
@@ -654,7 +679,9 @@ class IMAPOAuthClient:
                     # IMAP 持续不可用，降级 Graph
                     logger.warning("[IMAP] %s 持续失败，降级 Graph 收码", self.email)
                     return self._graph_fallback().wait_for_otp(
-                        after_ts=after_ts, timeout=timeout, interval=interval,
+                        after_ts=after_ts, timeout=timeout,
+                        # Graph 索引延迟 150s+, 1s 轮询无意义, 降级至少 3s
+                        interval=max(3, interval),
                         settle_seconds=settle_seconds, exclude_codes=exclude_codes,
                         on_poll=on_poll,
                     )

@@ -82,7 +82,10 @@ def _ensure_sdk(session: Any, sv: str, timeout_ms: int) -> Path:
     content = getattr(resp, "content", b"") or (resp.text or "").encode()
     if not content:
         raise RuntimeError("下载 sdk.js 失败: 响应为空")
-    cache.write_bytes(content)
+    # 原子写: 先写 tmp 再 rename, 防并发写损坏 / 崩溃残留半截文件被永久信任
+    tmp = cache.with_suffix(".tmp")
+    tmp.write_bytes(content)
+    tmp.replace(cache)
     return cache
 
 

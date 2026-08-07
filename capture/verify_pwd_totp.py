@@ -24,7 +24,12 @@ sys.path.insert(0, str(ROOT))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from gptreg.config import load_config, resolve_path  # noqa: E402
+from gptreg.config import (  # noqa: E402
+    load_config,
+    random_birthdate,
+    random_display_name,
+    resolve_path,
+)
 from gptreg.session import BrowserSession  # noqa: E402
 from gptreg.proxyutil import resolve_proxy  # noqa: E402
 from gptreg import auth  # noqa: E402
@@ -122,8 +127,10 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
                                           proxy=resolved.session_url, headless=True, timeout_s=90)
             if br.get("ok") and br.get("so_header"):
                 so_b = br["so_header"]
-        except Exception:
-            pass
+            else:
+                print(f"[warn] browser so 采集未成功: {str(br.get('error') or 'empty so')[:100]} (create 将无 so)")
+        except Exception as exc:
+            print(f"[warn] browser so 采集异常: {type(exc).__name__}: {str(exc)[:100]} (create 将无 so)")
         h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
         h2["openai-sentinel-token"] = tok2
         if so_b:
@@ -160,6 +167,8 @@ def _register(cfg, args, account, email, password, display_name, bday, base_emai
             "t_len": len(tok2),
             "so_len": len(so_b or ""),
             "has_so": bool(so_b),
+            # 本次注册出口代理(落盘用, 便于事后归因 IP 风控 vs 基建)
+            "proxy_used": resolved.upstream_url or resolved.session_url or "",
         }
     finally:
         resolved.close()
@@ -173,7 +182,7 @@ def main() -> int:
     ap = _ap.ArgumentParser()
     ap.add_argument("--email", default="")
     ap.add_argument("--alias", action="store_true")
-    ap.add_argument("--proxy", default="http://127.0.0.1:10808")
+    ap.add_argument("--proxy", default=None, help="覆盖代理(默认走 config 动态链式, 勿用 10808 僵尸端口)")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -200,8 +209,10 @@ def main() -> int:
     else:
         email = base_email
     password = "".join(_r.choice(_s.ascii_letters + _s.digits + "!@#$%") for _ in range(14))
-    display_name, bday = "James Miller", "1998-05-12"
+    display_name = random_display_name()
+    bday = random_birthdate(cfg)
     print(f"注册邮箱: {email}  密码: {password}")
+    print(f"注册身份: {display_name} / {bday}")
 
     # 1. 注册
     t1 = time.time()
@@ -214,6 +225,26 @@ def main() -> int:
     # 1.5 落盘延后到 enroll+secret 后统一写入(含 totp_secret/refresh_token/status)
 
     # 2. 立即 mfa/enroll
+    # 注册成功但 2FA 未开的账号也先落盘(防白建丢凭据; status=registered_no_totp 待补 2FA)
+    def _save_partial(status: str) -> None:
+        from gptreg.store import save_account
+
+        save_account(cfg, record={
+            "email": email,
+            "password": password,
+            "access_token": reg["at"],
+            "refresh_token": reg["refresh_token"],
+            "device_id": reg["device_id"],
+            "name": display_name,
+            "birthdate": bday,
+            "mail_main": base_email,
+            "status": status,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "session_cookies": reg["cookies"],
+            "proxy_used": reg.get("proxy_used", ""),
+        })
+        print(f"[落盘] 已保存注册凭据(status={status})")
+
     t2 = time.time()
     resolved = resolve_proxy(cfg, override=args.proxy)
     s = BrowserSession(cfg, proxy=resolved.session_url)
@@ -236,6 +267,7 @@ def main() -> int:
     if resp_enroll.status_code != 200:
         resolved.close()
         print(f"[x] enroll 失败: {resp_enroll.text[:200]}")
+        _save_partial("registered_no_totp")
         return 3
 
     # 2.5 activate_enrollment: 用 pyotp 码确认, 让 2FA 真正激活
@@ -279,6 +311,7 @@ def main() -> int:
             secret = m_sec.group(0)
     if not secret:
         print(f"[x] 未提取到 secret: {txt[:300]}")
+        _save_partial("registered_no_totp")
         return 4
 
     # 3.5 统一落盘 accounts.jsonl 主库(含 totp_secret/refresh_token/status)
@@ -306,6 +339,7 @@ def main() -> int:
             "totp_enrolled": True,
         },
         "session_cookies": reg["cookies"],
+        "proxy_used": reg.get("proxy_used", ""),
     })
     print("[落盘] 账号已保存到 accounts.jsonl(含 totp_secret)")
 
