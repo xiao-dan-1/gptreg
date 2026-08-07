@@ -206,6 +206,10 @@ class MSMailClient:
 
             now = time.time()
             if best_otp and settle_until is not None and now >= settle_until:
+                logger.info(
+                    "[MSMail/Graph] 到件 OTP=%s 延迟 %.1fs（email=%s）",
+                    best_otp, now - (after_ts or now), self.email,
+                )
                 return best_otp
             time.sleep(interval)
 
