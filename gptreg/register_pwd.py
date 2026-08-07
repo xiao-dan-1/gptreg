@@ -353,11 +353,13 @@ def register_account(
             last_outcome = RegisterOutcome.IP_BLOCKED
             last_diag = dict(getattr(exc, "diag", {}) or {})
             last_diag["attempt"] = att + 1
+            print(f"  [warn] register 被拒(IP 风控): {str(exc)[:70]}")
             if not auto_retry or att >= 2 or "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
                 break
             new_sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
             proxy_url = re.sub(r"-sid-[^-]+-t-", f"-sid-{new_sid}-t-", proxy_url, count=1)
             last_diag["retry_sid"] = att + 1
+            print(f"  [retry] 换新 sid 重试 ({att + 2}/3)")
             time.sleep(1)
         except _SoFailed as exc:
             return RegistrationResult(RegisterOutcome.SO_FAILED, email, {"reason": str(exc)[:150]})
