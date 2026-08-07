@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from gptreg import auth
 from gptreg.config import load_config
+from gptreg.health import check_account_health
 from gptreg.session import BrowserSession
 from gptreg.proxyutil import resolve_proxy
 
@@ -94,7 +95,7 @@ def main() -> int:
             sess.device_id = orig_did
         t_one = _time.time()
         try:
-            r = auth.check_account_health(sess, d.get("access_token"))
+            r = check_account_health(sess, d.get("access_token"))
             status = r.get("status")
             body = str(r.get("body") or r.get("detail") or "")[:50]
             line = (f"  [{i}/{len(accounts)}] {email} [{mode}] "

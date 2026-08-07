@@ -1,4 +1,7 @@
-"""ChatGPT / OpenAI 注册协议请求。"""
+"""ChatGPT / OpenAI 注册协议请求。
+
+内聚：仅认证协议 + sentinel 分发。健康检查在 gptreg/health.py, 登录后行为在 postlogin.py。
+"""
 from __future__ import annotations
 
 import json
@@ -7,13 +10,6 @@ import time
 from typing import Any
 from urllib.parse import urlencode
 
-from gptreg.sentinel import (
-    SentinelPoW,
-    build_sentinel_request_body,
-    build_so_header,
-    resolve_pow_so_header,
-    generate_requirements_token,
-)
 from gptreg.session import BrowserSession
 
 logger = logging.getLogger(__name__)
@@ -263,254 +259,6 @@ def fetch_session(session: BrowserSession) -> dict:
     return data
 
 
-def check_account_health(session: BrowserSession, access_token: str) -> dict[str, Any]:
-    """注册后即时健康检查。返回 status: ok / deactivated / invalidated / error。"""
-    if not access_token:
-        return {"status": "error", "detail": "empty token"}
-
-    headers = session.chatgpt_headers(referer="https://chatgpt.com/")
-    headers["authorization"] = f"Bearer {access_token}"
-    headers["oai-device-id"] = session.device_id
-    headers["oai-language"] = (session.cfg.get("browser", {}) or {}).get("language", "en-US")
-    headers.pop("content-type", None)
-
-    try:
-        url = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27"
-        resp = session.get(url, headers=headers)
-        text = (resp.text or "")[:500]
-        low = text.lower()
-        if resp.status_code == 200:
-            logger.info("[Auth] health check OK accounts/check=200")
-            return {"status": "ok", "http": 200, "endpoint": "accounts/check", "body": text}
-        if resp.status_code in (401, 403) and (
-            "account_deactivated" in low or "deactivated" in low or "deleted" in low
-        ):
-            logger.error("[Auth] health: account_deactivated http=%s", resp.status_code)
-            return {
-                "status": "deactivated",
-                "http": resp.status_code,
-                "endpoint": "accounts/check",
-                "body": text,
-            }
-        if resp.status_code == 401 and (
-            "token_invalidated" in low
-            or "token_revoked" in low
-            or "unauthorized" in low
-            or "invalid" in low
-        ):
-            logger.error("[Auth] health: token_invalidated http=%s", resp.status_code)
-            return {
-                "status": "invalidated",
-                "http": resp.status_code,
-                "endpoint": "accounts/check",
-                "body": text,
-            }
-        logger.warning("[Auth] health unexpected http=%s body=%s", resp.status_code, text[:200])
-        return {
-            "status": "error",
-            "http": resp.status_code,
-            "endpoint": "accounts/check",
-            "body": text,
-        }
-    except Exception as exc:
-        logger.warning("[Auth] health check 异常: %s", exc)
-        return {"status": "error", "detail": str(exc)}
-
-
-def _backend_api_headers(
-    session: BrowserSession,
-    access_token: str,
-    *,
-    account_id: str = "",
-    oai_session_id: str = "",
-) -> dict[str, str]:
-    """登录后 backend-api 头（对齐 Jennifer：Bearer + oai-device-id + account/session）。"""
-    browser = session.cfg.get("browser", {}) or {}
-    h = session.chatgpt_headers(referer="https://chatgpt.com/")
-    h["authorization"] = f"Bearer {access_token}"
-    h["oai-device-id"] = session.device_id
-    h["oai-language"] = browser.get("language", "en-US")
-    if account_id:
-        h["chatgpt-account-id"] = account_id
-    if oai_session_id:
-        h["oai-session-id"] = oai_session_id
-    return h
-
-
-def _timezone_offset_min() -> int:
-    """对齐 JS getTimezoneOffset（UTC+8 → -480）。"""
-    try:
-        from datetime import datetime
-
-        off = datetime.now().astimezone().utcoffset()
-        if off is None:
-            return 0
-        return -int(off.total_seconds() // 60)
-    except Exception:
-        return 0
-
-
-def post_login_warmup(
-    session: BrowserSession,
-    access_token: str,
-    session_info: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Step B：登录后最小补齐（so 策略不变，不造假 PoW/turnstile/finalize）。
-
-    对照：
-    - Jennifer capture：me/check → conversation/init → chat-requirements prepare/finalize
-    - 协议分析：init 不需对话 sentinel token；prepare→finalize 需真 PoW/turnstile
-
-    本实现只保证能诚实完成的部分：
-    1) GET /backend-api/me
-    2) POST /backend-api/conversation/init
-    3) POST chat-requirements/prepare（带本机 generate 的 p；失败仅记录）
-    4) finalize **跳过**（无真 pow/turnstile 解，禁止伪造）
-    """
-    import uuid
-
-    info = session_info or {}
-    account = info.get("account") or {}
-    account_id = ""
-    if isinstance(account, dict):
-        account_id = str(account.get("id") or "")
-    oai_session_id = str(uuid.uuid4())
-    detail: dict[str, Any] = {
-        "enabled": True,
-        "account_id": account_id or None,
-        "oai_session_id": oai_session_id,
-        "steps": {},
-        "finalize": "skipped_no_real_pow_turnstile",
-    }
-
-    def _step(name: str, fn) -> None:
-        try:
-            detail["steps"][name] = fn()
-        except Exception as exc:
-            logger.warning("[PostLogin] %s 异常: %s", name, exc)
-            detail["steps"][name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-    # 1) /me — Jennifer 登录后立刻打
-    def _me() -> dict[str, Any]:
-        headers = _backend_api_headers(
-            session, access_token, account_id=account_id, oai_session_id=oai_session_id
-        )
-        headers.pop("content-type", None)
-        resp = session.get("https://chatgpt.com/backend-api/me", headers=headers)
-        body = (resp.text or "")[:200]
-        ok = resp.status_code == 200
-        logger.info("[PostLogin] me http=%s ok=%s", resp.status_code, ok)
-        return {"ok": ok, "http": resp.status_code, "body_head": body}
-
-    # 2) conversation/init — 开壳，不需对话 sentinel token
-    def _init() -> dict[str, Any]:
-        headers = _backend_api_headers(
-            session, access_token, account_id=account_id, oai_session_id=oai_session_id
-        )
-        payload = {
-            "requested_default_model": None,
-            "conversation_id": None,
-            "timezone_offset_min": _timezone_offset_min(),
-        }
-        logger.info(
-            "[PostLogin] conversation/init tz_offset=%s account_id=%s",
-            payload["timezone_offset_min"],
-            account_id[:8] if account_id else "-",
-        )
-        resp = session.post(
-            "https://chatgpt.com/backend-api/conversation/init",
-            headers=headers,
-            json=payload,
-        )
-        body = (resp.text or "")[:240]
-        ok = resp.status_code == 200
-        logger.info("[PostLogin] conversation/init http=%s ok=%s", resp.status_code, ok)
-        return {"ok": ok, "http": resp.status_code, "body_head": body}
-
-    # 3) prepare — 尽力；不解 finalize
-    def _prepare() -> dict[str, Any]:
-        from gptreg.sentinel import summarize_chatreq
-
-        headers = _backend_api_headers(
-            session, access_token, account_id=account_id, oai_session_id=oai_session_id
-        )
-        p = generate_requirements_token(session.cfg, session.device_id)
-        logger.info("[PostLogin] chat-requirements/prepare p_len=%s", len(p or ""))
-        resp = session.post(
-            "https://chatgpt.com/backend-api/sentinel/chat-requirements/prepare",
-            headers=headers,
-            json={"p": p},
-        )
-        text = resp.text or ""
-        body_head = text[:240]
-        out: dict[str, Any] = {
-            "ok": resp.status_code == 200,
-            "http": resp.status_code,
-            "body_head": body_head,
-            "p_len": len(p or ""),
-        }
-        if resp.status_code == 200:
-            try:
-                data = resp.json()
-            except Exception:
-                data = {}
-            if isinstance(data, dict):
-                out["has_prepare_token"] = bool(data.get("prepare_token"))
-                out["prepare_token_len"] = len(str(data.get("prepare_token") or ""))
-                out["persona"] = data.get("persona")
-                out["resp_keys"] = sorted(data.keys())
-                pow_req = data.get("proofofwork") or {}
-                ts_req = data.get("turnstile") or {}
-                so_req = data.get("so") or {}
-                out["pow_required"] = bool(pow_req.get("required")) if isinstance(pow_req, dict) else None
-                out["turnstile_required"] = bool(ts_req.get("required")) if isinstance(ts_req, dict) else None
-                out["so_required"] = bool(so_req.get("required")) if isinstance(so_req, dict) else None
-                if isinstance(so_req, dict):
-                    out["so_keys"] = sorted(so_req.keys())
-                    cdx = so_req.get("collector_dx")
-                    sdx = so_req.get("snapshot_dx")
-                    out["so_collector_dx_len"] = len(cdx) if isinstance(cdx, str) else 0
-                    out["so_snapshot_dx_len"] = len(sdx) if isinstance(sdx, str) else 0
-                if isinstance(ts_req, dict):
-                    dx = ts_req.get("dx")
-                    out["turnstile_dx_len"] = len(dx) if isinstance(dx, str) else 0
-                if isinstance(pow_req, dict):
-                    out["pow_difficulty"] = str(pow_req.get("difficulty") or "")
-                    out["pow_seed_len"] = len(str(pow_req.get("seed") or ""))
-                # 与 auth /req chatReq 观测同形（诊断 only）
-                out["chatreq"] = summarize_chatreq(
-                    data, flow="chat_requirements_prepare", http=resp.status_code
-                )
-                # 明确不 finalize：无真解
-                out["finalize"] = "skipped_no_real_pow_turnstile"
-        logger.info(
-            "[PostLogin] prepare http=%s ok=%s has_prepare_token=%s so_required=%s "
-            "collector_dx_len=%s snapshot_dx_len=%s turnstile_dx_len=%s",
-            resp.status_code,
-            out.get("ok"),
-            out.get("has_prepare_token"),
-            out.get("so_required"),
-            out.get("so_collector_dx_len"),
-            out.get("so_snapshot_dx_len"),
-            out.get("turnstile_dx_len"),
-        )
-        return out
-
-    logger.info("[PostLogin] warmup start (init+prepare only; no fake finalize/so)")
-    _step("me", _me)
-    time.sleep(0.2)
-    _step("conversation_init", _init)
-    time.sleep(0.2)
-    _step("chat_requirements_prepare", _prepare)
-    detail["ok"] = bool((detail["steps"].get("conversation_init") or {}).get("ok"))
-    logger.info(
-        "[PostLogin] warmup done ok=%s steps=%s",
-        detail["ok"],
-        {k: (v or {}).get("http") for k, v in detail["steps"].items()},
-    )
-    return detail
-
-
 def maybe_follow_external(session: BrowserSession, validate_result: dict) -> None:
     page_type = (validate_result.get("page") or {}).get("type") or validate_result.get("type")
     if page_type != "external_url":
@@ -525,4 +273,8 @@ def maybe_follow_external(session: BrowserSession, validate_result: dict) -> Non
     if external:
         logger.info("[Auth] 跟随 external_url")
         session.get(external, headers=session.auth_navigate_headers(), allow_redirects=True)
-        time.sleep(1)
+
+
+# 兼容转发: 健康检查/登录后行为已拆分到 health/postlogin(旧脚本从 auth import 仍可用)
+from gptreg.health import check_account_health  # noqa: E402
+from gptreg.postlogin import post_login_warmup  # noqa: E402

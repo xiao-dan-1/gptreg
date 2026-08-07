@@ -10,7 +10,9 @@ from typing import Any
 
 from gptreg import auth
 from gptreg.config import random_birthdate, random_display_name, resolve_path
+from gptreg.health import check_account_health
 from gptreg.mail.pool import MailPool, choose_registration_email
+from gptreg.postlogin import post_login_warmup
 from gptreg.mail.providers import UsedCodeCache, build_mail_client, mail_identity_key
 from gptreg.proxyutil import resolve_proxy
 from gptreg.session import BrowserSession
@@ -412,7 +414,7 @@ def register_one(
         health: dict[str, Any] = {}
         health_status = "error"
         for _hc in range(3):
-            health = auth.check_account_health(session, access_token)
+            health = check_account_health(session, access_token)
             health_status = health.get("status") or "error"
             if health_status == "ok":
                 break
@@ -430,7 +432,7 @@ def register_one(
         post_login_enabled = bool((cfg.get("register") or {}).get("post_login", False))
         post_login_detail: dict[str, Any] | None = None
         if post_login_enabled:
-            post_login_detail = auth.post_login_warmup(session, access_token, session_info)
+            post_login_detail = post_login_warmup(session, access_token, session_info)
 
         chatreq_obs = sentinel_meta.get("chatreq") or getattr(session, "_last_chatreq_obs", None)
         timing = {

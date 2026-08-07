@@ -22,6 +22,7 @@ from typing import Any
 from gptreg import auth
 from gptreg.browser_sentinel import harvest_browser_sentinel
 from gptreg.config import _root, resolve_path
+from gptreg.health import check_account_health
 from gptreg.mail.pool import parse_mail_line  # noqa: F401  (CLI 选号复用)
 from gptreg.mail.providers import UsedCodeCache, build_mail_client, mail_identity_key
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
@@ -370,7 +371,7 @@ def register_account(
     mail_main = account.get("email") or ""
     # create 后即时健康检查(秒封检测) + 2FA 激活; 复用注册会话/隧道(贯穿整条链)
     try:
-        health = auth.check_account_health(session, reg["at"])  # type: ignore[arg-type]
+        health = check_account_health(session, reg["at"])  # type: ignore[arg-type]
         if health.get("status") != "ok":
             rec = _partial_record(reg, email, password, name, bday, mail_main, "health_failed")
             save_account(cfg, record=rec)
