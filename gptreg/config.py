@@ -37,6 +37,14 @@ _DEFAULTS: dict[str, Any] = {
         "used_code_cache": "data/used_otp_codes.json",
         "use_alias": False,
         "alias_tag_len": 6,
+        # 通用第三方 API 接码(号池行 email----api_key, mail_type="api")
+        "api_client": {
+            "endpoint": "",  # 收码 API URL(空=禁用该来源)
+            "method": "POST",
+            "request_body": '{"api_key":"{api_key}","email":"{email}","mailbox":"INBOX"}',
+            "otp_path": "",  # 响应里 OTP 的 JSON 路径(空=通用扫描)
+            "interval": 3,
+        },
     },
     "browser": {
         "user_agent": (

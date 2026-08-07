@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from gptreg.mail.api import ApiMailSource
 from gptreg.mail.base import MailClient, MailSource
 from gptreg.mail.external import GmailApiClient, XDAuvMailClient
 from gptreg.mail.imap import IMAPOAuthClient
@@ -95,4 +96,5 @@ MAIL_CLIENTS: dict[str, type[MailClient]] = {
 MAIL_SOURCES: dict[str, MailSource] = {
     "ms_oauth": MsOAuthSource(),
     "gmail_api": GmailApiSource(),
+    "api": ApiMailSource(),  # 通用第三方 API 接码(配置 mail.api_client)
 }
