@@ -250,6 +250,7 @@ def _register_chain(
         at = info.get("accessToken")
         if not at:
             raise _SessionFailed("session 无 accessToken")
+        diag["session_s"] = round(time.time() - st["start"], 1)
         cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
                     "secure": bool(getattr(c, "secure", False))}
                    for c in session.session.cookies.jar]
@@ -371,7 +372,9 @@ def register_account(
     mail_main = account.get("email") or ""
     # create 后即时健康检查(秒封检测) + 2FA 激活; 复用注册会话/隧道(贯穿整条链)
     try:
+        _h_t0 = time.time()
         health = check_account_health(session, reg["at"])  # type: ignore[arg-type]
+        _health_s = round(time.time() - _h_t0, 1)
         if health.get("status") != "ok":
             rec = _partial_record(reg, email, password, name, bday, mail_main, "health_failed")
             save_account(cfg, record=rec)
@@ -382,6 +385,7 @@ def register_account(
         record = _build_record(reg, email, password, name, bday, mail_main, totp)
         save_account(cfg, record=record)
         diag = dict(reg.get("diag") or {})
+        diag["health_s"] = _health_s
         diag["enroll_s"] = round(time.time() - _en_t0, 1)
         diag["elapsed_s"] = round(time.time() - t0, 1)
         return RegistrationResult(RegisterOutcome.SUCCESS, email, diag, record)
