@@ -9,46 +9,23 @@ from typing import Any
 
 
 def parse_mail_line(line: str) -> dict[str, Any] | None:
-    """解析号池行。
+    """解析号池行(遍历来源插件 MAIL_SOURCES 识别)。
 
-    支持:
+    支持(由 sources.MAIL_SOURCES 各插件识别):
       email----password----client_id----refresh_token  -> ms_oauth
       email----https://...get-code...                 -> gmail_api
+    新增号源只需注册进 sources.MAIL_SOURCES, 本函数零改动。
     """
     line = (line or "").strip()
     if not line or line.startswith("#"):
         return None
-    parts = line.split("----")
-    if len(parts) == 2:
-        email, code_url = parts[0].strip(), parts[1].strip()
-        if not email or "@" not in email:
-            return None
-        if not code_url.startswith(("http://", "https://")):
-            return None
-        return {
-            "email": email,
-            "password": "",
-            "client_id": "",
-            "refresh_token": "",
-            "code_url": code_url,
-            "mail_type": "gmail_api",
-            "raw_line": line,
-        }
-    if len(parts) < 4:
-        return None
-    email, password, client_id, refresh_token = (p.strip() for p in parts[:4])
-    if not email or "@" not in email or not refresh_token:
-        return None
-    refresh_token = refresh_token.rstrip("$").rstrip()
-    return {
-        "email": email,
-        "password": password,
-        "client_id": client_id,
-        "refresh_token": refresh_token,
-        "code_url": "",
-        "mail_type": "ms_oauth",
-        "raw_line": line,
-    }
+    from gptreg.mail.sources import MAIL_SOURCES
+
+    for src in MAIL_SOURCES.values():
+        acc = src.parse_line(line)
+        if acc:
+            return acc
+    return None
 
 
 def choose_registration_email(account: dict[str, Any], cfg: dict[str, Any] | None = None) -> tuple[str, bool]:

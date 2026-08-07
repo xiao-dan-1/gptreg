@@ -1,9 +1,9 @@
-"""邮箱 OTP 客户端工厂（插件化: 通道注册到 MAIL_CLIENTS, 核心只认接口）。
+"""邮箱 OTP 客户端工厂（插件化: 来源 MAIL_SOURCES / 收码 MAIL_CLIENTS）。
 
-对齐 sentinel_engine 注册表模式——新增收码通道:
-  1. 继承 gptreg.mail.base.MailClient 并实现 wait_for_otp
-  2. 注册进 MAIL_CLIENTS
-  核心 build_mail_client 不改(开闭原则)。
+核心只认接口:
+  - build_mail_client 按 mail_type 查 MAIL_SOURCES(来源插件) → 该来源 build_client
+  - MAIL_CLIENTS 是收码通道注册表(MailClient 插件)
+新增号源/收码通道均注册进 sources.py 注册表, 本模块零改动。
 """
 from __future__ import annotations
 
@@ -22,13 +22,20 @@ from gptreg.mail.otp_cache import (
     UsedCodeCache,
     mail_identity_key,
 )
+from gptreg.mail.sources import MAIL_CLIENTS, MAIL_SOURCES
 
-# 收码通道注册表(插件化: 新增通道在此注册, 工厂按 mail_type 查)
-MAIL_CLIENTS: dict[str, type[MailClient]] = {
-    "gmail_api": GmailApiClient,
-    "ms_oauth": IMAPOAuthClient,  # 本地 IMAP(use_xdauv=false)
-    "ms_oauth_xdauv": XDAuvMailClient,  # 服务收码(use_xdauv=true)
-}
+__all__ = [
+    "MAIL_CLIENTS",
+    "MAIL_SOURCES",
+    "MailClient",
+    "IMAPOAuthClient",
+    "GmailApiClient",
+    "XDAuvMailClient",
+    "MailClientError",
+    "UsedCodeCache",
+    "mail_identity_key",
+    "build_mail_client",
+]
 
 
 def build_mail_client(
@@ -37,19 +44,12 @@ def build_mail_client(
     impersonate: str = "chrome142",
     cfg: dict[str, Any] | None = None,
 ) -> MailClient:
-    """按 mail_type 选收码通道(从注册表查)。cfg 传入后 use_xdauv 用调用方配置,
-    而非重读磁盘 load_config(修复 CLI --config 被静默忽略)。"""
+    """按 mail_type 从 MAIL_SOURCES(来源插件) 构建收码客户端。
+
+    cfg 传入后 use_xdauv 等用调用方配置, 而非重读磁盘 load_config。
+    """
     mail_type = account.get("mail_type") or "ms_oauth"
-    if mail_type == "gmail_api":
-        return MAIL_CLIENTS["gmail_api"](account, proxy=proxy, impersonate=impersonate)
-    use_cfg = cfg
-    if use_cfg is None:
-        try:
-            from gptreg.config import load_config
-            use_cfg = load_config()
-        except Exception:
-            use_cfg = {}
-    if (use_cfg.get("mail") or {}).get("use_xdauv", True):
-        return MAIL_CLIENTS["ms_oauth_xdauv"](account, proxy=proxy, impersonate=impersonate, cfg=use_cfg)
-    # ms_oauth 走 IMAP(XOAUTH2)，绕开 Graph ~150s 索引延迟
-    return MAIL_CLIENTS["ms_oauth"](account, proxy=proxy, impersonate=impersonate, cfg=use_cfg)
+    src = MAIL_SOURCES.get(mail_type)
+    if src is None:
+        raise ValueError(f"未知邮箱来源: {mail_type}")
+    return src.build_client(account, proxy=proxy, impersonate=impersonate, cfg=cfg)
