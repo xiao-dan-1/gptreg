@@ -4,9 +4,12 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 
 ## 核心能力
 
-- **密码注册 + TOTP 2FA 激活**（主路线，`capture/verify_pwd_totp.py`）
+- **密码注册 + TOTP 2FA 激活**（主路线）
+  - 核心：`gptreg/register_pwd.py` `register_account()`（结构化结果），CLI/批量共享
+  - 薄壳：`capture/verify_pwd_totp.py`（选号/生成参数/打印反馈）
   - `enroll` → `activate_enrollment` 完整链，产出 `mfa_enabled: true` 的真 2FA 账号
-- **批量生产**（`capture/batch_totp.py`）自动选未用过主号逐个注册
+  - create 后即时健康检查（秒封检测）
+- **批量生产**（`capture/batch_totp.py`）复用核心，按失败类型管主号（IP 风控不烧号）
 - **本地 IMAP 收码**（XOAUTH2 经链式隧道），失败自动降级 Graph
 - **账号测活 / 补 token / 2FA 登录**（`capture/check_survival.py` / `backfill_token.py` / `login_pwd_check_totp.py`）
 - 统一落盘 `accounts.jsonl` 主库（去重 upsert）
@@ -14,12 +17,12 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 ## 主路线架构
 
 ```
-主号(号池) ──动态链式代理──> OpenAI 注册(plus 别名: 主号+tag@domain)
-  ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)  [400时自动换sid重试]
+主号(号池) ──动态链式代理──> OpenAI 注册(plus 别名)  [gptreg/register_pwd.register_account]
+  ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)  [400 自动换 sid 重试3次; 落 log-in=已注册弃用]
   ├─ send_otp → 本地 IMAP 收码 → validate
-  ├─ create_account(quickjs 真 t + browser 真 so, 并行采集)
-  ├─ callback → session(access_token)
-  ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活
+  ├─ create_account(quickjs 真 t + browser 真 so 并行; so 失败重试3次+中止)
+  ├─ callback → session(access_token) → 即时健康检查(秒封检测)
+  ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活(复用注册隧道, 出口贯穿)
   └─ save_account → accounts.jsonl(totp_secret + 凭据)
 ```
 
@@ -135,6 +138,7 @@ capture/
   login_pwd_check_totp.py      密码+TOTP 登录验证
   reg-2fa-timing-*.md          耗时/性能存档
 gptreg/
+  register_pwd.py              主路线核心：register_account(注册+TOTP 2FA, 结构化结果)
   auth.py                      协议请求 + sentinel 接线
   pipeline.py                  OTP-only 流水线 + 批量分桶
   browser_sentinel.py          真 Chrome token+so 采集
@@ -154,6 +158,8 @@ data/                          OTP 缓存等
 - **主号已注册（最常见根因）**：register 400 invalid_auth_step 先看输出诊断行（authorize 落点）——email-verification/log-in = 主号已在 OpenAI 注册，必须用 plus 别名（已默认）；create-account/password = 未注册
 - **IP 信誉**：落 create-account/password 仍 400 = 出口 IP 被 OpenAI 标记，需干净住宅 IP；单号注册已内置 register 400 自动换 sid 重试 3 次
 - **邮箱级风控**：同一邮箱多次注册失败会被 OpenAI 记住，换 IP 也无效（勿反复试同一邮箱）
+- **so 失败中止**：无 so 账号必死（测活实证 2/2 吊销），so 采集失败重试 3 次仍无则中止注册，不白建号
+- **主号生命周期（批量）**：SUCCESS 已用 / MAIL_REGISTERED 永久弃用(totp_failed) / IP 风控等可重试不烧号
 - **IMAP 账号级差异**：部分 Outlook 账号被 MS 拒 IMAP（`authenticated but not connected`），自动降级 Graph（较慢）
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才能注册成功；7890/10808 数据中心 IP 长期风控后不可用
 
