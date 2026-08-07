@@ -232,6 +232,7 @@ def register_one(
             account,
             proxy=resolved.session_url or None,
             impersonate=browser.get("impersonate", "chrome142"),
+            cfg=cfg,
         )
         identity = mail_identity_key(account)
         if used_cache is None:

@@ -403,6 +403,7 @@ class IMAPOAuthClient:
         proxy: str | None = None,
         impersonate: str = "chrome142",
         timeout: int = 25,
+        cfg: dict[str, Any] | None = None,
     ):
         self.email = account["email"]
         self.client_id = account["client_id"]
@@ -410,6 +411,7 @@ class IMAPOAuthClient:
         self.proxy = proxy or None
         self.impersonate = impersonate
         self.timeout = timeout
+        self._cfg = cfg or {}
         self._conn: imaplib.IMAP4_SSL | None = None
         self._access_token: str | None = None
         self._access_token_exp: float = 0.0
@@ -493,11 +495,14 @@ class IMAPOAuthClient:
         被 MS 拒(authenticated but not connected), 7890 出口(海外)能连。"""
         from urllib.parse import urlparse
 
-        try:
-            from gptreg.config import load_config
-            chain_via = ((load_config().get("proxy") or {}).get("dynamic") or {}).get("chain_via") or ""
-        except Exception:
-            chain_via = ""
+        # 优先调用方 cfg(隧道出口与注册一致, 不重读磁盘); 无则 load_config() 兜底
+        chain_via = ((self._cfg.get("proxy") or {}).get("dynamic") or {}).get("chain_via") or ""
+        if not chain_via:
+            try:
+                from gptreg.config import load_config
+                chain_via = ((load_config().get("proxy") or {}).get("dynamic") or {}).get("chain_via") or ""
+            except Exception:
+                chain_via = ""
         ctx = ssl.create_default_context()
         if not chain_via:
             raw = socket.create_connection((self.IMAP_HOST, self.IMAP_PORT), timeout=20)
@@ -804,16 +809,20 @@ class XDAuvMailClient:
         proxy: str | None = None,
         impersonate: str = "chrome142",
         timeout: int = 30,
+        cfg: dict[str, Any] | None = None,
     ):
         self.email = account.get("email") or ""
         self.account = account
         self.proxy = proxy or None
         self.impersonate = impersonate
         self.timeout = timeout
+        self._cfg = cfg or {}
         self.endpoint = self._endpoint()
 
-    @staticmethod
-    def _endpoint() -> str:
+    def _endpoint(self) -> str:
+        ep = (self._cfg.get("mail") or {}).get("xdauv_endpoint") or ""
+        if ep:
+            return ep
         try:
             from gptreg.config import load_config
             return (load_config().get("mail") or {}).get("xdauv_endpoint") \
@@ -911,21 +920,24 @@ def build_mail_client(
     account: dict[str, Any],
     proxy: str | None = None,
     impersonate: str = "chrome142",
+    cfg: dict[str, Any] | None = None,
 ) -> MSMailClient | GmailApiClient | IMAPOAuthClient | XDAuvMailClient:
+    """按 mail_type 选收码通道。cfg 传入后 use_xdauv/chain_via 用调用方配置,
+    而非重读磁盘 load_config(修复 CLI --config 被静默忽略)。"""
     mail_type = account.get("mail_type") or "ms_oauth"
     if mail_type == "gmail_api":
         return GmailApiClient(account, proxy=proxy, impersonate=impersonate)
-    # ms_oauth: mail.use_xdauv=true 走 outlook.xdauv.xyz 服务收码(海外干净 IP, 全部账号能连);
-    # 否则走本地 IMAP(经 chain_via 隧道, 部分账号被 MS 拒会降级 Graph)
-    try:
-        from gptreg.config import load_config
-
-        if (load_config().get("mail") or {}).get("use_xdauv", True):
-            return XDAuvMailClient(account, proxy=proxy, impersonate=impersonate)
-    except Exception:
-        pass
+    use_cfg = cfg
+    if use_cfg is None:
+        try:
+            from gptreg.config import load_config
+            use_cfg = load_config()
+        except Exception:
+            use_cfg = {}
+    if (use_cfg.get("mail") or {}).get("use_xdauv", True):
+        return XDAuvMailClient(account, proxy=proxy, impersonate=impersonate, cfg=use_cfg)
     # ms_oauth 走 IMAP(XOAUTH2)，绕开 Graph ~150s 索引延迟(实测稳定 0.6s)
-    return IMAPOAuthClient(account, proxy=proxy, impersonate=impersonate)
+    return IMAPOAuthClient(account, proxy=proxy, impersonate=impersonate, cfg=use_cfg)
 
 
 def _parse_ts(raw: str) -> float:

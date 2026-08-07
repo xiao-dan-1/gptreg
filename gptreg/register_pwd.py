@@ -51,6 +51,7 @@ class RegisterOutcome(Enum):
     OTP_FAILED = "otp_failed"  # 收码超时/失败
     CREATE_FAILED = "create_failed"  # create 拒建/失败
     SESSION_FAILED = "session_failed"  # callback/session 失败
+    HEALTH_FAILED = "health_failed"  # create 后健康检查失败(秒封/吊销)
     ENROLL_FAILED = "enroll_failed"  # 2FA enroll 失败(账号已建, 落盘待补)
 
 
@@ -153,7 +154,8 @@ def _register_chain(
         # 收码(IMAP 快 / Graph 降级; 超时重发, 最多 otp_max_attempts 次)
         otp_after = st["start"]
         client = build_mail_client(account, proxy=resolved.session_url or None,
-                                   impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"))
+                                   impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
+                                   cfg=cfg)
         identity = mail_identity_key(account)
         cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
         used_cache = UsedCodeCache(cache_path)
@@ -257,30 +259,22 @@ def _register_chain(
             "has_so": True,
             "proxy_used": resolved.upstream_url or resolved.session_url or "",
             "diag": diag,
-        }
-    finally:
+        }, session, resolved
+    except Exception:
         resolved.close()
+        raise
 
 
-def _enroll_totp(cfg: dict[str, Any], reg: dict[str, Any], email: str) -> dict[str, Any]:
-    """用注册 token + cookies 开 TOTP 2FA(enroll→activate), 返回 secret 或抛 _EnrollFailed。"""
-    resolved = resolve_proxy(cfg, override=reg.get("proxy_used") or "")
-    s = BrowserSession(cfg, proxy=resolved.session_url)
-    s.device_id = reg["device_id"]
+def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, Any]) -> dict[str, Any]:
+    """用注册会话开 TOTP 2FA(enroll→activate), 复用注册隧道(不双重建 resolved)。"""
     try:
-        for c in reg["cookies"]:
-            for dom in (c["domain"].lstrip("."), c["domain"]):
-                if dom:
-                    try:
-                        s.session.cookies.set(c["name"], c["value"], domain=dom, path=c["path"])
-                    except Exception:
-                        pass
-        h6 = s.chatgpt_headers(referer="https://chatgpt.com/")
+        # 注册 session 已含登录 cookies + oai-did, 直接复用——隧道贯穿整条链
+        h6 = session.chatgpt_headers(referer="https://chatgpt.com/")
         h6["authorization"] = f"Bearer {reg['at']}"
         h6["oai-device-id"] = reg["device_id"]
         h6.pop("content-type", None)
         h6["content-type"] = "application/json"
-        resp_enroll = s.post(ENROLL_URL, headers=h6, data=json.dumps({"factor_type": "totp"}), timeout=30)
+        resp_enroll = session.post(ENROLL_URL, headers=h6, data=json.dumps({"factor_type": "totp"}), timeout=30)
         if resp_enroll.status_code != 200:
             raise _EnrollFailed(f"mfa/enroll HTTP {resp_enroll.status_code}: {resp_enroll.text[:200]}")
         ej = resp_enroll.json()
@@ -292,12 +286,12 @@ def _enroll_totp(cfg: dict[str, Any], reg: dict[str, Any], email: str) -> dict[s
             import pyotp
 
             code6 = pyotp.TOTP(enroll_secret).now()
-            resp_act = s.post(ACTIVATE_URL, headers=h6, data=json.dumps({
+            resp_act = session.post(ACTIVATE_URL, headers=h6, data=json.dumps({
                 "code": code6, "session_id": session_id,
                 "factor_id": factor_id, "factor_type": "totp"}), timeout=30)
             activated = resp_act.status_code == 200 and '"success":true' in (resp_act.text or "")
             try:
-                resp_info = s.get(MFA_INFO_URL, headers=h6, timeout=30)
+                resp_info = session.get(MFA_INFO_URL, headers=h6, timeout=30)
                 if '"mfa_enabled":true' in (resp_info.text or ""):
                     activated = True
             except Exception:
@@ -306,7 +300,7 @@ def _enroll_totp(cfg: dict[str, Any], reg: dict[str, Any], email: str) -> dict[s
             raise _EnrollFailed("activate_enrollment 未确认 mfa_enabled=true")
         return {"totp_secret": enroll_secret, "totp_enrolled": True}
     finally:
-        resolved.close()
+        pass  # session/resolved 由 register_account 统一关闭
 
 
 def register_account(
@@ -330,12 +324,14 @@ def register_account(
     if not proxy_url:
         proxy_url = build_dynamic_proxy(cfg)
     reg: dict[str, Any] | None = None
+    session: BrowserSession | None = None
+    resolved = None
     last_diag: dict[str, Any] = {}
     last_outcome = RegisterOutcome.IP_BLOCKED
 
     for att in range(3):
         try:
-            reg = _register_chain(cfg, account, email, password, name, bday, proxy_url)
+            reg, session, resolved = _register_chain(cfg, account, email, password, name, bday, proxy_url)
             break
         except _MailRegistered as exc:
             return RegistrationResult(
@@ -369,20 +365,28 @@ def register_account(
         return RegistrationResult(last_outcome, email, last_diag)
 
     mail_main = account.get("email") or ""
-    # 2FA 激活(enroll→activate); 失败仍落盘已建账号(待补 2FA)
+    # create 后即时健康检查(秒封检测) + 2FA 激活; 复用注册会话/隧道(贯穿整条链)
     try:
-        totp = _enroll_totp(cfg, reg, email)
+        health = auth.check_account_health(session, reg["at"])  # type: ignore[arg-type]
+        if health.get("status") != "ok":
+            rec = _partial_record(reg, email, password, name, bday, mail_main, "health_failed")
+            save_account(cfg, record=rec)
+            return RegistrationResult(RegisterOutcome.HEALTH_FAILED, email,
+                                      {"reason": f"health {health.get('status')} http={health.get('http')}"}, rec)
+        totp = _enroll_totp(cfg, session, reg)  # type: ignore[arg-type]
+        record = _build_record(reg, email, password, name, bday, mail_main, totp)
+        save_account(cfg, record=record)
+        diag = dict(reg.get("diag") or {})
+        diag["elapsed_s"] = round(time.time() - t0, 1)
+        return RegistrationResult(RegisterOutcome.SUCCESS, email, diag, record)
     except _EnrollFailed as exc:
         rec = _partial_record(reg, email, password, name, bday, mail_main, "registered_no_totp")
         save_account(cfg, record=rec)
         return RegistrationResult(RegisterOutcome.ENROLL_FAILED, email,
                                   {"reason": str(exc)[:150]}, rec)
-
-    record = _build_record(reg, email, password, name, bday, mail_main, totp)
-    save_account(cfg, record=record)
-    diag = dict(reg.get("diag") or {})
-    diag["elapsed_s"] = round(time.time() - t0, 1)
-    return RegistrationResult(RegisterOutcome.SUCCESS, email, diag, record)
+    finally:
+        if resolved is not None:
+            resolved.close()
 
 
 def _partial_record(reg, email, password, name, bday, mail_main, status) -> dict[str, Any]:
