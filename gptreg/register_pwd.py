@@ -172,7 +172,12 @@ def _stage_wait_otp(
 ) -> str:
     """Stage 3: 收码(IMAP 快 / Graph 降级)。超时重发, 最多 otp_max_attempts 次。"""
     otp_after = st["start"]
-    client = build_mail_client(account, proxy=proxy_url or None,
+    # 收码代理决策: 仅 ms_oauth(Outlook IMAP/Graph)需走链式隧道(本地直连 MS 被拒)。
+    # iCloud 接码 URL/CloudMail admin/API 是第三方或自托管服务, 直连可通,
+    # 套隧道反而 TLS WRONG_VERSION_NUMBER 失败(实测: icloud-api.top 直连 200, 走代理 35 错误)。
+    mail_type = str(account.get("mail_type") or "")
+    otp_proxy = proxy_url if mail_type == "ms_oauth" else None
+    client = build_mail_client(account, proxy=otp_proxy,
                                impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
                                cfg=cfg)
     # 收码通道类型(ms_oauth/icloud/cloudmail/api...), 归因分析用
