@@ -180,6 +180,7 @@ def _stage_wait_otp(
     )
     diag["otp"] = otp
     diag["otp_s"] = round(time.time() - _t0, 1)  # 纯 OTP 段(收码+重发)
+    diag["otp_got"] = True  # 邮箱已推进到 OTP 验证(后续不可重试同邮箱)
     for k, v in extra.items():
         diag[k] = v
 
@@ -344,7 +345,14 @@ def _register_chain(
             "proxy_used": resolved.upstream_url or resolved.session_url or "",
             "diag": diag,
         }, session, resolved
-    except Exception:
+    except Exception as exc:
+        # 附上 diag(含 otp_got 邮箱推进标记) 到异常, register_account 据此决定
+        # 是否换 sid 重试同邮箱——邮箱已推进(OTP 收到)后不可重试同邮箱(会误判已注册)
+        if not hasattr(exc, "diag"):
+            try:
+                exc.diag = dict(diag)  # type: ignore[attr-defined]
+            except Exception:
+                pass
         resolved.close()
         raise
 
@@ -394,15 +402,24 @@ def _session_fail_retry(
     """SESSION_FAILED 处理: 瞬时网络错误(隧道中途断流/SSLError)换 sid 重试。
 
     根因: 7890(Clash) 偶发抖动导致已建隧道中途断流 → 非账号问题, 重试大概率成功。
+    仅在邮箱未推进的早期段重试——OTP 已验证(邮箱进入 OpenAI 注册流程)后不可重试
+    同邮箱, 否则重试会落 log-in 误判"已注册"(实测: quickjs t SSLError 在 OTP 后
+    触发, 重试同邮箱 → 邮箱已注册误判)。
     返回 (result_or_None, new_proxy_url): result 非 None 表示终止, None 表示调用方应
     用 new_proxy_url 继续重试。
     """
     from gptreg.auth import _is_transient
     reason = f"{type(exc).__name__}: {str(exc)[:120]}"
+    # 邮箱已推进(OTP 验证后): 不重试同邮箱, 直接失败(批量层换新邮箱)
+    exc_diag = getattr(exc, "diag", None) or {}
+    if exc_diag.get("otp_got"):
+        last_diag["reason"] = reason
+        last_diag["otp_got"] = True
+        return RegistrationResult(RegisterOutcome.SESSION_FAILED, email, last_diag), proxy_url
     if not _is_transient(exc) or not auto_retry or att >= 2 or "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
         last_diag["reason"] = reason
         return RegistrationResult(RegisterOutcome.SESSION_FAILED, email, last_diag), proxy_url
-    # 瞬时网络错误: 换 sid 重建隧道重试(基建抖动, 非账号问题)
+    # 瞬时网络错误(早期段, 邮箱未推进): 换 sid 重建隧道重试(基建抖动, 非账号问题)
     new_sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
     new_url = re.sub(r"-sid-[^-]+-t-", f"-sid-{new_sid}-t-", proxy_url, count=1)
     last_diag["reason"] = reason
