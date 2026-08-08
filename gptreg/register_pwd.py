@@ -108,8 +108,10 @@ def _landing_diag(final: str) -> str:
 
 def _stage_signin(session: BrowserSession, email: str, diag: dict[str, Any]) -> str:
     """Stage 1: signin 序列(协议节奏内聚在 auth.signin_flow)。返回落点 URL。"""
+    t0 = time.time()
     final = auth.signin_flow(session, email, follow_sleep=0.5, authorize_attempts=1)
     diag["landing"] = final
+    diag["signin_s"] = round(time.time() - t0, 1)  # 纯 signin 段(signin 慢点定位)
     return final
 
 
@@ -126,6 +128,7 @@ def _stage_register(
 
     400 分类: 落 log-in=邮箱已注册(永久弃用) / 其他=IP 信誉(换 sid 可重试)。
     """
+    _t0 = time.time()
     # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
     token, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_PWD, cfg=cfg,
                                               log=lambda m: None)
@@ -144,7 +147,7 @@ def _stage_register(
         e.diag = {"landing_diag": _landing_diag(final), "reason": err}
         raise e
     reg = resp.json()
-    diag["register_s"] = round(time.time() - st["start"], 1)
+    diag["register_s"] = round(time.time() - _t0, 1)  # 纯 register 段(设密码+quickjs t)
 
     send_url = reg.get("continue_url") or "https://auth.openai.com/api/accounts/email-otp/send"
     r = session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
@@ -164,6 +167,7 @@ def _stage_wait_otp(
     diag: dict[str, Any],
 ) -> str:
     """Stage 3: 收码(IMAP 快 / Graph 降级)。超时重发, 最多 otp_max_attempts 次。"""
+    _t0 = time.time()
     otp_after = st["start"]
     # 收码代理决策: 仅 ms_oauth(Outlook IMAP/Graph)需走链式隧道(本地直连 MS 被拒)。
     # iCloud 接码 URL/CloudMail admin/API 是第三方或自托管服务, 直连可通,
@@ -208,7 +212,7 @@ def _stage_wait_otp(
             otp_after = time.time()
     used_cache.remember(identity, otp, email=email, status="submitted")
     diag["otp"] = otp
-    diag["otp_s"] = round(time.time() - st["start"], 1)
+    diag["otp_s"] = round(time.time() - _t0, 1)  # 纯 OTP 段(收码+重发)
     if otp_delay_s is not None:
         diag["otp_delay_s"] = round(otp_delay_s, 1)  # 纯等待验证码的到件延迟
 
@@ -231,6 +235,7 @@ def _stage_create(
     so 采集失败重试 3 次, 仍无 so 中止(无 so 账号必死, 测活实证)。
     返回 (tok2, so_b, continue_url)。
     """
+    _t0 = time.time()
     holder: dict[str, Any] = {}
 
     def _gen_t() -> None:
@@ -249,7 +254,9 @@ def _stage_create(
         _ct = time.time()
         so = None
         # 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
+        so_attempts = 0
         for _try in range(3):
+            so_attempts = _try + 1
             try:
                 br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
                                               proxy=proxy_url, headless=True, timeout_s=90)
@@ -264,6 +271,7 @@ def _stage_create(
             except Exception as exc:
                 holder["so_warn"] = f"{type(exc).__name__}: {str(exc)[:80]}"
             time.sleep(1)
+        holder["so_attempts"] = so_attempts  # 实际尝试次数(>1 说明重试过, so 稳定性)
         holder["so_b"] = so
         holder["so_s"] = time.time() - _ct
 
@@ -278,6 +286,8 @@ def _stage_create(
     so_b = holder.get("so_b")
     diag["t_s"] = round(float(holder.get("t_s", 0)), 1)
     diag["so_s"] = round(float(holder.get("so_s", 0)), 1)
+    if holder.get("so_attempts") is not None:
+        diag["so_attempts"] = int(holder["so_attempts"])  # so 采集尝试次数(重试标注)
     diag["create_parallel"] = round(time.time() - _ct0, 1)
     if holder.get("so_timing"):
         diag["so_timing"] = holder["so_timing"]
@@ -292,7 +302,7 @@ def _stage_create(
     h2["openai-sentinel-so-token"] = so_b
     resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
     diag["create_http"] = resp2.status_code
-    diag["create_s"] = round(time.time() - st["start"], 1)
+    diag["create_s"] = round(time.time() - _t0, 1)  # 纯 create 段(t+so 并行 + create)
     if resp2.status_code != 200:
         raise _CreateFailed(f"create_account HTTP {resp2.status_code}: {resp2.text[:150]}")
     cr = resp2.json()
@@ -313,12 +323,13 @@ def _stage_session(
     session_token(JWE, ~3月) 是 OpenAI 的刷新凭证——access_token 10 天过期后,
     靠它或 session_cookies 重抓 /api/auth/session 续期(研究实证, 见 refresh-research)。
     """
+    _t0 = time.time()
     auth.follow_oauth_callback(session, cu)
     info = auth.fetch_session(session)
     at = info.get("accessToken")
     if not at:
         raise _SessionFailed("session 无 accessToken")
-    diag["session_s"] = round(time.time() - st["start"], 1)
+    diag["session_s"] = round(time.time() - _t0, 1)  # 纯 session 段(callback+session)
     cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
                 "secure": bool(getattr(c, "secure", False))}
                for c in session.session.cookies.jar]

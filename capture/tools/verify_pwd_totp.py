@@ -144,10 +144,12 @@ def main() -> int:
     d = result.diag
 
     if result.outcome == RegisterOutcome.SUCCESS:
-        reg_s = d.get("register_s") or 0
-        otp_s = d.get("otp_s") or 0
-        create_s = d.get("create_s") or 0
-        session_s = d.get("session_s") or create_s
+        # 各段均为纯段增量(signin+register+otp+create+session+health+enroll = 总耗时)
+        signin_s = d.get("signin_s")
+        reg_s = d.get("register_s")
+        otp_s = d.get("otp_s")
+        create_s = d.get("create_s")
+        session_s = d.get("session_s")
         # 收码通道(IMAP 快 / Graph 降级等) 便于快慢通道归因
         ch = d.get("otp_channel") or "?"
         if otp_s:
@@ -156,14 +158,21 @@ def main() -> int:
             so_inner = ""
             if st_:
                 so_inner = f"[nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s]"
+            # so 采集重试次数标注(so_attempts>1 说明有重试, so 稳定性分析用)
+            so_att = d.get("so_attempts")
+            so_att_str = f" retry={so_att - 1}" if so_att and so_att > 1 else ""
             # OTP等待段 vs 真实到件延迟: 段含 register 完成后的构建/轮询开销,
             # 到件延迟是 wait_for_otp 纯等码时间(与日志 [到件 OTP=.. 延迟..] 同口径)
             delay = d.get("otp_delay_s")
             delay_str = f"到件{delay:.1f}s" if delay is not None else "到件?"
-            print(f"[耗时] signin+register={reg_s:.1f}s OTP段({ch})={otp_s - reg_s:.1f}s[{delay_str}] "
-                  f"create段={create_s - otp_s:.1f}s session={session_s - create_s:.1f}s "
+            sn = f"{signin_s:.1f}s" if signin_s is not None else "?"
+            rg = f"{reg_s:.1f}s" if reg_s is not None else "?"
+            cr = f"{create_s:.1f}s" if create_s is not None else "?"
+            ss = f"{session_s:.1f}s" if session_s is not None else "?"
+            print(f"[耗时] signin={sn} register={rg} OTP段({ch})={otp_s:.1f}s[{delay_str}] "
+                  f"create段={cr} session={ss} "
                   f"health={d.get('health_s', '?')}s enroll={d.get('enroll_s', '?')}s "
-                  f"并行(t={d.get('t_s')}s so={d.get('so_s')}s{so_inner})={d.get('create_parallel')}s")
+                  f"并行(t={d.get('t_s')}s so={d.get('so_s')}s{so_inner}{so_att_str})={d.get('create_parallel')}s")
         elif "t_s" in d:
             print(f"[create/timing] quickjs t={d.get('t_s')}s so={d.get('so_s')}s 并行总={d.get('create_parallel')}s")
         if result.record:
