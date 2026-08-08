@@ -212,6 +212,11 @@ def _register_chain(
                                                   proxy=resolved.session_url, headless=True, timeout_s=90)
                     if br.get("ok") and br.get("so_header"):
                         so = br["so_header"]
+                        # so 内部细分(nav/SDK加载/token采集), 定位慢点
+                        holder["so_timing"] = {
+                            "nav": br.get("nav_s"), "sdk": br.get("sdk_s"),
+                            "token": br.get("token_s"), "total": br.get("elapsed_s"),
+                        }
                         break
                 except Exception as exc:
                     holder["so_warn"] = f"{type(exc).__name__}: {str(exc)[:80]}"
@@ -231,6 +236,8 @@ def _register_chain(
         diag["t_s"] = round(float(holder.get("t_s", 0)), 1)
         diag["so_s"] = round(float(holder.get("so_s", 0)), 1)
         diag["create_parallel"] = round(time.time() - _ct0, 1)
+        if holder.get("so_timing"):
+            diag["so_timing"] = holder["so_timing"]
         if holder.get("t_err"):
             raise _SessionFailed(f"quickjs t 生成失败: {holder['t_err']}")
         if not so_b:
