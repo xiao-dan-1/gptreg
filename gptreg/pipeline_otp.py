@@ -1,4 +1,4 @@
-"""单账号注册流水线。"""
+"""OTP-only 单账号注册流水线(与 register_pwd 密码+TOTP 主路线并行, 经 cli.py 用)。"""
 from __future__ import annotations
 
 import logging
@@ -16,7 +16,7 @@ from gptreg.postlogin import post_login_warmup
 from gptreg.mail.providers import UsedCodeCache, build_mail_client, mail_identity_key
 from gptreg.proxyutil import resolve_proxy
 from gptreg.session import BrowserSession
-from gptreg.store import save_success
+from gptreg.account_store import save_success
 
 logger = logging.getLogger(__name__)
 

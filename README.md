@@ -190,7 +190,7 @@ capture/
 gptreg/
   register_pwd.py              主路线核心：register_account(注册+TOTP 2FA, 结构化结果)
   auth.py                      协议请求 + sentinel 接线
-  pipeline.py                  OTP-only 流水线 + 批量分桶
+  pipeline_otp.py              OTP-only 流水线 + 批量分桶
   browser_sentinel.py          真 Chrome token+so 采集
   sentinel_quickjs.py          Node VM 产真 t
   sentinel_engine.py           引擎注册表
@@ -198,14 +198,14 @@ gptreg/
   mail/sources.py              插件注册表(MAIL_SOURCES/MAIL_CLIENTS)
   mail/imap.py                 本地 IMAP XOAUTH2
   mail/ms_graph.py             Graph 兜底
-  mail/external.py             iCloud 接码 URL + XDAuv
+  mail/icloud_xdauv.py         iCloud 接码 URL + XDAuv
   mail/api.py                  通用第三方 API 接码(配置即用)
   mail/cloudmail.py            自托管 cloud-mail(admin 拉码)
   mail/otp_cache.py            缓存/身份键/时间
   mail/pool.py                 号池状态机
   mail/providers.py            build_mail_client 工厂
   proxyutil.py                 动态代理 + 链式隧道
-  store.py                     accounts.jsonl 落盘
+  account_store.py             accounts.jsonl 落盘(主库) + 测活/续期回写
 vendor/sentinel/               官方 sdk.js + quickjs 适配器
 output/                        成功账号
 data/                          OTP 缓存等

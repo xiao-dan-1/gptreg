@@ -29,7 +29,7 @@ from gptreg import auth  # noqa: E402
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs  # noqa: E402
 from gptreg.mail.pool import parse_mail_line, choose_registration_email  # noqa: E402
 from gptreg.mail.providers import build_mail_client, mail_identity_key, UsedCodeCache  # noqa: E402
-from gptreg.pipeline import _root  # noqa: E402
+from gptreg.pipeline_otp import _root  # noqa: E402
 
 FLOW_PWD = "username_password_create"
 REGISTER_URL = "https://auth.openai.com/api/accounts/user/register"

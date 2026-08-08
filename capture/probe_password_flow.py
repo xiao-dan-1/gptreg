@@ -21,7 +21,7 @@ from gptreg.proxyutil import resolve_proxy  # noqa: E402
 from gptreg import auth  # noqa: E402
 from gptreg.mail.pool import parse_mail_line  # noqa: E402
 from gptreg.mail.providers import build_mail_client, mail_identity_key, UsedCodeCache  # noqa: E402
-from gptreg.pipeline import _root  # noqa: E402
+from gptreg.pipeline_otp import _root  # noqa: E402
 from capture.verify_password_register import pick_free_account  # noqa: E402
 
 

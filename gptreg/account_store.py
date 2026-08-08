@@ -1,4 +1,4 @@
-"""成功账号落盘。"""
+"""账号存储: accounts.jsonl 落盘(唯一事实源) + 测活/续期回写。"""
 from __future__ import annotations
 
 import json

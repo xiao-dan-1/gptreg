@@ -443,7 +443,7 @@ def main() -> int:
         print(f"TOTP: {secret}")
         print(f"otpauth: otpauth://totp/ChatGPT:{args.email}?secret={secret}&issuer=ChatGPT")
         print("=" * 50)
-        from gptreg.store import save_account
+        from gptreg.account_store import save_account
         save_account(cfg, record={
             "email": args.email, "password": args.password, "totp_secret": secret,
             "status": "ok", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

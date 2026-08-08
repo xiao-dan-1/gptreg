@@ -34,7 +34,7 @@ from gptreg import auth  # noqa: E402
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs  # noqa: E402
 from gptreg.mail.pool import parse_mail_line  # noqa: E402
 from gptreg.mail.providers import build_mail_client, mail_identity_key, UsedCodeCache  # noqa: E402
-from gptreg.pipeline import _root  # noqa: E402
+from gptreg.pipeline_otp import _root  # noqa: E402
 
 FLOW_PWD = "username_password_create"
 FLOW_OAUTH = "oauth_create_account"
@@ -243,7 +243,7 @@ def main() -> int:
         print(f"[OK] mfa_info mfa_enabled={mfa_on}")
 
         # 13. 统一落盘 accounts.jsonl(含 totp_secret/refresh_token/status) → 可测活
-        from gptreg.store import save_account
+        from gptreg.account_store import save_account
 
         cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
                     "secure": bool(getattr(c, "secure", False))}

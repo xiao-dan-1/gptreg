@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from gptreg.cli import configure_logging  # noqa: E402
 from gptreg.config import load_config  # noqa: E402
-from gptreg.pipeline import run_batch  # noqa: E402
+from gptreg.pipeline_otp import run_batch  # noqa: E402
 
 N_PAIRS = 3
 OUT_DIR = Path(__file__).resolve().parent

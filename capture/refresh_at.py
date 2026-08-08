@@ -32,7 +32,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from gptreg.config import load_config
 from gptreg.session import BrowserSession
-from gptreg.store import update_account_tokens
+from gptreg.account_store import update_account_tokens
 from gptreg.proxyutil import build_dynamic_proxy, random_sid, resolve_proxy, set_sid
 
 SESSION_URL = "https://chatgpt.com/api/auth/session"

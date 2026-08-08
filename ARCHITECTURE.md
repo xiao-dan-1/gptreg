@@ -78,7 +78,7 @@ signin_openai → follow_authorize(落点诊断) → register(设密码)
 |---|---|---|
 | IMAP | `imap.py` | `email----pass----client_id----refresh_token` (XOAUTH2) |
 | Graph | `ms_graph.py` | 同 ms_oauth，降级兜底 |
-| 外部 | `external.py` | XDAuv 服务 + Gmail API |
+| 外部 | `icloud_xdauv.py` | iCloud 接码 URL + XDAuv |
 | API | `api.py` | `email----api_key` 配 `mail.api_client` |
 | CloudMail | `cloudmail.py` | 单段邮箱 `user@domain`，admin 拉码 |
 | 缓存/身份 | `otp_cache.py` | OTP 去重、身份键、时间 |
@@ -98,7 +98,7 @@ pick_proxy → build_dynamic_proxy (cliproxy: region/sid/粘性)
 |---|---|
 | `config.py` | YAML 配置加载 + 默认值深合并 |
 | `session.py` | `BrowserSession`：HTTP 会话、device_id、OAI-SC、headers 构造 |
-| `store.py` | 统一落盘 `accounts.jsonl`（去重 upsert） |
+| `account_store.py` | 统一落盘 `accounts.jsonl`（去重 upsert）+ 测活/续期回写 |
 | `health.py` | `check_account_health`（秒封检测 / 测活） |
 | `postlogin.py` | 登录后 me + conversation/init + prepare（不造假） |
 

@@ -14,7 +14,7 @@ from typing import Any
 from gptreg.mail.api import ApiMailSource
 from gptreg.mail.base import MailClient, MailSource
 from gptreg.mail.cloudmail import CloudMailSource
-from gptreg.mail.external import ICloudApiClient, XDAuvMailClient
+from gptreg.mail.icloud_xdauv import ICloudApiClient, XDAuvMailClient
 from gptreg.mail.imap import IMAPOAuthClient
 
 

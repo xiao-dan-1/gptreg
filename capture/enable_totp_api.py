@@ -272,7 +272,7 @@ def main() -> int:
     print(f"账号: {email}")
     print(f"密码: {password}")
     print(f"TOTP: {secret}")
-    from gptreg.store import save_account
+    from gptreg.account_store import save_account
     save_account(cfg, record={
         "email": email, "password": password, "totp_secret": secret,
         "status": "ok", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

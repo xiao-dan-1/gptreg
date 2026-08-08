@@ -29,7 +29,7 @@ from gptreg.mail.providers import UsedCodeCache, build_mail_client, mail_identit
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
 from gptreg.session import BrowserSession
-from gptreg.store import save_account
+from gptreg.account_store import save_account
 
 logger = logging.getLogger(__name__)
 

@@ -36,7 +36,7 @@ from gptreg.proxyutil import resolve_proxy  # noqa: E402
 from gptreg import auth  # noqa: E402
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs  # noqa: E402
 from gptreg.mail.providers import MailClientError, build_mail_client, mail_identity_key, UsedCodeCache  # noqa: E402
-from gptreg.pipeline import _root  # noqa: E402
+from gptreg.pipeline_otp import _root  # noqa: E402
 
 FLOW_PWD = "username_password_create"
 FLOW_OAUTH = "oauth_create_account"
@@ -226,7 +226,7 @@ def _run_once(
                 "status": "ok",
                 "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
-            from gptreg.store import save_account
+            from gptreg.account_store import save_account
             save_account(cfg, record=pwd_rec)
             print(f"  ✅ 密码账号已创建并保存: {email} 密码={password} (可密码登录) 耗时={timing_pwd['total_s']}s")
             return 0, None

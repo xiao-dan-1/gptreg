@@ -1,4 +1,4 @@
-"""外部收码服务: iCloud 接码 HTML 收件箱 / XDAuv。"""
+"""外部收码服务: iCloud 接码 URL(HTML收件箱) / XDAuv(Outlook 服务收码)。"""
 from __future__ import annotations
 
 import html

@@ -24,7 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from gptreg.config import load_config
 from gptreg.health import check_account_health
 from gptreg.session import BrowserSession
-from gptreg.store import update_account_health
+from gptreg.account_store import update_account_health
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy, set_sid, random_sid
 
 

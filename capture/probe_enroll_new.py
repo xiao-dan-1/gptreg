@@ -188,7 +188,7 @@ def main() -> int:
     print(f"    -> {ri.status_code}: {ri.text[:600]}")
 
     # 7. 输出
-    from gptreg.store import save_account
+    from gptreg.account_store import save_account
     save_account(cfg, record={
         "email": email, "password": password, "totp_secret": secret,
         "status": "ok", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
