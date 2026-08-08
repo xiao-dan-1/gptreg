@@ -16,7 +16,7 @@ from curl_cffi import requests as cr
 
 from gptreg.mail.base import MailClient
 from gptreg.mail.ms_graph import MSMailClient
-from gptreg.mail.otp_cache import (IMAP_OPENAI_SENDER, IMAP_SCOPE, IMAP_TOKEN_ENDPOINT,
+from gptreg.mail.mail_util import (IMAP_OPENAI_SENDER, IMAP_SCOPE, IMAP_TOKEN_ENDPOINT,
                                    MailClientError, _parse_ts)
 from gptreg.otp import extract_otp
 

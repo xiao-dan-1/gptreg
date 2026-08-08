@@ -10,7 +10,8 @@ import uuid
 from typing import Any
 
 from gptreg.health import _backend_api_headers, _timezone_offset_min
-from gptreg.sentinel import generate_requirements_token, summarize_chatreq
+from gptreg.sentinel import generate_requirements_token
+from gptreg.sentinel_chatreq import summarize_chatreq
 
 logger = logging.getLogger(__name__)
 

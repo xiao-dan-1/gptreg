@@ -19,7 +19,7 @@ from typing import Any, Callable
 from curl_cffi import requests as cr
 
 from gptreg.mail.base import MailClient, MailSource
-from gptreg.mail.otp_cache import MailClientError
+from gptreg.mail.mail_util import MailClientError
 from gptreg.otp import extract_otp
 
 logger = logging.getLogger(__name__)

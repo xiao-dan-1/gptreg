@@ -165,7 +165,8 @@ class NodeEngine(SentinelEngine):
     name = "node"
 
     def generate(self, session, flow, cfg):
-        from gptreg.sentinel import build_so_header, generate_sentinel_token_via_node
+        from gptreg.sentinel_so import build_so_header
+        from gptreg.sentinel import generate_sentinel_token_via_node
 
         challenge = _request_sentinel(session, flow)
         token = generate_sentinel_token_via_node(
@@ -182,7 +183,8 @@ class PowEngine(SentinelEngine):
     name = "pow"
 
     def generate(self, session, flow, cfg):
-        from gptreg.sentinel import SentinelPoW, resolve_pow_so_header
+        from gptreg.sentinel import SentinelPoW
+        from gptreg.sentinel_so import resolve_pow_so_header
 
         browser_cfg = cfg.get("browser") or {}
         pow_engine = SentinelPoW(

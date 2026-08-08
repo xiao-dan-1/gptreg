@@ -12,7 +12,7 @@ from typing import Any
 from gptreg.mail.base import MailClient
 from gptreg.mail.icloud_xdauv import ICloudApiClient, XDAuvMailClient
 from gptreg.mail.imap import IMAPOAuthClient
-from gptreg.mail.otp_cache import (
+from gptreg.mail.mail_util import (
     IMAP_OPENAI_SENDER,
     IMAP_SCOPE,
     IMAP_TOKEN_ENDPOINT,

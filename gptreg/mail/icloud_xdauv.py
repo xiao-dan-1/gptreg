@@ -10,7 +10,7 @@ from typing import Any, Callable
 from curl_cffi import requests as cr
 
 from gptreg.mail.base import MailClient
-from gptreg.mail.otp_cache import MailClientError, _parse_ts
+from gptreg.mail.mail_util import MailClientError, _parse_ts
 
 logger = logging.getLogger(__name__)
 
