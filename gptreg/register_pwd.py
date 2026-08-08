@@ -297,12 +297,14 @@ def _stage_create(
         warn = holder.get("so_warn") or ""
         raise _SoFailed(f"browser so 采集失败(重试3次后仍无 so): {str(warn)[:120]}")
 
+    _http_t0 = time.time()
     h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
     h2["openai-sentinel-token"] = tok2
     h2["openai-sentinel-so-token"] = so_b
     resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
     diag["create_http"] = resp2.status_code
-    diag["create_s"] = round(time.time() - _t0, 1)  # 纯 create 段(t+so 并行 + create)
+    diag["create_http_s"] = round(time.time() - _http_t0, 1)  # create HTTP 请求本身耗时
+    diag["create_s"] = round(time.time() - _t0, 1)  # 纯 create 段(t+so 并行 + create HTTP)
     if resp2.status_code != 200:
         raise _CreateFailed(f"create_account HTTP {resp2.status_code}: {resp2.text[:150]}")
     cr = resp2.json()
