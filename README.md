@@ -48,6 +48,7 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 | Graph 降级 | 被拒账号 | ~161s | 索引延迟(服务端), $filter/top/Prefer 优化 + 进度日志 |
 | XDAuv 服务 | 全部 | ~8s | `use_xdauv: true`, 服务端直连 Exchange |
 | **通用 API 插件** | 任意 | 看服务 | `mail.api_client` 配端点即接入, 无需写代码 |
+| **CloudMail 号源** | 自托管 | ~7s | `mail.cloud_mail` 配置, admin 拉码, 一邮箱一账号 |
 
 - 号池 ~12/15 账号 IMAP 可用；被拒账号（`authenticated but not connected`）自动降级 Graph
 - **新增收码通道/号源 = 写一个 MailClient/MailSource 插件 + 注册进注册表, 核心零改动**
@@ -89,6 +90,11 @@ mail:
     method: "POST"
     request_body: '{"api_key":"{api_key}","email":"{email}","mailbox":"INBOX"}'
     otp_path: ""             # 响应里 OTP 的 JSON 路径(空=通用扫描)
+  cloud_mail:                # 自托管 cloud-mail 号源(号池行单段邮箱, 一邮箱一账号)
+    base_url: "https://mail.xdauv.xyz"
+    admin_email: ""          # cloud-mail admin(拉码用)
+    admin_password: ""
+    domains: ["xdauv.xyz"]   # 可用域名(号池行用; 空则查 API)
 # 仅 OTP-only 流水线(main.py)用; 主路线 verify_pwd_totp 固定 quickjs 协议产 t, 不读此项
 protocol:
   sentinel_source: "browser"
@@ -146,6 +152,9 @@ INFO  [MSMail/Graph] 等待中 t+..s                    ← Graph 降级(索引�
 ```text
 # Outlook（ms_oauth，OAuth 凭据收码）
 alice@outlook.com----password----client_id----refresh_token
+
+# CloudMail 自托管（单段邮箱, 一邮箱一账号, 收码用 admin 拉该地址邮件）
+reg_x@send.xdauv.xyz
 ```
 
 - 主号需未注册过 OpenAI（已用会走邮箱级风控，换 IP 无效）
@@ -177,6 +186,7 @@ gptreg/
   mail/ms_graph.py             Graph 兜底
   mail/external.py             XDAuv + Gmail
   mail/api.py                  通用第三方 API 接码(配置即用)
+  mail/cloudmail.py            自托管 cloud-mail(admin 拉码)
   mail/otp_cache.py            缓存/身份键/时间
   mail/pool.py                 号池状态机
   mail/providers.py            build_mail_client 工厂
