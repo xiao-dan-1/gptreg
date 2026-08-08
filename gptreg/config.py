@@ -50,6 +50,7 @@ _DEFAULTS: dict[str, Any] = {
             "base_url": "",
             "admin_email": "",
             "admin_password": "",
+            "domains": [],  # 可用域名(号池行用); 空则 list_domains() 查 API
         },
     },
     "browser": {

@@ -72,7 +72,12 @@ class CloudMailClient(MailClient):
         return token
 
     def list_domains(self) -> list[str]:
-        """查询可用域名(GET /api/setting/query → domainList, 去 @ 前缀)。"""
+        """可用域名: 优先用 config mail.cloud_mail.domains, 空则查 API
+        (GET /api/setting/query → domainList, 去 @ 前缀)。"""
+        cm = (self.cfg.get("mail") or {}).get("cloud_mail") or {}
+        configured = cm.get("domains") or []
+        if configured:
+            return [str(x).lstrip("@") for x in configured if str(x).strip()]
         token = self._ensure_token()
         r = cr.get(
             f"{self.base_url}/api/setting/query",
