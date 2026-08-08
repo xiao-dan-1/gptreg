@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 
+# 失败/弃用 TTL(秒): 瞬时基建故障(代理/网络)后账号自动回退, 避免误烧永久弃用
+FAILED_TTL = 1800  # 基建/可重试失败, 30 分钟后自动回退(代理恢复账号复活)
+BAD_TTL = 86400  # 账号级弃用, 24h 后自动回退(风控可能解除)
+
+
 def parse_mail_line(line: str) -> dict[str, Any] | None:
     """解析号池行(遍历来源插件 MAIL_SOURCES 识别)。
 
@@ -67,9 +72,9 @@ class MailPool:
         self._records: list[dict[str, Any]] = []
         self._by_email: dict[str, dict[str, Any]] = {}
         self._used: set[str] = set()
-        self._bad: set[str] = set()
+        self._bad: dict[str, float] = {}  # email → 弃用时间戳(TTL 后自动回退)
         self._in_flight: set[str] = set()
-        self._failed: dict[str, int] = {}
+        self._failed: dict[str, dict] = {}  # email → {n, ts}(TTL 后自动回退)
 
     def load(self) -> int:
         if not self.pool_file.exists():
@@ -89,7 +94,7 @@ class MailPool:
             self._records = records
             self._by_email = by_email
             self._used = set()
-            self._bad = set()
+            self._bad = {}
             self._in_flight = set()
             self._failed = {}
         self._load_state()
@@ -104,8 +109,23 @@ class MailPool:
             return
         with self._lock:
             self._used = set(data.get("used") or [])
-            self._bad = set(data.get("bad") or [])
-            self._failed = dict(data.get("failed") or {})
+            # bad 兼容旧格式(set/list) → dict[email, ts]
+            raw_bad = data.get("bad") or {}
+            if isinstance(raw_bad, dict):
+                self._bad = {
+                    k: float(v.get("ts", time.time())) if isinstance(v, dict) else float(v or time.time())
+                    for k, v in raw_bad.items()
+                }
+            else:
+                self._bad = {k: time.time() for k in raw_bad}
+            # failed 兼容旧格式({email:int}) → {email:{n,ts}}
+            raw_failed = data.get("failed") or {}
+            self._failed = {}
+            for k, v in raw_failed.items():
+                if isinstance(v, dict):
+                    self._failed[k] = {"n": int(v.get("n", 1)), "ts": float(v.get("ts", time.time()))}
+                else:
+                    self._failed[k] = {"n": int(v or 1), "ts": time.time()}
 
     def _save_state(self) -> None:
         # 锁内快照+写临时文件: 并发 workers 锁外迭代 set/dict 曾抛
@@ -114,8 +134,10 @@ class MailPool:
         with self._lock:
             payload = {
                 "used": sorted(self._used),
-                "bad": sorted(self._bad),
-                "failed": dict(self._failed),
+                "bad": {k: round(ts, 2) for k, ts in self._bad.items()},
+                "failed": {
+                    k: {"n": v["n"], "ts": round(v["ts"], 2)} for k, v in self._failed.items()
+                },
                 "saved_at": int(time.time()),
             }
             tmp = self.state_file.with_suffix(self.state_file.suffix + ".tmp")
@@ -131,6 +153,8 @@ class MailPool:
 
     def claim(self) -> dict[str, Any] | None:
         with self._lock:
+            dirty = self._purge_expired()  # TTL 过期自动回退, 账号复活
+            _ret: dict[str, Any] | None = None
             for rec in self._records:
                 email = rec["email"]
                 if email in self._used or email in self._bad or email in self._in_flight:
@@ -138,15 +162,20 @@ class MailPool:
                 if email in self._failed:
                     continue
                 self._in_flight.add(email)
-                return dict(rec)
-            for rec in self._records:
-                email = rec["email"]
-                if email in self._used or email in self._bad or email in self._in_flight:
-                    continue
-                if self._failed.get(email, 0) < 3:
-                    self._in_flight.add(email)
-                    return dict(rec)
-        return None
+                _ret = dict(rec)
+                break
+            if _ret is None:
+                for rec in self._records:
+                    email = rec["email"]
+                    if email in self._used or email in self._bad or email in self._in_flight:
+                        continue
+                    if self._failed.get(email, {}).get("n", 0) < 3:
+                        self._in_flight.add(email)
+                        _ret = dict(rec)
+                        break
+        if dirty:
+            self._save_state()
+        return _ret
 
     def release(self, email: str) -> None:
         with self._lock:
@@ -156,24 +185,37 @@ class MailPool:
         with self._lock:
             self._used.add(email)
             self._failed.pop(email, None)
-            self._bad.discard(email)
+            self._bad.pop(email, None)
             self._in_flight.discard(email)
         self._save_state()
 
     def mark_bad(self, email: str, reason: str = "") -> None:
         with self._lock:
-            self._bad.add(email)
+            self._bad[email] = time.time()  # 弃用时间戳(BAD_TTL 后自动回退)
             self._in_flight.discard(email)
         self._save_state()
 
     def mark_failed(self, email: str, max_retry: int = 3) -> None:
         with self._lock:
-            n = self._failed.get(email, 0) + 1
-            self._failed[email] = n
+            cur = self._failed.get(email, {})
+            n = int(cur.get("n", 0)) + 1
+            # 基建/可重试失败: 记计数+时间戳, 不自动永久弃用(账号级由 mark_bad 显式标记)。
+            # TTL 过期自动回退(代理/网络恢复账号复活), 修复基建故障误烧整池账号。
+            self._failed[email] = {"n": n, "ts": time.time()}
             self._in_flight.discard(email)
-            if n >= max_retry:
-                self._bad.add(email)
         self._save_state()
+
+    def _purge_expired(self) -> bool:
+        """锁内调用: TTL 过期清理, 返回是否变更(调用方锁外 _save_state, 避免 Lock 死锁)。"""
+        now = time.time()
+        dirty = False
+        for k in [k for k, ts in self._bad.items() if now - ts > BAD_TTL]:
+            self._bad.pop(k, None)
+            dirty = True
+        for k in [k for k, v in self._failed.items() if now - v.get("ts", 0) > FAILED_TTL]:
+            self._failed.pop(k, None)
+            dirty = True
+        return dirty
 
     def stats(self) -> dict[str, Any]:
         with self._lock:
