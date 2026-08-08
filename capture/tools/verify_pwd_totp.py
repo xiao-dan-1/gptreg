@@ -170,10 +170,13 @@ def main() -> int:
             cr = f"{create_s:.1f}s" if create_s is not None else "?"
             ss = f"{session_s:.1f}s" if session_s is not None else "?"
             chs = d.get("create_http_s")
-            # create 段构成: 并行(t+so) + create HTTP(建号请求), 二者 = create 段
-            ch_str = f"http={chs:.1f}s" if chs is not None else "http=?"
+            cp = d.get("create_parallel")
+            # create 段构成: 并行(t+so 采集) + create HTTP(建号请求), 二者 = create 段
+            # 明确标注各自耗时, 避免 "并行+X" 误导(读者误以为 X 是并行)
+            par_str = f"并行={cp:.1f}s" if cp is not None else "并行=?"
+            http_str = f"http={chs:.1f}s" if chs is not None else "http=?"
             print(f"[耗时] signin={sn} register={rg} OTP段({ch})={otp_s:.1f}s[{delay_str}] "
-                  f"create段={cr}[并行+{ch_str}] session={ss} "
+                  f"create段={cr}[{par_str} {http_str}] session={ss} "
                   f"health={d.get('health_s', '?')}s enroll={d.get('enroll_s', '?')}s "
                   f"并行(t={d.get('t_s')}s so={d.get('so_s')}s{so_inner}{so_att_str})={d.get('create_parallel')}s")
         elif "t_s" in d:
