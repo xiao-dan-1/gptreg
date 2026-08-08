@@ -71,6 +71,21 @@ class CloudMailClient(MailClient):
         self._token = token
         return token
 
+    def list_domains(self) -> list[str]:
+        """查询可用域名(GET /api/setting/query → domainList, 去 @ 前缀)。"""
+        token = self._ensure_token()
+        r = cr.get(
+            f"{self.base_url}/api/setting/query",
+            headers={"Authorization": token},
+            timeout=self.timeout, impersonate=self.impersonate, proxies=self._proxies(),
+        )
+        d = r.json() if r.status_code == 200 else {}
+        if d.get("code") != 200:
+            raise MailClientError(f"cloud_mail setting/query 失败: {str(d)[:120]}")
+        data = d.get("data") or {}
+        dl = data.get("domainList") or []
+        return [str(x).lstrip("@") for x in dl if str(x).strip()]
+
     def _fetch_mails(self) -> list[dict[str, Any]]:
         token = self._ensure_token()
         r = cr.get(
