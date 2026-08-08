@@ -55,17 +55,31 @@ accounts.jsonl(分组字段) ←测活回写← check_survival_batch
 | `backfill_token.py` | 补缺失 access_token（密码+TOTP 登录） |
 | `main.py` | OTP-only 旧流水线入口（非当前主路线） |
 
-### 2. 核心注册链（两条并行路径）
+### 2. 核心注册链（两条并行路径，共享子步骤）
 | 路径 | 文件 | 入口 |
 |---|---|---|
 | **密码+TOTP（主路线）** | `gptreg/register_pwd.py` | `verify_pwd_totp` / `batch_totp` |
 | OTP-only | `gptreg/register_otp.py` | `main.py` → `cli.py` |
+
+**共享子步骤**（处女原则: 消除重复, 不强行合并流程）:
+```
+auth.signin_flow()      signin 序列(协议节奏内聚) —— 两路径共用
+mail/wait_otp.py        wait_otp_with_retry() 收码(代理决策+重发+到件延迟) —— 两路径共用
+```
 
 `register_pwd.register_account()` 封装整条链，返回结构化 `RegistrationResult(outcome/diag/record)`（outcome 决定主号"可重试 vs 永久弃用"）。阶段序列：
 ```
 _signin → _register(设密码, 400换sid重试) → _wait_otp(收码, 通道归因)
 → _create(t+so并行) → _session → _enroll_totp(2FA 激活) → 落盘
 ```
+
+**双路径差异边界**（各自保留, 强行统一反增复杂度）:
+| 差异 | register_pwd | register_otp |
+|---|---|---|
+| 设密码 | 是(quickjs t) | 否 |
+| 2FA 激活 | 是(enroll+activate) | 否 |
+| 引擎策略 | 固定 quickjs | 动态(pow/quickjs/browser) |
+| create 重试 | 单次 | 波次重试+disallow 处理 |
 
 ### 3. 协议层 `gptreg/auth.py`
 ```
@@ -104,7 +118,8 @@ signin_flow(协议步骤内聚: providers→CSRF→signin→authorize, 节奏在
 | iCloud+XDAuv | `icloud_xdauv.py` | `email----URL` 接码, 限 @icloud.com/@me.com |
 | API | `api.py` | `email----api_key` 配 `mail.api_client` |
 | CloudMail | `cloudmail.py` | 动态生成邮箱 `reg_xx@域名`（不依赖号池） |
-| 缓存/身份 | `otp_cache.py` | OTP 去重、身份键、时间 |
+| 公共工具 | `mail_util.py` | MailClientError/常量/身份键/UsedCodeCache |
+| 共享收码 | `wait_otp.py` | `wait_otp_with_retry`（两注册路径共用） |
 | 号池状态机 | `pool.py` | claim/mark_used/mark_failed + TTL + 账号表联动 |
 
 **收码代理策略**：仅 `ms_oauth`(Outlook IMAP/Graph)走链式隧道；iCloud/CloudMail/API **直连**（第三方/自托管服务本身干净，套隧道反而 TLS 失败）。
@@ -175,3 +190,18 @@ accounts.jsonl(分组字段: 身份→凭据→设备→状态→观测→运维
     ▼
 <pool>.state.json  (used/bad/failed + TTL)
 ```
+
+## 架构演进（处女原则）
+
+历次重构目标：命名准确 / 职责单一 / 重复最小 / 组织清晰 / 反馈完整。
+
+| 改动 | 结果 |
+|---|---|
+| 命名对称 | `register_pwd`/`register_otp`（密码 vs OTP）；`account_store`/`icloud_xdauv`/`mail_util`（名副其实） |
+| 职责拆分 | `sentinel.py` 611→442 行，so 头→`sentinel_so.py`，chatReq 观测→`sentinel_chatreq.py` |
+| 消除重复 | `auth.signin_flow`（signin 序列）+ `mail/wait_otp`（收码）双路径共享 |
+| 依赖内聚 | 协议节奏进 `signin_flow`，调用方无散落 sleep |
+| 配置唯一源 | `_DEFAULTS.use_alias=True` 对齐代码兜底，消除语义漂移 |
+| 组织分层 | `capture/{tools,legacy,research}/` 三层 |
+| 反馈完整 | 8 段精确归因 + 到件延迟 + create 拆解 + so 重试 + 通道/出口归因 |
+| 账号闭环 | 注册→测活回写→续期→视图，号源存活率统计 |

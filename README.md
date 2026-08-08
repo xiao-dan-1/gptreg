@@ -215,10 +215,13 @@ gptreg/
   mail/icloud_xdauv.py         iCloud 接码 URL + XDAuv
   mail/api.py                  通用第三方 API 接码(配置即用)
   mail/cloudmail.py            自托管 cloud-mail(admin 拉码)
-  mail/otp_cache.py            缓存/身份键/时间
+  mail/mail_util.py            公共工具(MailClientError/身份键/UsedCodeCache)
+  mail/wait_otp.py             共享收码(wait_otp_with_retry, 两注册路径共用)
   mail/pool.py                 号池状态机
   mail/providers.py            build_mail_client 工厂
   proxyutil.py                 动态代理 + 链式隧道
+  sentinel_so.py               so 头构造(小PP HAR/内嵌 so 包装)
+  sentinel_chatreq.py          chatReq 观测(诊断)
   account_store.py             accounts.jsonl 落盘(主库) + 测活/续期回写
 vendor/sentinel/               官方 sdk.js + quickjs 适配器
 output/                        成功账号
