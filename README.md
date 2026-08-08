@@ -17,16 +17,16 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 ## 主路线架构
 
 ```
-主号(号池) ──动态链式代理──> OpenAI 注册(plus 别名)  [gptreg/register_pwd.register_account]
+号源(Outlook池/iCloud池/CloudMail动态) ──动态链式代理──> OpenAI 注册  [gptreg/register_pwd.register_account]
   ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)  [400 自动换 sid 重试3次; 落 log-in=已注册弃用]
-  ├─ send_otp → 本地 IMAP 收码 → validate
+  ├─ send_otp → 收码(IMAP/Graph/iCloud URL/CloudMail admin) → validate  [iCloud/CloudMail 直连, Outlook 走隧道]
   ├─ create_account(quickjs 真 t + browser 真 so 并行; so 失败重试3次+中止)
-  ├─ callback → session(access_token) → 即时健康检查(秒封检测)
+  ├─ callback → session(access_token + session_token 刷新凭证) → 即时健康检查(秒封检测)
   ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活(复用注册隧道, 出口贯穿)
-  └─ save_account → accounts.jsonl(totp_secret + 凭据)
+  └─ save_account → accounts.jsonl(totp_secret + 凭据, 字段分组顺序)
 ```
 
-> **默认 plus 别名注册**（config `mail.use_alias: true`）——号池主号很多已在 OpenAI 注册，主号直接注册会落 email-verification/log-in → register 400；别名是全新邮箱，register 直接过（已实证）。`--no-alias` 可强制用主号。
+> **默认 plus 别名注册**（config `mail.use_alias: true`）——号池主号很多已在 OpenAI 注册，主号直接注册会落 email-verification/log-in → register 400；别名是全新邮箱，register 直接过（已实证）。`--no-alias` 可强制用主号。**iCloud/CloudMail 一邮箱一账号，强制用主邮箱不别名**（接码 URL/域名绑定主邮箱）。
 
 ### Sentinel 策略（主路线）
 
@@ -52,6 +52,7 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 | **CloudMail 号源** | 自托管 | ~7s | `--pool cloudmail` 动态生成邮箱(不依赖号池), admin 拉码 |
 
 - 号池 ~12/15 账号 IMAP 可用；被拒账号（`authenticated but not connected`）自动降级 Graph
+- **收码代理策略**：仅 ms_oauth(Outlook IMAP/Graph)走链式隧道；iCloud/CloudMail/API 直连（第三方/自托管服务本身干净, 套隧道反而 TLS 失败）
 - **新增收码通道/号源 = 写一个 MailClient/MailSource 插件 + 注册进注册表, 核心零改动**
 
 ### 代理
@@ -111,42 +112,50 @@ python capture/verify_pwd_totp.py --email 主号
 # 不用别名(直接用主号, 仅当确认主号未注册过)
 python capture/verify_pwd_totp.py --email 主号 --no-alias
 
+# iCloud 号池（email----接码URL, 用主邮箱不别名）
+python capture/verify_pwd_totp.py --pool icloud --email 用户@icloud.com
+
+# CloudMail 动态生成邮箱（不依赖号池文件, admin 拉码）
+python capture/verify_pwd_totp.py --pool cloudmail
+
 # 指定代理（住宅 IP）
 python capture/verify_pwd_totp.py --email 主号 --proxy http://user:pass@host:port
 
-# 批量生产 3 个
+# 批量生产 3 个（默认 Outlook 池）
 python capture/batch_totp.py --limit 3
+# 批量 iCloud / CloudMail
+python capture/batch_totp.py --pool icloud --limit 2
+python capture/batch_totp.py --pool cloudmail --limit 2
 
-# 固定代理批量
-python capture/batch_totp.py --limit 3 --no-dynamic --proxy http://127.0.0.1:7890
-
-# 检查号池 IMAP 可用性（决定走快通道还是 Graph 降级）
-python capture/check_imap.py --limit 20
-
-# 测活账号
-python capture/check_survival.py
-
-# 补缺失 access_token 的账号 token（密码+TOTP 登录）
-python capture/backfill_token.py
+# 账号管理闭环
+python capture/check_survival_batch.py   # 全量测活并回写 health_status
+python capture/refresh_at.py             # access_token 续期(过期前跑, 账号永活)
+python capture/account_overview.py       # 账号资产总览(存活/吊销/按日)
 ```
 
-成功账号写入 `output/accounts.jsonl`（主库）：
-`email/password/access_token/refresh_token/totp_secret/session_cookies/proxy_used/status/updated_at`
+成功账号写入 `output/accounts.jsonl`（主库，唯一事实源），字段分组顺序：
+`email/mail_main/name/birthdate/mail_type` → `password/totp_secret/access_token/session_token/refresh_token/session_cookies` → `device_id` → `status/health_status/last_checked` → `sentinel_obs` → `proxy_used/saved_at/updated_at`
+- `totp_secret` = 2FA 密钥（有值即真 2FA 账号）；`session_token` = 刷新凭证（~3月，access_token 过期续期用）
+- 账号管理闭环：测活回写 `health_status` / 续期回写 `session_expires`+`last_refreshed`
 
 ### 单号注册输出解读（日志级别前缀 + 完整归因）
 
 ```
 INFO  [Auth] 获取 providers → CSRF → signin → authorize 落点
 INFO  [IMAP] 到件 OTP=123456 uid=.. 延迟 3.0s        ← 收码快通道
+INFO  [iCloud] 到件 OTP=305108 延迟 1.9s             ← iCloud 接码 URL
 INFO  [MSMail/Graph] 等待中 t+..s                    ← Graph 降级(索引延迟)
   [quickjs/t] register 真 t 就绪 (so: 密码 register 无 so)
   [quickjs/t] create 真 t 就绪 (so 由 browser 采集)
-[耗时] signin+register=8.4s OTP等待=9.4s create段=23.2s[so内 nav/sdk/token]
-       session=5.6s health=1.1s enroll=4.2s 并行(t=2.0s so=18.5s)=18.5s
+[耗时] signin+register=8.3s OTP段(cloudmail)=3.8s[到件2.5s]
+       create段=16.1s session=3.3s health=0.8s enroll=2.3s
+       并行(t=1.8s so=11.4s[nav=4.3s sdk=5.3s token=11.16s])=11.4s
+[出口] http://region-US-sid-2As2LXe5@us.cliproxy.io:3010   ← 出口 IP(脱敏)
 ```
 
-- 级别前缀（INFO/WARNING）区分正常/降级/失败；t/so 来源明确（quickjs 产 t，browser 采 so）
-- 6 段归因精确（各段和 = 总耗时）；so 内部细分（nav/SDK 加载/token）定位慢点
+- 级别前缀（INFO/WARNING/ERROR）区分正常/降级/失败；t/so 来源明确（quickjs 产 t，browser 采 so）
+- 6 段归因精确（各段和 = 总耗时）；**OTP段[到件X.Xs]** 区分段耗时与纯等码延迟；so 内部细分（nav/SDK 加载/token）定位慢点
+- 收码 channel 显示号源名（imap/icloud/cloudmail/...）；收码异常带 email + 通道故障 vs 无新邮件归因
 
 ## 号池格式（mail_pool.txt）
 
