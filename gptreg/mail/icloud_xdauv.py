@@ -126,11 +126,17 @@ class ICloudApiClient(MailClient):
         t_start = time.time()
         reported: set[tuple[str, bool]] = set()
         mid_warned = False
+        conn_failures = 0  # 连续连接异常计数(通道故障 vs 无新邮件区分)
         while time.time() < deadline:
             try:
                 code = self._find_new_otp(after_ts)
+                conn_failures = 0  # 拉码成功(含无码), 连接恢复
             except Exception as exc:
-                logger.warning("[iCloud] 拉码异常 email=%s: %s", self.email, exc)
+                conn_failures += 1
+                if conn_failures <= 2 or conn_failures % 5 == 0:
+                    logger.warning("[iCloud] 拉码异常 email=%s: %s", self.email, exc)
+                if conn_failures == 5:
+                    logger.error("[iCloud] 收码通道疑似故障 email=%s: 连续 %d 次连接失败(检查代理/网络)", self.email, conn_failures)
                 time.sleep(interval)
                 continue
             if code:
@@ -153,7 +159,12 @@ class ICloudApiClient(MailClient):
                 mid_warned = True
                 logger.info("[iCloud] 等待 %s OTP 已 %.0fs 仍无新邮件", self.email, time.time() - t_start)
             time.sleep(interval)
-        raise MailClientError(f"icloud 等待 {self.email} OTP 超时（>{timeout}s，可能只有旧码）")
+        # 归因: 通道故障(连接失败) vs 无新邮件(连接正常但没码)
+        if conn_failures > 0:
+            raise MailClientError(
+                f"icloud 等待 {self.email} OTP 超时（>{timeout}s, 连续 {conn_failures} 次连接失败→收码通道故障）"
+            )
+        raise MailClientError(f"icloud 等待 {self.email} OTP 超时（>{timeout}s, 连接正常但无新邮件）")
 
 class XDAuvMailClient(MailClient):
     """outlook.xdauv.xyz 服务收码（海外干净 IP，解决本地 IMAP 部分账号被 MS 拒）。
