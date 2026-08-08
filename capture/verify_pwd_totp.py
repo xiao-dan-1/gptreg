@@ -75,6 +75,7 @@ def main() -> int:
 
     ap = _ap.ArgumentParser()
     ap.add_argument("--email", default="")
+    ap.add_argument("--pool", default="", help="号池文件(默认 mail_pool.txt; icloud 可用 icloud_pool.txt)")
     ap.add_argument("--alias", action="store_true", help="强制用 plus 别名注册(默认走 config mail.use_alias)")
     ap.add_argument("--no-alias", action="store_true", help="禁用别名, 用主号直接注册")
     ap.add_argument("--proxy", default=None, help="覆盖代理(默认走 config 动态链式, 勿用 10808 僵尸端口)")
@@ -83,9 +84,17 @@ def main() -> int:
     cfg = load_config()
     t0 = time.time()
 
+    # 号池文件(默认 mail_pool.txt; --pool 支持 icloud 快捷名)
+    pool_file = args.pool or "mail_pool.txt"
+    if pool_file == "icloud":
+        pool_file = "icloud_pool.txt"
+    if not Path(pool_file).exists():
+        print(f"号池文件不存在: {pool_file}")
+        return 1
+
     # 号池选主号(收码身份)
     account = None
-    for line in Path("mail_pool.txt").read_text(encoding="utf-8").splitlines():
+    for line in Path(pool_file).read_text(encoding="utf-8").splitlines():
         a = parse_mail_line(line.strip())
         if not a:
             continue
@@ -101,8 +110,8 @@ def main() -> int:
     # 默认 plus 别名(config mail.use_alias=true)——号池主号很多已在 OpenAI 注册,
     # 主号直接注册会落 email-verification/log-in → register 400; 别名是全新邮箱。
     use_alias = bool(cfg.get("mail", {}).get("use_alias", True))
-    if account.get("mail_type") == "cloudmail":
-        use_alias = False  # cloud-mail 一邮箱一账号, 注册用主邮箱(不用 +tag 别名)
+    if account.get("mail_type") in ("cloudmail", "icloud"):
+        use_alias = False  # 一邮箱一账号号源: 注册用主邮箱(不用 +tag 别名)
     if args.no_alias:
         use_alias = False
     elif args.alias:

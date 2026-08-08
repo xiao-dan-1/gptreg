@@ -67,6 +67,17 @@ def _used_mains() -> set[str]:
 def _unused_mains() -> list[tuple[str, dict]]:
     """[(主号, 号池行)]——未用过且未永久弃用的主号。"""
     used = _used_mains()
+    # 池状态文件(bad=永久弃用)合并进 used, 覆盖账号表反查盲区(iCloud 池等)
+    try:
+        state_file = Path(str(POOL) + ".state.json")
+        if state_file.exists():
+            state = json.loads(state_file.read_text(encoding="utf-8")) or {}
+            for e in (state.get("used") or []):
+                used.add(_base(e))
+            for e in (state.get("bad") or {}):
+                used.add(_base(e))
+    except Exception:
+        pass
     mains: list[tuple[str, dict]] = []
     for line in POOL.read_text(encoding="utf-8").splitlines():
         a = parse_mail_line(line.strip())
@@ -94,10 +105,18 @@ def _mark_permanent(main: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=3, help="本次批量数量(默认 3)")
+    ap.add_argument("--pool", default="", help="号池文件(默认 mail_pool.txt; icloud 可用 icloud_pool.txt)")
     ap.add_argument("--proxy", default=None, help="固定代理(--no-dynamic 时用; 默认走 config 动态链式)")
     ap.add_argument("--no-dynamic", action="store_true", help="不用动态代理换 IP(用 --proxy 固定)")
     ap.add_argument("--list", action="store_true", help="只列出未用过主号不跑")
     args = ap.parse_args()
+
+    # 号池文件(默认 mail_pool.txt; --pool 支持 icloud 快捷名)
+    pool_file = args.pool or "mail_pool.txt"
+    if pool_file == "icloud":
+        pool_file = "icloud_pool.txt"
+    global POOL
+    POOL = ROOT / pool_file
 
     unused = _unused_mains()
     print(f"未用过主号: {len(unused)} 个")
@@ -117,7 +136,11 @@ def main() -> int:
     results: list[tuple[str, bool, RegisterOutcome]] = []
     for i, (main, account) in enumerate(batch, 1):
         t0 = time.time()
-        email = _alias_of(main)
+        # iCloud/cloudmail 一邮箱一账号: 用主邮箱(URL绑定, alias 收码不可靠); 其余走别名
+        if account.get("mail_type") in ("icloud", "cloudmail"):
+            email = main
+        else:
+            email = _alias_of(main)
         password = "".join(random.choice(string.ascii_letters + string.digits + "!@#$%") for _ in range(14))
         display_name = random_display_name()
         bday = random_birthdate(cfg)
