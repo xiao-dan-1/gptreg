@@ -4,6 +4,7 @@ mail_pool.txt.state.json
 config*.yaml
 data/
 output/
+capture/_raw_tokens.txt   # 外部导入的 access_token(测活输入, 含真实凭据)
 
 # ---- Python ----
 __pycache__/
