@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from gptreg.config import resolve_path
+
+logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
 
@@ -156,6 +160,35 @@ def save_success(
     return out_dir
 
 
+_BACKUP_INTERVAL_S = 6 * 3600  # 主库自动备份间隔(默认 6h)
+_last_backup_ts: dict[str, float] = {}  # path → 上次备份时间戳
+
+
+def _auto_backup(cfg: dict[str, Any], accounts_path: Path) -> None:
+    """主库自动备份: 距上次备份超阈值则复制到 backup/auto_<ts>/。
+
+    账号库无自动备份时, 重写/事故会丢数据(2.6MB 主库)。轻量方案:
+    每次 save_account 后检查, 超 6h 自动备份。锁外调用(避免持锁 IO)。
+    """
+    if not accounts_path.exists():
+        return
+    now = time.time()
+    pkey = str(accounts_path)
+    if now - _last_backup_ts.get(pkey, 0) < _BACKUP_INTERVAL_S:
+        return
+    try:
+        out_dir = ensure_output_dir(cfg)
+        root = out_dir.parent  # 项目根
+        bak_dir = root / "backup" / f"auto_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        bak_dir.mkdir(parents=True, exist_ok=True)
+        dest = bak_dir / accounts_path.name
+        dest.write_bytes(accounts_path.read_bytes())  # 二进制复制(保留原子替换后的完整文件)
+        _last_backup_ts[pkey] = now
+        logger.info("[Store] 主库自动备份 → %s", dest)
+    except Exception as exc:
+        logger.warning("[Store] 自动备份失败: %s", exc)
+
+
 def save_account(cfg: dict[str, Any], *, record: dict[str, Any]) -> Path:
     """统一落盘单条完整账号到 accounts.jsonl(主库, 唯一事实源)。
 
@@ -171,6 +204,7 @@ def save_account(cfg: dict[str, Any], *, record: dict[str, Any]) -> Path:
         rec["saved_at"] = datetime.now().isoformat(timespec="seconds")
     with _LOCK:
         _append_or_replace(accounts_path, rec)
+    _auto_backup(cfg, accounts_path)  # 自动备份(锁外, 间隔 6h)
     return out_dir
 
 

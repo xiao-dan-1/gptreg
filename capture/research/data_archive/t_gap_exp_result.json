@@ -1,0 +1,70 @@
+{
+ "device_id": "20e927c8-739a-4833-a120-3994572e57bd",
+ "browser_t_b64": "TRcdBxsCDAwPF3RdXWx3Z2Bpd2cCc2xkbHB9SWBzdFJ7UxcaFx0CGw8MDA8XeGFJQHtMcBMXGRQHGRsFBBcUF1dkUV5iWUZneWBGYFNoXWJ3d01vc3F/ZmJCb3BoQnxzdFZacH5YSQgXGhcXBBsCBAwPF2RgaGVkY29IYFJ0cntwY3FnH0VXV2NWfnJBcG10Z0V7b2RgcH1GWXJnWXxUZ1pNfHIFfGB8Xn9HZB9FZ24EYH1gcHNeZGBSbHt3XWdiaGdvZwR8VG1wRXdnUnxyf2NRdG14TWZxc3RlY1oEemBkdGR/BFFsYh9nd24EXnRnXkZmd3cGdGxkcHhzWQVycV50VGNzc2htcF1XfF5/Y2FoWWRXY1Z+ckFwbXRnRXtvZGBwfUkICBQZDAYFGAEZFw8Ud1l4CBQZDAIMGAMbFw8UcUkICBQZDAQHGAMMDxdgc0pCVltneHttcGN4cXQPFwIXAAUbGAMXDBdocnNuZ3h3T2QEVlRnQUJ4V2NkV3lzRVdze1FhYHBBY2djZ09tWXR9f1lNemdGY29jQht0Ygd/f2ZzTld7BHB5fXtRYWBwXlZiB3B4dmNsb3YEd3dkdlFvYVlecmRjZ3ttXX9WfwRBfWBoe1NhBVpnZHBdfGYEeFZ5c3d9ZGhBZmNwRlZiB3t8YgRCZ3sEe35iH3dmZ3BsZ2Bwd01kc3RnaHQICxcCFwQAGxkXDxR0b3R0d3RvdHR3dG90dHd0b3R0d3RvdHQUGQwAAhgCDA8FGAAZDAYCDBYNAwQGGwYGAgQCFwIBGxwBFwwXemdRZmQfZ1NhbUJWYGN/SnF0DnBqQlZTcnxRbWcFF1ZibgB/ZwR8UX9dVmN3b2B6dGRnbWNzd3tnBFoAewR7V3NZDXJxZFZgZAdRTWRYcFR8XVZjd3xeYGBeaG9iXWdWZgVgd3ZdVmN3WXBUcAV0ZG1wc0piXVVlbEJgYXd8XmBnXkpnZGABdnN0Z3hsdGB1cx5jU2JgWm9WYHtoYlkGbWp0VldmbwgIFBkMAgAYARcXDxRhfFFicEIWcnJnTWNzQkF3aFJWbHNrf31jYGhQc05ka3R3UXFpUmByd290dnAEH2Ftc1lKZGdnZWZCdGxza3N3ZGdNeHRkbGZyZ2R9fAR/UmRGVmB0dG9sdE5aaHRCZ3RvXVFuYntzVGFZSWBxTlpjdF1ZbX9Zd2JkRlZgdGBJCBcaFxsEGwcNDA8XeWFJQHhyXhMXGRQGFhsFAxcUF3d3CBMXGRQEFxsGDxcUF21dc09nYG94aVJzY2Rrf1F3c15zYAdBfm13QmN5XnhXY2hnVGEFa2xhB0VMF0g=",
+ "ls_before_keys": [
+  "statsig.session_id.444584300",
+  "statsig.last_modified_time.evaluations",
+  "statsig.cached.evaluations.1135078983",
+  "statsig.stable_id.444584300"
+ ],
+ "ls_after_new": [
+  "84f3eb1f8f1dadae"
+ ],
+ "font_true": {
+  "x": 0,
+  "y": 482,
+  "width": 0,
+  "height": 0,
+  "top": 482,
+  "left": 0,
+  "right": 0,
+  "bottom": 482
+ },
+ "groups": {
+  "G0_base": {
+   "browser_bytes": 995,
+   "vm_bytes": 763,
+   "diff_bytes": 232,
+   "shared_prefix": 115,
+   "divergence_match_pct": 2.2,
+   "total_match_pct": 16.9,
+   "elapsed": 120.1
+  },
+  "G1_ls": {
+   "browser_bytes": 995,
+   "vm_bytes": 763,
+   "diff_bytes": 232,
+   "shared_prefix": 115,
+   "divergence_match_pct": 2.2,
+   "total_match_pct": 16.9,
+   "elapsed": 120.1
+  },
+  "G2_font": {
+   "browser_bytes": 995,
+   "vm_bytes": 764,
+   "diff_bytes": 231,
+   "shared_prefix": 115,
+   "divergence_match_pct": 3.5,
+   "total_match_pct": 18.1,
+   "elapsed": 120.1
+  },
+  "G3_react": {
+   "browser_bytes": 995,
+   "vm_bytes": 812,
+   "diff_bytes": 183,
+   "shared_prefix": 115,
+   "divergence_match_pct": 2.7,
+   "total_match_pct": 16.5,
+   "elapsed": 120.1
+  },
+  "G4_all": {
+   "browser_bytes": 995,
+   "vm_bytes": 816,
+   "diff_bytes": 179,
+   "shared_prefix": 115,
+   "divergence_match_pct": 3.0,
+   "total_match_pct": 16.7,
+   "elapsed": 120.1
+  }
+ }
+}

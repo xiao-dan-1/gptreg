@@ -7,6 +7,8 @@ mail_pool.txt.state.json
 config*.yaml
 data/
 output/
+# 落盘文件备份(含账号凭据)
+backup/
 # 外部导入的 access_token(测活输入, 含真实凭据)
 capture/_raw_tokens.txt
 

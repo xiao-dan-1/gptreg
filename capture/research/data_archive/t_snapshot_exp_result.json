@@ -1,0 +1,58 @@
+{
+ "device_id": "db8ecb12-cfc8-4d00-a982-6e00166d71da",
+ "browser_t_b64": "TRcXDRcFBgwDG3RNXVsbGhcbChcDBAwDG3d0b3h4d3RveHh3dG94eHd0b3h4d3RveBsaFxgJFw4CDAMbZ2Boe2hjc2xobQYIDBUbDgcAAQ0UDx4XCQYNHA4IBAwfDgAFABsOABoXGwEXBgAMAxtkYGhpbWNFSGxedH52fG9xZx9jYVdjVnJ/QQVteGtFd2pobHB9Rm9yZ1l8WGpad3x+CXxsfVJzR2QfY11uBGBxYXAEXmhsUmB2e1FnYmhRb2cEfFhscG93a158fnpvXXRteHtccXB0WG5wQU9scXBkdmtedHJJCXRyUmtdemdeT2tVRmx6bG9VZnxdWGAEdH5hcAV3bH9ebHhsd2NiQntuYXB3eHpBRmZ7QQZ5bV54dH1ZBAQUGQwMCRgGGxsDFG1Ff1hlYEF0flFzd218fFFvf2N8YB9NaWN3Sm9uXXh5bn9kVHkJCWNhH0lbFBkMCAEYBBcbAxR7anRMe09jBBsaFxgAFwcBDAMbZ21Kf2hjZ2xobQYIDBUbBAIADhsMF3prXWZhH1FfYW1CaGFjf0p9eHt8ak5aU3N8TWFnBRdob24Af2sIA2d/UVpjdm9SdnRkZ1tuc3d7awhgBHsId1dyWXR+cWRWYG0HUU1oVAdifFFaY3Z8bGxgXmhvb11nVmoJWnt2UVpjdlkJWHAFdFpscHNKblFFcWxObGF2fGxsZ15KXW1gAXZ/eFF0bHhsdXIeVV9iYFpvX2B7aG5Vc1dqeFpXZ28EBBQZDAsOGAEYGwMUV3xdSWBZdGtuY0Z0Wn9eYm97SmBzaXNxYEJBfH9BfGd9QVlwZlRoCxcCGwAAGxkNGwwXbHgECxcCGw4YAhwbAxR7anhMeF9jBBsaFxYLFw8XFBttZFF5fk57cmloQXdyWU57cFJdb39zf2ZhbAdQaEFofXRsXnFwUkl1eE5eY2xvTlN7UmN4cllOfH53e1toWkVLfk57dmprTmByHmtaZWNod393DUp4e1VwamsBenFsVmFic3R3aFpFan5Oe3Zqe1Zgch9JaGVwHlt9d2N6GxUUDR8XCQUXFBt7QXgTGxUUBhsXDgIXFBt9UQgTGxUUDB4XCAEXFBt/cXN2am9OT3wIQWFmWU5vVGNGYW5wRU9+bEJheHxWbGZ7a1huWVZ1aFpNYmpRWm97Tgx7Yx9zaGVzbGFsB3BhfGxCYXh8SWdjH3xvdWNeb2EHd29tYUJveVVJfWF7a2xuXRpoaAdBZWF/D1N5CU1SYWhRa2UEF2hucHdlbX9SZnt8UWdjH3drYQRKXWwHe2ZvCE5mf3x7Um1oe1pnc1Zdf3cIExtE",
+ "rctx_full_size": 515,
+ "ls_keys": [
+  "849ae254e86e4f92",
+  "statsig.session_id.444584300",
+  "statsig.last_modified_time.evaluations",
+  "statsig.stable_id.444584300",
+  "statsig.cached.evaluations.2212323641"
+ ],
+ "groups": {
+  "G0_base": {
+   "browser_bytes": 990,
+   "vm_bytes": 764,
+   "diff_bytes": 226,
+   "shared_prefix": 85,
+   "divergence_match_pct": 2.5,
+   "total_match_pct": 13.4,
+   "elapsed": 120.1,
+   "ms_fp": 0,
+   "ms_n": 8
+  },
+  "G1_rctx": {
+   "browser_bytes": 990,
+   "vm_bytes": 811,
+   "diff_bytes": 179,
+   "shared_prefix": 84,
+   "divergence_match_pct": 1.8,
+   "total_match_pct": 12.0,
+   "elapsed": 120.1,
+   "ms_fp": 0,
+   "ms_n": 8
+  },
+  "G2_ls": {
+   "browser_bytes": 990,
+   "vm_bytes": 767,
+   "diff_bytes": 223,
+   "shared_prefix": 49,
+   "divergence_match_pct": 3.5,
+   "total_match_pct": 9.6,
+   "elapsed": 120.1,
+   "ms_fp": 0,
+   "ms_n": 8
+  },
+  "G3_rctx_ls": {
+   "browser_bytes": 990,
+   "vm_bytes": 810,
+   "diff_bytes": 180,
+   "shared_prefix": 84,
+   "divergence_match_pct": 3.6,
+   "total_match_pct": 13.6,
+   "elapsed": 120.1,
+   "ms_fp": 0,
+   "ms_n": 7
+  }
+ }
+}
