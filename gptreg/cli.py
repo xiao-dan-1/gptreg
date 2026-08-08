@@ -9,7 +9,7 @@ from pathlib import Path
 from gptreg import __version__
 from gptreg.config import load_config, resolve_path
 from gptreg.mail.pool import MailPool
-from gptreg.pipeline_otp import classify_result, format_bucket_summary, run_batch, summarize_buckets
+from gptreg.register_otp import classify_result, format_bucket_summary, run_batch, summarize_buckets
 from gptreg.proxyutil import proxy_label, resolve_proxy
 
 

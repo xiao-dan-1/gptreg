@@ -190,7 +190,7 @@ capture/
 gptreg/
   register_pwd.py              主路线核心：register_account(注册+TOTP 2FA, 结构化结果)
   auth.py                      协议请求 + sentinel 接线
-  pipeline_otp.py              OTP-only 流水线 + 批量分桶
+  register_otp.py              OTP-only 注册(与 register_pwd 对称) + 批量分桶
   browser_sentinel.py          真 Chrome token+so 采集
   sentinel_quickjs.py          Node VM 产真 t
   sentinel_engine.py           引擎注册表

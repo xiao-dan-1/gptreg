@@ -1,4 +1,8 @@
-"""OTP-only 单账号注册流水线(与 register_pwd 密码+TOTP 主路线并行, 经 cli.py 用)。"""
+"""OTP-only 注册(与 register_pwd 密码+TOTP 对称的并行路径, 经 cli.py 用)。
+
+register_pwd = 密码注册+TOTP(主路线); register_otp = 纯邮箱 OTP 注册。
+本模块含 register_one(单次) + run_batch(批量) + classify_result(失败分桶)。
+"""
 from __future__ import annotations
 
 import logging
