@@ -40,11 +40,17 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 
 **硬约束**：禁止假 so（SyntaxError 等）、禁止假 finalize。假 t ~6h 被吊销；真 t+真 so 才能长期存活。
 
-### 收码
+### 收码（插件化: MailSource/MailClient 注册表）
 
-- **本地 IMAP**（默认，`use_xdauv: false`）：`IMAPOAuthClient`，XOAUTH2 经 `chain_via` 隧道，`_ManualImap` 手动协议，秒级到件
-- **Graph 降级**：IMAP 不可用（MS 账号级拒绝）时自动降级，`$filter` 时间窗口 + `$top` + `Prefer text` 优化，有索引进度日志
-- 号池 ~12/15 账号 IMAP 可用；被拒账号（`authenticated but not connected`）自动降级
+| 通道 | 覆盖 | 速度 | 说明 |
+|---|---|---|---|
+| 本地 IMAP (XOAUTH2) | 12/15 | ~10s | 经 chain_via 隧道, `_ManualImap` 手动协议, 秒级到件 |
+| Graph 降级 | 被拒账号 | ~161s | 索引延迟(服务端), $filter/top/Prefer 优化 + 进度日志 |
+| XDAuv 服务 | 全部 | ~8s | `use_xdauv: true`, 服务端直连 Exchange |
+| **通用 API 插件** | 任意 | 看服务 | `mail.api_client` 配端点即接入, 无需写代码 |
+
+- 号池 ~12/15 账号 IMAP 可用；被拒账号（`authenticated but not connected`）自动降级 Graph
+- **新增收码通道/号源 = 写一个 MailClient/MailSource 插件 + 注册进注册表, 核心零改动**
 
 ### 代理
 
@@ -78,6 +84,11 @@ mail:
   use_xdauv: false           # true=服务收码; false=本地IMAP
   otp_wait: 150              # 收码超时(需覆盖发码延迟)
   otp_max_attempts: 2        # 超时重发次数
+  api_client:                # 通用第三方 API 接码(号池行 email----api_key)
+    endpoint: ""             # 收码 API URL(空=禁用该来源)
+    method: "POST"
+    request_body: '{"api_key":"{api_key}","email":"{email}","mailbox":"INBOX"}'
+    otp_path: ""             # 响应里 OTP 的 JSON 路径(空=通用扫描)
 # 仅 OTP-only 流水线(main.py)用; 主路线 verify_pwd_totp 固定 quickjs 协议产 t, 不读此项
 protocol:
   sentinel_source: "browser"
@@ -144,8 +155,15 @@ gptreg/
   browser_sentinel.py          真 Chrome token+so 采集
   sentinel_quickjs.py          Node VM 产真 t
   sentinel_engine.py           引擎注册表
-  mail/providers.py            收码（IMAP/Graph/XDAuv/Gmail）
+  mail/base.py                 抽象基类(MailClient 收码 / MailSource 来源)
+  mail/sources.py              插件注册表(MAIL_SOURCES/MAIL_CLIENTS)
+  mail/imap.py                 本地 IMAP XOAUTH2
+  mail/ms_graph.py             Graph 兜底
+  mail/external.py             XDAuv + Gmail
+  mail/api.py                  通用第三方 API 接码(配置即用)
+  mail/otp_cache.py            缓存/身份键/时间
   mail/pool.py                 号池状态机
+  mail/providers.py            build_mail_client 工厂
   proxyutil.py                 动态代理 + 链式隧道
   store.py                     accounts.jsonl 落盘
 vendor/sentinel/               官方 sdk.js + quickjs 适配器
