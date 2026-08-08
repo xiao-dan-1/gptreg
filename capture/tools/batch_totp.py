@@ -169,20 +169,20 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None) -> int:
         password = "".join(random.choice(string.ascii_letters + string.digits + "!@#$%") for _ in range(14))
         display_name = random_display_name()
         bday = random_birthdate(cfg)
-        print(f"\n[{i}/{len(batch)}] 主号 {main} ...")
+        print(f"\n[{i}/{len(batch)}] 主号 {main} ...", flush=True)  # flush: 边界先于该账号探活/重试日志
         result = _register_with_retry(
             cfg, account, email, password, display_name, bday, proxy,
         )
         dt = time.time() - t0
         ok = result.outcome == RegisterOutcome.SUCCESS
         if ok:
-            print(f"  注册邮箱: {email}  身份: {display_name}")
-            print(f"  -> 成功 ({dt:.0f}s) TOTP: {((result.record or {}).get('totp_secret') or '')[:12]}...")
+            print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
+            print(f"  -> 成功 ({dt:.0f}s) TOTP: {((result.record or {}).get('totp_secret') or '')[:12]}...", flush=True)
         else:
             reason = result.diag.get("landing_diag") or result.diag.get("reason", "")
-            print(f"  注册邮箱: {email}  身份: {display_name}")
-            print(f"  [{result.outcome.value}] {str(reason)[:100]}")
-            print(f"  -> 失败 ({dt:.0f}s)")
+            print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
+            print(f"  [{result.outcome.value}] {str(reason)[:100]}", flush=True)
+            print(f"  -> 失败 ({dt:.0f}s)", flush=True)
         # 主号生命周期: 与号池 state 同步(避免坏号反复试)
         if result.outcome == RegisterOutcome.SUCCESS and pool is not None:
             pool.mark_used(main)
@@ -190,15 +190,15 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None) -> int:
             _mark_permanent(main)
             if pool is not None:
                 pool.mark_bad(main, reason="邮箱已注册")
-            print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name} + 号池 bad")
+            print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name} + 号池 bad", flush=True)
         # SUCCESS 由 accounts.jsonl 落盘标记已用; 其他失败(IP_BLOCKED/基建)不烧号, 下次可重试
         results.append((main, ok, result.outcome))
         time.sleep(1)
 
     n_ok = sum(1 for _, ok, _ in results if ok)
-    print(f"\n批量完成: {n_ok}/{len(batch)} 成功")
+    print(f"\n批量完成: {n_ok}/{len(batch)} 成功", flush=True)
     for main, ok, oc in results:
-        print(f"  [{'OK' if ok else 'X'}] {main} ({oc.value})")
+        print(f"  [{'OK' if ok else 'X'}] {main} ({oc.value})", flush=True)
     return 0 if n_ok == len(batch) else 1
 
 
@@ -208,7 +208,7 @@ def _register_with_retry(cfg, account, email, password, name, bday, proxy):
                               name=name, bday=bday, proxy=proxy)
     if result.outcome == RegisterOutcome.IP_BLOCKED:
         # 换 sid 重试一次: register_account 内部已换 sid, 重试是让 IP 风控概率解
-        print("  [retry] IP_BLOCKED, 换 IP 重试一次")
+        print("  [retry] IP_BLOCKED, 换 IP 重试一次", flush=True)
         result = register_account(cfg, account, email=email, password=password,
                                   name=name, bday=bday, proxy=proxy)
     return result
