@@ -26,7 +26,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from gptreg.config import load_config, random_birthdate, random_display_name  # noqa: E402
-from gptreg.mail.pool import parse_mail_line  # noqa: E402
+from gptreg.mail.pool import MailPool, parse_mail_line  # noqa: E402
 from gptreg.register_pwd import RegisterOutcome, register_account  # noqa: E402
 
 OUT = ROOT / "output"
@@ -135,6 +135,10 @@ def main() -> int:
     global POOL
     POOL = ROOT / pool_file
 
+    # 号池状态机(批量后标记 used/bad, 与账号表同步避免坏号反复试)
+    pool = MailPool(pool_file, accounts_jsonl=str(ROOT / "output" / "accounts.jsonl"))
+    pool.load()
+
     unused = _unused_mains()
     print(f"未用过主号: {len(unused)} 个")
     if args.list:
@@ -149,11 +153,11 @@ def main() -> int:
         print("动态代理: 每次换 sid(新出口), register 400 自动换 IP 重试")
 
     batch = unused[: args.limit]
-    return _run_batch(batch, proxy, cfg)
+    return _run_batch(batch, proxy, cfg, pool)
 
 
-def _run_batch(batch: list[tuple[str, dict]], proxy, cfg) -> int:
-    """批量注册: batch=[(主号, account)]。"""
+def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None) -> int:
+    """批量注册: batch=[(主号, account)]。pool 为 MailPool(批量后标记 used/bad)。"""
     results: list[tuple[str, bool, RegisterOutcome]] = []
     for i, (main, account) in enumerate(batch, 1):
         t0 = time.time()
@@ -166,10 +170,8 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg) -> int:
         display_name = random_display_name()
         bday = random_birthdate(cfg)
         print(f"\n[{i}/{len(batch)}] 主号 {main} ...")
-        result = register_account(
-            cfg, account,
-            email=email, password=password, name=display_name, bday=bday,
-            proxy=proxy,
+        result = _register_with_retry(
+            cfg, account, email, password, display_name, bday, proxy,
         )
         dt = time.time() - t0
         ok = result.outcome == RegisterOutcome.SUCCESS
@@ -181,10 +183,14 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg) -> int:
             print(f"  注册邮箱: {email}  身份: {display_name}")
             print(f"  [{result.outcome.value}] {str(reason)[:100]}")
             print(f"  -> 失败 ({dt:.0f}s)")
-        # 主号生命周期
-        if result.outcome == RegisterOutcome.MAIL_REGISTERED:
+        # 主号生命周期: 与号池 state 同步(避免坏号反复试)
+        if result.outcome == RegisterOutcome.SUCCESS and pool is not None:
+            pool.mark_used(main)
+        elif result.outcome == RegisterOutcome.MAIL_REGISTERED:
             _mark_permanent(main)
-            print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name}")
+            if pool is not None:
+                pool.mark_bad(main, reason="邮箱已注册")
+            print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name} + 号池 bad")
         # SUCCESS 由 accounts.jsonl 落盘标记已用; 其他失败(IP_BLOCKED/基建)不烧号, 下次可重试
         results.append((main, ok, result.outcome))
         time.sleep(1)
@@ -194,6 +200,18 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg) -> int:
     for main, ok, oc in results:
         print(f"  [{'OK' if ok else 'X'}] {main} ({oc.value})")
     return 0 if n_ok == len(batch) else 1
+
+
+def _register_with_retry(cfg, account, email, password, name, bday, proxy):
+    """注册 + IP_BLOCKED 当轮重试 1 次(换 IP 大概率成, 避免直接弃下一轮)。"""
+    result = register_account(cfg, account, email=email, password=password,
+                              name=name, bday=bday, proxy=proxy)
+    if result.outcome == RegisterOutcome.IP_BLOCKED:
+        # 换 sid 重试一次: register_account 内部已换 sid, 重试是让 IP 风控概率解
+        print("  [retry] IP_BLOCKED, 换 IP 重试一次")
+        result = register_account(cfg, account, email=email, password=password,
+                                  name=name, bday=bday, proxy=proxy)
+    return result
 
 
 if __name__ == "__main__":
