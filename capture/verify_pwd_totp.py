@@ -156,7 +156,11 @@ def main() -> int:
             so_inner = ""
             if st_:
                 so_inner = f"[nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s]"
-            print(f"[耗时] signin+register={reg_s:.1f}s OTP等待({ch})={otp_s - reg_s:.1f}s "
+            # OTP等待段 vs 真实到件延迟: 段含 register 完成后的构建/轮询开销,
+            # 到件延迟是 wait_for_otp 纯等码时间(与日志 [到件 OTP=.. 延迟..] 同口径)
+            delay = d.get("otp_delay_s")
+            delay_str = f"到件{delay:.1f}s" if delay is not None else "到件?"
+            print(f"[耗时] signin+register={reg_s:.1f}s OTP段({ch})={otp_s - reg_s:.1f}s[{delay_str}] "
                   f"create段={create_s - otp_s:.1f}s session={session_s - create_s:.1f}s "
                   f"health={d.get('health_s', '?')}s enroll={d.get('enroll_s', '?')}s "
                   f"并行(t={d.get('t_s')}s so={d.get('so_s')}s{so_inner})={d.get('create_parallel')}s")

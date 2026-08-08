@@ -194,10 +194,17 @@ def _stage_wait_otp(
     otp_timeout = int(mail_cfg.get("otp_wait", 150) or 150)
     otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 2) or 2))
     otp = None
+    otp_delay_s: float | None = None  # 真实到件延迟(wait_for_otp 内部口径, 与日志一致)
     for attempt in range(otp_max_attempts):
         try:
+            def _on_poll(info: dict) -> None:
+                nonlocal otp_delay_s
+                if info.get("elapsed_s") is not None:
+                    otp_delay_s = float(info["elapsed_s"])
+
             otp = client.wait_for_otp(after_ts=otp_after, timeout=otp_timeout,
-                                      interval=3, settle_seconds=5, exclude_codes=exclude)
+                                      interval=3, settle_seconds=5, exclude_codes=exclude,
+                                      on_poll=_on_poll)
             break
         except Exception as exc:
             if attempt >= otp_max_attempts - 1:
@@ -209,6 +216,8 @@ def _stage_wait_otp(
     used_cache.remember(identity, otp, email=email, status="submitted")
     diag["otp"] = otp
     diag["otp_s"] = round(time.time() - st["start"], 1)
+    if otp_delay_s is not None:
+        diag["otp_delay_s"] = round(otp_delay_s, 1)  # 纯等待验证码的到件延迟
 
     # validate
     auth.validate_email_otp(session, otp, None)
