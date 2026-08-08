@@ -297,8 +297,12 @@ def _stage_session(
     cu: str,
     st: dict[str, float],
     diag: dict[str, Any],
-) -> tuple[str, str, list[dict[str, Any]]]:
-    """Stage 5: callback → session(access_token)。返回 (at, refresh_token, cookies)。"""
+) -> tuple[str, str, str, list[dict[str, Any]]]:
+    """Stage 5: callback → session(access_token)。返回 (at, session_token, refresh_token, cookies)。
+
+    session_token(JWE, ~3月) 是 OpenAI 的刷新凭证——access_token 10 天过期后,
+    靠它或 session_cookies 重抓 /api/auth/session 续期(研究实证, 见 refresh-research)。
+    """
     auth.follow_oauth_callback(session, cu)
     info = auth.fetch_session(session)
     at = info.get("accessToken")
@@ -308,8 +312,9 @@ def _stage_session(
     cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
                 "secure": bool(getattr(c, "secure", False))}
                for c in session.session.cookies.jar]
+    session_token = info.get("sessionToken") or ""
     refresh = info.get("refreshToken") or info.get("refresh_token") or ""
-    return at, refresh, cookies
+    return at, session_token, refresh, cookies
 
 
 def _register_chain(
@@ -336,11 +341,12 @@ def _register_chain(
         otp = _stage_wait_otp(session, cfg, account, email, send_url, resolved.session_url or None,
                               st, diag)
         tok2, so_b, cu = _stage_create(session, cfg, name, bday, resolved.session_url or None, st, diag)
-        at, refresh_token, cookies = _stage_session(session, cu, st, diag)
+        at, session_token, refresh_token, cookies = _stage_session(session, cu, st, diag)
         return {
             "at": at,
             "device_id": session.device_id,
             "cookies": cookies,
+            "session_token": session_token,
             "refresh_token": refresh_token,
             "t_len": len(tok2),
             "so_len": len(so_b),
@@ -491,6 +497,7 @@ def register_account(
 def _partial_record(reg, email, password, name, bday, mail_main, status) -> dict[str, Any]:
     return {
         "email": email, "password": password, "access_token": reg["at"],
+        "session_token": reg.get("session_token", ""),  # 刷新凭证(~3月), token 过期续期用
         "refresh_token": reg["refresh_token"], "device_id": reg["device_id"],
         "name": name, "birthdate": bday, "mail_main": mail_main,
         "status": status, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

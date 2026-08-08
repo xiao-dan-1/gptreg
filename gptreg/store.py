@@ -196,3 +196,64 @@ def update_account_health(
                 pass
             raise
     return out_dir
+
+
+def update_account_tokens(
+    cfg: dict[str, Any],
+    *,
+    email: str,
+    access_token: str,
+    session_token: str = "",
+    session_cookies: list[dict[str, Any]] | None = None,
+    expires: str = "",
+    health_status: str = "ok",
+) -> Path:
+    """续期回写: 更新 access_token/session_token/session_cookies/expires。
+
+    账号库保持可维护资产: access_token 10 天过期前用 session_cookies/sessionToken
+    重抓 session 换新 token, 回写后账号续命。保留 status/其他字段。
+    """
+    out_dir = ensure_output_dir(cfg)
+    output = cfg.get("output", {})
+    accounts_path = out_dir / output.get("accounts_jsonl", "accounts.jsonl")
+    now = datetime.now().isoformat(timespec="seconds")
+    with _LOCK:
+        if not accounts_path.exists():
+            return out_dir
+        lines: list[str] = []
+        hit = False
+        for ln in accounts_path.read_text(encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            try:
+                d = json.loads(ln)
+            except Exception:
+                lines.append(ln)
+                continue
+            if d.get("email") == email:
+                d["access_token"] = access_token
+                if session_token:
+                    d["session_token"] = session_token
+                if session_cookies:
+                    d["session_cookies"] = session_cookies
+                if expires:
+                    d["session_expires"] = expires
+                d["health_status"] = health_status
+                d["last_refreshed"] = now
+                ln = json.dumps(d, ensure_ascii=False)
+                hit = True
+            lines.append(ln)
+        if not hit:
+            return out_dir
+        tmp = accounts_path.with_suffix(accounts_path.suffix + ".tmp")
+        try:
+            tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            tmp.replace(accounts_path)
+        except Exception:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
+            raise
+    return out_dir
