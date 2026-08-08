@@ -260,7 +260,11 @@ def _stage_create(
     if holder.get("so_timing"):
         diag["so_timing"] = holder["so_timing"]
     if holder.get("t_err"):
-        raise _SessionFailed(f"quickjs t 生成失败: {holder['t_err']}")
+        t_err = str(holder["t_err"])
+        from gptreg.auth import _is_transient
+        # 归因精确: 网络瞬时错误(隧道断流, 如 SSLError) vs 本地 quickjs 问题
+        kind = "网络瞬时错误(隧道断流)" if _is_transient(Exception(t_err)) else "本地 quickjs 问题"
+        raise _SessionFailed(f"quickjs t 生成失败[{kind}]: {t_err[:120]}")
     if not so_b:
         warn = holder.get("so_warn") or ""
         raise _SoFailed(f"browser so 采集失败(重试3次后仍无 so): {str(warn)[:120]}")

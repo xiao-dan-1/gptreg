@@ -12,7 +12,9 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 - **批量生产**（`capture/tools/batch_totp.py`）复用核心，按失败类型管主号（IP 风控不烧号）
 - **本地 IMAP 收码**（XOAUTH2 经链式隧道），失败自动降级 Graph
 - **账号测活 / 补 token / 2FA 登录**（`capture/tools/check_survival.py` / `backfill_token.py` / `login_pwd_check_totp.py`）
-- 统一落盘 `accounts.jsonl` 主库（去重 upsert）
+- **账号管理闭环**：测活回写（`check_survival_batch`）+ access_token 续期（`refresh_at`）+ 资产视图（`account_overview`）
+- **导出交付**（`export_accounts.py`）：`email----password----2fa[----at]` 格式
+- 统一落盘 `accounts.jsonl` 主库（去重 upsert + 自动备份）
 
 ## 主路线架构
 
@@ -106,31 +108,37 @@ register:
 
 ## 使用
 
+### 生产循环（一般流程）
+
+```
+① 注册 → ② 测活 → ③ 续期 → ④ 导出交付
+   ↕ 号池管理: 坏号(已注册)标 bad / 换新号 / 看号源存活率
+```
+
 ```bash
-# 注册一个 2FA 账号（主路线；默认 plus 别名, 解决主号已注册→register 400）
+# ① 注册（逐个/批量）
+python capture/tools/verify_pwd_totp.py --pool icloud --email 用户@icloud.com   # 单个
+python capture/tools/batch_totp.py --pool icloud --limit 3                     # 批量
+# 号源: 默认 Outlook 池 / --pool icloud / --pool cloudmail(动态生成, 不依赖号池)
+
+# ② 测活(确认账号存活, 回写 health_status)
+python capture/tools/check_survival_batch.py
+python capture/tools/account_overview.py        # 资产总览(存活/吊销/按号源存活率)
+
+# ③ 续期(access_token 10 天过期前, 账号永活)
+python capture/tools/refresh_at.py
+
+# ④ 导出交付
+python capture/tools/export_accounts.py                               # email----password----2fa
+python capture/tools/export_accounts.py --filter alive --with-at --out deliver.txt  # 存活+at 存文件
+```
+
+**注册参数说明**:
+```bash
+# 默认 plus 别名(解决主号已注册→register 400); --no-alias 用主号
 python capture/tools/verify_pwd_totp.py --email 主号
-# 不用别名(直接用主号, 仅当确认主号未注册过)
-python capture/tools/verify_pwd_totp.py --email 主号 --no-alias
-
-# iCloud 号池（email----接码URL, 用主邮箱不别名）
-python capture/tools/verify_pwd_totp.py --pool icloud --email 用户@icloud.com
-
-# CloudMail 动态生成邮箱（不依赖号池文件, admin 拉码）
-python capture/tools/verify_pwd_totp.py --pool cloudmail
-
-# 指定代理（住宅 IP）
+# 指定代理(住宅 IP)
 python capture/tools/verify_pwd_totp.py --email 主号 --proxy http://user:pass@host:port
-
-# 批量生产 3 个（默认 Outlook 池）
-python capture/tools/batch_totp.py --limit 3
-# 批量 iCloud / CloudMail
-python capture/tools/batch_totp.py --pool icloud --limit 2
-python capture/tools/batch_totp.py --pool cloudmail --limit 2
-
-# 账号管理闭环
-python capture/tools/check_survival_batch.py   # 全量测活并回写 health_status
-python capture/tools/refresh_at.py             # access_token 续期(过期前跑, 账号永活)
-python capture/tools/account_overview.py       # 账号资产总览(存活/吊销/按日)
 ```
 
 成功账号写入 `output/accounts.jsonl`（主库，唯一事实源），字段分组顺序：
@@ -196,6 +204,7 @@ capture/
     check_survival*.py         账号测活(单/批量, 回写 health_status)
     refresh_at.py              access_token 续期
     account_overview.py        账号资产总览
+    export_accounts.py         导出账号(email----password----2fa[----at])
     backfill_token.py          补 access_token
     login_pwd_check_totp.py    密码+TOTP 登录验证
   legacy/                      旧注册路径脚本(verify_* 等, 参考)
