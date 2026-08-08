@@ -70,6 +70,30 @@ def signin_openai(session: BrowserSession, csrf_token: str, email: str) -> str:
     return authorize_url
 
 
+def signin_flow(
+    session: BrowserSession,
+    email: str,
+    *,
+    follow_sleep: float = 0.5,
+    authorize_attempts: int = 1,
+) -> str:
+    """统一 signin 序列: get_providers → CSRF → signin → authorize。
+
+    协议步骤间的节奏(sleep)内聚在此, 调用方(register_pwd/register_otp)不再散落
+    time.sleep——消除两条注册路径对协议时序的重复硬编码。
+    返回 authorize 落点 URL。
+    """
+    get_providers(session)
+    time.sleep(0.3)
+    csrf = get_csrf_token(session)
+    time.sleep(0.3)
+    authorize_url = signin_openai(session, csrf, email)
+    time.sleep(0.3)
+    final = follow_authorize(session, authorize_url, attempts=authorize_attempts)
+    time.sleep(follow_sleep)
+    return final
+
+
 def follow_authorize(session: BrowserSession, authorize_url: str, attempts: int = 3) -> str:
     headers = session.auth_navigate_headers(referer="https://chatgpt.com/")
     last_exc: Exception | None = None

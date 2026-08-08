@@ -31,13 +31,15 @@
 
 ## 分层明细
 
-### 1. 入口层 `capture/`
-| 脚本 | 职责 |
+### 1. 入口层 `capture/`（tools 运维 / legacy 旧路径 / research 研究 三层）
+| 脚本(tools/) | 职责 |
 |---|---|
 | `verify_pwd_totp.py` | 单号注册 CLI 薄壳：选主号 → 生成别名/密码/姓名 → 调 `register_account` → 按 outcome 打印反馈 |
 | `batch_totp.py` | 批量：循环调核心（无 subprocess），按失败类型管主号生命周期（不烧号） |
 | `check_imap.py` | 号池 IMAP 可用性检查（决定收码走快通道还是 Graph 降级） |
-| `check_survival.py` | 从 accounts.jsonl 读 token 测活 |
+| `check_survival*.py` | 账号测活（单/批量, 回写 health_status） |
+| `refresh_at.py` | access_token 续期（过期前跑） |
+| `account_overview.py` | 账号资产总览 |
 | `check_raw_tokens.py` | 直接喂 JWT 测活（不经 accounts.jsonl） |
 | `backfill_token.py` | 补缺失 access_token（密码+TOTP 登录） |
 | `main.py` | OTP-only 旧流水线入口（非当前主路线） |
@@ -105,7 +107,7 @@ pick_proxy → build_dynamic_proxy (cliproxy: region/sid/粘性)
 ## 数据流（单号注册）
 
 ```
-capture/verify_pwd_totp.py
+capture/tools/verify_pwd_totp.py
    │  ① 选主号(号池) + 生成 别名邮箱(+tag)/密码/姓名/生日
    ▼
 register_account()                        resolve_proxy() → 住宅代理

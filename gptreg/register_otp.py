@@ -215,16 +215,9 @@ def register_one(
     )
 
     try:
-        auth.get_providers(session)
-        time.sleep(0.3)
-        csrf = auth.get_csrf_token(session)
-        time.sleep(0.3)
-        authorize_url = auth.signin_openai(session, csrf, email)
+        auth.signin_flow(session, email, follow_sleep=1.5)
         otp_after = time.time()
-        time.sleep(0.3)
-        auth.follow_authorize(session, authorize_url)
         _mark("authorize_done")
-        time.sleep(1.5)
 
         # OTP 阶段 sentinel：始终 pow（Jennifer OTP 无 so；browser 留给 create）
         sentinel_otp, _ = auth.make_sentinel_headers(

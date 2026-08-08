@@ -6,12 +6,12 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 
 - **密码注册 + TOTP 2FA 激活**（主路线）
   - 核心：`gptreg/register_pwd.py` `register_account()`（结构化结果），CLI/批量共享
-  - 薄壳：`capture/verify_pwd_totp.py`（选号/生成参数/打印反馈）
+  - 薄壳：`capture/tools/verify_pwd_totp.py`（选号/生成参数/打印反馈）
   - `enroll` → `activate_enrollment` 完整链，产出 `mfa_enabled: true` 的真 2FA 账号
   - create 后即时健康检查（秒封检测）
-- **批量生产**（`capture/batch_totp.py`）复用核心，按失败类型管主号（IP 风控不烧号）
+- **批量生产**（`capture/tools/batch_totp.py`）复用核心，按失败类型管主号（IP 风控不烧号）
 - **本地 IMAP 收码**（XOAUTH2 经链式隧道），失败自动降级 Graph
-- **账号测活 / 补 token / 2FA 登录**（`capture/check_survival.py` / `backfill_token.py` / `login_pwd_check_totp.py`）
+- **账号测活 / 补 token / 2FA 登录**（`capture/tools/check_survival.py` / `backfill_token.py` / `login_pwd_check_totp.py`）
 - 统一落盘 `accounts.jsonl` 主库（去重 upsert）
 
 ## 主路线架构
@@ -108,29 +108,29 @@ register:
 
 ```bash
 # 注册一个 2FA 账号（主路线；默认 plus 别名, 解决主号已注册→register 400）
-python capture/verify_pwd_totp.py --email 主号
+python capture/tools/verify_pwd_totp.py --email 主号
 # 不用别名(直接用主号, 仅当确认主号未注册过)
-python capture/verify_pwd_totp.py --email 主号 --no-alias
+python capture/tools/verify_pwd_totp.py --email 主号 --no-alias
 
 # iCloud 号池（email----接码URL, 用主邮箱不别名）
-python capture/verify_pwd_totp.py --pool icloud --email 用户@icloud.com
+python capture/tools/verify_pwd_totp.py --pool icloud --email 用户@icloud.com
 
 # CloudMail 动态生成邮箱（不依赖号池文件, admin 拉码）
-python capture/verify_pwd_totp.py --pool cloudmail
+python capture/tools/verify_pwd_totp.py --pool cloudmail
 
 # 指定代理（住宅 IP）
-python capture/verify_pwd_totp.py --email 主号 --proxy http://user:pass@host:port
+python capture/tools/verify_pwd_totp.py --email 主号 --proxy http://user:pass@host:port
 
 # 批量生产 3 个（默认 Outlook 池）
-python capture/batch_totp.py --limit 3
+python capture/tools/batch_totp.py --limit 3
 # 批量 iCloud / CloudMail
-python capture/batch_totp.py --pool icloud --limit 2
-python capture/batch_totp.py --pool cloudmail --limit 2
+python capture/tools/batch_totp.py --pool icloud --limit 2
+python capture/tools/batch_totp.py --pool cloudmail --limit 2
 
 # 账号管理闭环
-python capture/check_survival_batch.py   # 全量测活并回写 health_status
-python capture/refresh_at.py             # access_token 续期(过期前跑, 账号永活)
-python capture/account_overview.py       # 账号资产总览(存活/吊销/按日)
+python capture/tools/check_survival_batch.py   # 全量测活并回写 health_status
+python capture/tools/refresh_at.py             # access_token 续期(过期前跑, 账号永活)
+python capture/tools/account_overview.py       # 账号资产总览(存活/吊销/按日)
 ```
 
 成功账号写入 `output/accounts.jsonl`（主库，唯一事实源），字段分组顺序：
@@ -189,12 +189,17 @@ user@cloud.com----api_key
 ```text
 main.py                        OTP-only 流水线入口（非当前主路线）
 capture/
-  verify_pwd_totp.py           主路线：密码注册 + TOTP 2FA 激活
-  batch_totp.py                批量生产编排
-  check_imap.py                IMAP 可用性检查
-  check_survival.py            账号测活
-  backfill_token.py            补 access_token
-  login_pwd_check_totp.py      密码+TOTP 登录验证
+  tools/                       运维工具(当前在用)
+    verify_pwd_totp.py         主路线：密码注册 + TOTP 2FA 激活
+    batch_totp.py              批量生产编排
+    check_imap.py              IMAP 可用性检查
+    check_survival*.py         账号测活(单/批量, 回写 health_status)
+    refresh_at.py              access_token 续期
+    account_overview.py        账号资产总览
+    backfill_token.py          补 access_token
+    login_pwd_check_totp.py    密码+TOTP 登录验证
+  legacy/                      旧注册路径脚本(verify_* 等, 参考)
+  research/                    研究探测脚本(probe_*/t_*_exp/so_* 等)
   reg-2fa-timing-*.md          耗时/性能存档
 gptreg/
   register_pwd.py              主路线核心：register_account(注册+TOTP 2FA, 结构化结果)

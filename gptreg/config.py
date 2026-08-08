@@ -35,7 +35,9 @@ _DEFAULTS: dict[str, Any] = {
         "otp_wait": 150,
         "otp_max_attempts": 2,
         "used_code_cache": "data/used_otp_codes.json",
-        "use_alias": False,
+        # 唯一默认源: 默认 plus 别名(与 verify_pwd_totp 代码兜底 True 一致)。
+        # 历史 _DEFAULTS=False vs 代码兜底 True 冲突——yaml 缺该项时行为不定, 已对齐。
+        "use_alias": True,
         "alias_tag_len": 6,
         # 通用第三方 API 接码(号池行 email----api_key, mail_type="api")
         "api_client": {
@@ -81,10 +83,11 @@ _DEFAULTS: dict[str, Any] = {
         "redirect_uri": "https://chatgpt.com/api/auth/callback/openai",
         "sentinel_sv": "20260219f9f6",
         "sentinel_dir": "vendor/sentinel",
-        # 注意：注册主路径默认已切纯 Python PoW；下列主要服务 Node 兼容/研究。
+        # 注意：此值仅影响 OTP-only 路径(register_otp/cli)与兜底;
+        # 主路线 register_pwd 固定 quickjs_pwd_v3 产 t, 不读本项(README 已说明)。
         "sentinel_proxy_port": 1789,
         # pow=默认纯 Python（通常无 so）| browser=真 Chrome token+so（opt-in）
-        # P1: 本环境 2h 有/无 so 双活 → 默认保持 pow
+        # 唯一默认源: 与 auth/cli/register_otp 代码兜底 "pow" 一致
         "sentinel_source": "pow",
         # none | xiaopp（小PP HAR so，create 纯协议带头，无浏览器）
         "pow_so_source": "xiaopp",

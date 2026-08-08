@@ -107,15 +107,8 @@ def _landing_diag(final: str) -> str:
 
 
 def _stage_signin(session: BrowserSession, email: str, diag: dict[str, Any]) -> str:
-    """Stage 1: get_providers → CSRF → signin → authorize。返回落点 URL。"""
-    auth.get_providers(session)
-    time.sleep(0.3)
-    csrf = auth.get_csrf_token(session)
-    time.sleep(0.3)
-    au = auth.signin_openai(session, csrf, email)
-    time.sleep(0.3)
-    final = auth.follow_authorize(session, au, attempts=1)
-    time.sleep(0.5)
+    """Stage 1: signin 序列(协议节奏内聚在 auth.signin_flow)。返回落点 URL。"""
+    final = auth.signin_flow(session, email, follow_sleep=0.5, authorize_attempts=1)
     diag["landing"] = final
     return final
 
