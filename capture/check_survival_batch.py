@@ -24,6 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from gptreg.config import load_config
 from gptreg.health import check_account_health
 from gptreg.session import BrowserSession
+from gptreg.store import update_account_health
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy, set_sid, random_sid
 
 
@@ -88,6 +89,11 @@ def main() -> int:
             http = r.get("http")
             results.append((email, st, http))
             print(f"  [{i}/{len(accounts)}] {email:42s} age={age_h:>6s} -> {st} http={http}")
+            # 回写 accounts.jsonl(health_status + last_checked), 账号库保持活状态
+            try:
+                update_account_health(cfg, email=email, health_status=st, http=http)
+            except Exception as exc:
+                print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
         except Exception as exc:
             results.append((email, "error", None))
             print(f"  [{i}/{len(accounts)}] {email:42s} -> 异常 {type(exc).__name__}: {str(exc)[:40]}")

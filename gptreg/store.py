@@ -140,3 +140,59 @@ def save_account(cfg: dict[str, Any], *, record: dict[str, Any]) -> Path:
     with _LOCK:
         _append_or_replace(accounts_path, rec)
     return out_dir
+
+
+def update_account_health(
+    cfg: dict[str, Any],
+    *,
+    email: str,
+    health_status: str,
+    http: int | None = None,
+    note: str = "",
+) -> Path:
+    """测活结果回写: 更新单账号 health_status + last_checked, 保留其余字段。
+
+    不覆盖 status/access_token 等核心字段——health_status 是独立的存活观测层,
+    与注册时 status(ok/registered_no_totp) 语义分离。原子替换该账号行。
+    """
+    out_dir = ensure_output_dir(cfg)
+    output = cfg.get("output", {})
+    accounts_path = out_dir / output.get("accounts_jsonl", "accounts.jsonl")
+    now = datetime.now().isoformat(timespec="seconds")
+    with _LOCK:
+        if not accounts_path.exists():
+            return out_dir
+        lines: list[str] = []
+        hit = False
+        for ln in accounts_path.read_text(encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            try:
+                d = json.loads(ln)
+            except Exception:
+                lines.append(ln)
+                continue
+            if d.get("email") == email:
+                d["health_status"] = health_status
+                if http is not None:
+                    d["health_http"] = http
+                if note:
+                    d["health_note"] = note[:200]
+                d["last_checked"] = now
+                ln = json.dumps(d, ensure_ascii=False)
+                hit = True
+            lines.append(ln)
+        if not hit:
+            return out_dir  # 账号不存在, 不回写
+        tmp = accounts_path.with_suffix(accounts_path.suffix + ".tmp")
+        try:
+            tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            tmp.replace(accounts_path)
+        except Exception:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
+            raise
+    return out_dir

@@ -33,6 +33,32 @@ def parse_mail_line(line: str) -> dict[str, Any] | None:
     return None
 
 
+def accounts_registered_mains(accounts_jsonl: str | Path) -> set[str]:
+    """从 accounts.jsonl 反查"已注册主号"集合。
+
+    注册用 plus 别名(x+tag@dom), 主号是 x@dom。alias 剥 tag 后并入 used,
+    号池与账号表联动: 已注册过的主号不再被 claim(避免 create 400 邮箱已存在)。
+    """
+    p = Path(accounts_jsonl)
+    used: set[str] = set()
+    if not p.exists():
+        return used
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        email = (d.get("email") or "").strip()
+        if not email or "@" not in email:
+            continue
+        local, dom = email.rsplit("@", 1)
+        used.add(f"{local.split('+')[0]}@{dom}")
+    return used
+
+
 def choose_registration_email(account: dict[str, Any], cfg: dict[str, Any] | None = None) -> tuple[str, bool]:
     """返回 (注册邮箱, 是否使用别名)。
 
@@ -65,9 +91,11 @@ def choose_registration_email(account: dict[str, Any], cfg: dict[str, Any] | Non
 class MailPool:
     """文件号池 + 状态文件。"""
 
-    def __init__(self, pool_file: str | Path):
+    def __init__(self, pool_file: str | Path, accounts_jsonl: str | Path | None = None):
         self.pool_file = Path(pool_file).resolve()
         self.state_file = Path(str(self.pool_file) + ".state.json")
+        # 账号主库: 已注册主号反查源(号池与账号表联动, 避免重复用已注册主号)
+        self.accounts_jsonl = Path(accounts_jsonl) if accounts_jsonl else None
         self._lock = threading.Lock()
         self._records: list[dict[str, Any]] = []
         self._by_email: dict[str, dict[str, Any]] = {}
@@ -98,7 +126,29 @@ class MailPool:
             self._in_flight = set()
             self._failed = {}
         self._load_state()
+        # 号池与账号表联动: 已注册主号(accounts.jsonl 反查) 并入 used
+        self._sync_registered()
         return len(records)
+
+    def _sync_registered(self) -> None:
+        """从 accounts.jsonl 反查已注册主号并入 _used(号池 state 与账号表不脱节)。
+
+        load() 后调用(锁外拿反查结果, 锁内并入), 避免重复用已注册主号导致 create 400。
+        """
+        if not self.accounts_jsonl:
+            return
+        registered = accounts_registered_mains(self.accounts_jsonl)
+        if not registered:
+            return
+        dirty = False
+        with self._lock:
+            for main in registered:
+                if main not in self._used:
+                    self._used.add(main)
+                    dirty = True
+        # _save_state 内部自带 _lock, 须锁外调用(避免 Lock 死锁)
+        if dirty:
+            self._save_state()
 
     def _load_state(self) -> None:
         if not self.state_file.exists():
