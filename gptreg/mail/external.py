@@ -130,7 +130,7 @@ class ICloudApiClient(MailClient):
             try:
                 code = self._find_new_otp(after_ts)
             except Exception as exc:
-                logger.warning("[iCloud] 拉码异常: %s", exc)
+                logger.warning("[iCloud] 拉码异常 email=%s: %s", self.email, exc)
                 time.sleep(interval)
                 continue
             if code:

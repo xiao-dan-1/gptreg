@@ -175,8 +175,11 @@ def _stage_wait_otp(
     client = build_mail_client(account, proxy=proxy_url or None,
                                impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
                                cfg=cfg)
-    # 收码通道类型(IMAP/Graph/CloudMail/API/XDAuv/Gmail), 归因分析用
-    _ch = type(client).__name__.replace("Client", "").replace("OAuth", "")
+    # 收码通道类型(ms_oauth/icloud/cloudmail/api...), 归因分析用
+    # 优先用号源 mail_type(与号源名一致), fallback 类名去 Client/OAuth 后缀
+    _ch = str(account.get("mail_type") or "")
+    if not _ch:
+        _ch = type(client).__name__.replace("Client", "").replace("OAuth", "")
     diag["otp_channel"] = _ch
     identity = mail_identity_key(account)
     cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
