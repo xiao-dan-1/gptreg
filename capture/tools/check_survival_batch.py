@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import time
+from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -26,6 +27,21 @@ from gptreg.health import check_account_health
 from gptreg.session import BrowserSession
 from gptreg.account_store import update_account_health
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy, set_sid, random_sid
+
+
+def _mail_type(d: dict) -> str:
+    """号源类型: 优先 mail_type, 否则从域名推断。"""
+    mt = str(d.get("mail_type") or "")
+    if mt:
+        return mt
+    email = (d.get("email") or "").lower()
+    if email.endswith(("icloud.com", "me.com")):
+        return "icloud"
+    if "xdauv" in email:
+        return "cloudmail"
+    if email.endswith("outlook.com"):
+        return "ms_oauth"
+    return "?"
 
 
 def _load_2fa_accounts() -> list[dict]:
@@ -65,7 +81,7 @@ def main() -> int:
     print(f"测活 {len(accounts)} 个 2FA 账号(每 {args.rotate} 个换出口 IP):")
 
     cfg = load_config()
-    results: list[tuple[str, str, int | None]] = []
+    results: list[tuple[str, str, str, int | None, float]] = []  # (email, type, status, http, age_h)
     resolved = None
     sess = None
     t_start = time.time()
@@ -81,22 +97,24 @@ def main() -> int:
             print(f"  [轮换{i}] 新出口 sid={resolved.sid or '?'}")
 
         email = d.get("email", "?")
-        age_h = _age_h(d.get("saved_at") or d.get("updated_at") or "")
+        mtype = _mail_type(d)
+        age_h = _age_h_float(d.get("saved_at") or d.get("updated_at") or "")
+        age_str = _age_h(age_h)
         t0 = time.time()
         try:
             r = check_account_health(sess, d.get("access_token"))
             st = r.get("status")
             http = r.get("http")
-            results.append((email, st, http))
-            print(f"  [{i}/{len(accounts)}] {email:42s} age={age_h:>6s} -> {st} http={http}")
+            results.append((email, mtype, st, http, age_h))
+            print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_str:>6s} -> {st} http={http}")
             # 回写 accounts.jsonl(health_status + last_checked), 账号库保持活状态
             try:
                 update_account_health(cfg, email=email, health_status=st, http=http)
             except Exception as exc:
                 print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
         except Exception as exc:
-            results.append((email, "error", None))
-            print(f"  [{i}/{len(accounts)}] {email:42s} -> 异常 {type(exc).__name__}: {str(exc)[:40]}")
+            results.append((email, mtype, "error", None, age_h))
+            print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} -> 异常 {type(exc).__name__}: {str(exc)[:40]}")
         dt = time.time() - t0
         if dt > 3:
             print(f"      [耗时] 本账号 {dt:.1f}s")
@@ -105,25 +123,65 @@ def main() -> int:
     if resolved is not None:
         resolved.close()
 
-    ok = sum(1 for _, s, _ in results if s == "ok")
-    dead = sum(1 for _, s, _ in results if s in ("invalidated", "deactivated"))
-    other = len(results) - ok - dead
-    print(f"\n存活: {ok}/{len(results)}  吊销/封禁: {dead}  其他(error/限流): {other}")
+    _summarize(results)
     print(f"总耗时 {time.time()-t_start:.1f}s")
     return 0
 
 
-def _age_h(ts: str) -> str:
-    """时间戳 → 存活时长(小时/天)。"""
+def _summarize(results: list[tuple[str, str, str, int | None, float]]) -> None:
+    """汇总: 总数 + 按号源存活率 + 吊销账号存活时长分布。"""
+    ok = sum(1 for _, _, s, _, _ in results if s == "ok")
+    dead = sum(1 for _, _, s, _, _ in results if s in ("invalidated", "deactivated"))
+    other = len(results) - ok - dead
+    print(f"\n存活: {ok}/{len(results)}  吊销/封禁: {dead}  其他(error/限流): {other}")
+
+    # 按号源存活率
+    by_src: dict[str, list[str]] = defaultdict(list)
+    for _, mt, s, _, _ in results:
+        by_src[mt].append(s)
+    print("\n按号源存活率:")
+    for mt in sorted(by_src):
+        ss = by_src[mt]
+        o = sum(1 for s in ss if s == "ok")
+        d = sum(1 for s in ss if s in ("invalidated", "deactivated"))
+        rate = o / len(ss) * 100 if ss else 0
+        print(f"  {mt:10s}: 存活 {o}/{len(ss)} ({rate:.0f}%)  吊销 {d}")
+
+    # 吊销账号存活时长分布(注册后多久被吊销)
+    dead_ages = sorted(round(a, 1) for _, _, s, _, a in results if s in ("invalidated", "deactivated"))
+    if dead_ages:
+        print(f"\n吊销账号存活时长分布({len(dead_ages)} 个):")
+        buckets = Counter()
+        for a in dead_ages:
+            if a < 1: buckets["<1h"] += 1
+            elif a < 3: buckets["1-3h"] += 1
+            elif a < 6: buckets["3-6h"] += 1
+            elif a < 24: buckets["6-24h"] += 1
+            else: buckets["1d+"] += 1
+        for k in ("<1h", "1-3h", "3-6h", "6-24h", "1d+"):
+            if buckets[k]:
+                print(f"  {k:6s}: {buckets[k]} 个")
+
+
+def _age_h_float(ts: str) -> float:
+    """时间戳 → 存活小时数(浮点, 便于分布统计)。失败返回 -1。"""
     try:
         from datetime import datetime
         t = datetime.fromisoformat(ts)
-        h = (time.time() - t.timestamp()) / 3600
-        if h >= 24:
-            return f"{h/24:.0f}d"
-        return f"{h:.1f}h"
+        return (time.time() - t.timestamp()) / 3600
     except Exception:
+        return -1.0
+
+
+def _age_h(h: float) -> str:
+    """存活小时数 → 可读字符串(分钟/小时/天)。"""
+    if h < 0:
         return "?"
+    if h < 1:
+        return f"{h*60:.0f}m"
+    if h < 24:
+        return f"{h:.1f}h"
+    return f"{h/24:.0f}d"
 
 
 if __name__ == "__main__":

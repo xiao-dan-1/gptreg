@@ -91,11 +91,39 @@ def main() -> int:
     unknown = [d for d in totp if d.get("health_status") not in ("ok", "invalidated", "deactivated")]
     print(f"\n2FA 账号: 存活 {len(alive)} / 吊销 {len(dead)} / 未测活 {len(unknown)}")
 
+    # 按号源分组存活率(定位号源可靠性, 如 CloudMail 存活率低)
+    src_ok: Counter = Counter()
+    src_tot: Counter = Counter()
+    for d in totp:
+        mt = _mail_type(d)
+        src_tot[mt] += 1
+        if d.get("health_status") == "ok":
+            src_ok[mt] += 1
+    print("\n按号源存活率(2FA 账号):")
+    for mt in sorted(src_tot):
+        rate = src_ok[mt] / src_tot[mt] * 100 if src_tot[mt] else 0
+        print(f"  {mt:10s}: 存活 {src_ok[mt]}/{src_tot[mt]} ({rate:.0f}%)")
+
     if args.alive:
         _print_list(alive, "存活 2FA 账号", args.limit)
     if args.dead:
         _print_list(dead, "吊销/失效账号", args.limit)
     return 0
+
+
+def _mail_type(d: dict) -> str:
+    """号源类型: 优先 mail_type, 否则域名推断。"""
+    mt = str(d.get("mail_type") or "")
+    if mt:
+        return mt
+    email = (d.get("email") or "").lower()
+    if email.endswith(("icloud.com", "me.com")):
+        return "icloud"
+    if "xdauv" in email:
+        return "cloudmail"
+    if email.endswith("outlook.com"):
+        return "ms_oauth"
+    return "?"
 
 
 def _print_list(recs: list[dict], title: str, limit: int) -> None:
