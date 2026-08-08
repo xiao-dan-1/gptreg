@@ -126,6 +126,21 @@ python capture/backfill_token.py
 成功账号写入 `output/accounts.jsonl`（主库）：
 `email/password/access_token/refresh_token/totp_secret/session_cookies/proxy_used/status/updated_at`
 
+### 单号注册输出解读（日志级别前缀 + 完整归因）
+
+```
+INFO  [Auth] 获取 providers → CSRF → signin → authorize 落点
+INFO  [IMAP] 到件 OTP=123456 uid=.. 延迟 3.0s        ← 收码快通道
+INFO  [MSMail/Graph] 等待中 t+..s                    ← Graph 降级(索引延迟)
+  [quickjs/t] register 真 t 就绪 (so: 密码 register 无 so)
+  [quickjs/t] create 真 t 就绪 (so 由 browser 采集)
+[耗时] signin+register=8.4s OTP等待=9.4s create段=23.2s[so内 nav/sdk/token]
+       session=5.6s health=1.1s enroll=4.2s 并行(t=2.0s so=18.5s)=18.5s
+```
+
+- 级别前缀（INFO/WARNING）区分正常/降级/失败；t/so 来源明确（quickjs 产 t，browser 采 so）
+- 6 段归因精确（各段和 = 总耗时）；so 内部细分（nav/SDK 加载/token）定位慢点
+
 ## 号池格式（mail_pool.txt）
 
 ```text
@@ -135,6 +150,7 @@ alice@outlook.com----password----client_id----refresh_token
 
 - 主号需未注册过 OpenAI（已用会走邮箱级风控，换 IP 无效）
 - 注册用 plus 别名（`use_alias: true`），收码用主号 OAuth
+- 号池状态（`mail_pool.txt.state.json`）：失败/弃用带 **TTL 自动回退**——基建失败 30min、账号弃用 24h 过期自动恢复（代理/网络恢复账号复活，无需人工清 state）
 
 ## 目录
 
@@ -177,7 +193,7 @@ data/                          OTP 缓存等
 - **IP 信誉**：落 create-account/password 仍 400 = 出口 IP 被 OpenAI 标记，需干净住宅 IP；单号注册已内置 register 400 自动换 sid 重试 3 次
 - **邮箱级风控**：同一邮箱多次注册失败会被 OpenAI 记住，换 IP 也无效（勿反复试同一邮箱）
 - **so 失败中止**：无 so 账号必死（测活实证 2/2 吊销），so 采集失败重试 3 次仍无则中止注册，不白建号
-- **主号生命周期（批量）**：SUCCESS 已用 / MAIL_REGISTERED 永久弃用(totp_failed) / IP 风控等可重试不烧号
+- **主号生命周期（批量）**：SUCCESS 已用 / MAIL_REGISTERED 永久弃用(totp_failed) / IP 风控等可重试不烧号；失败/弃用带 TTL（30min/24h）过期自动回退
 - **IMAP 账号级差异**：部分 Outlook 账号被 MS 拒 IMAP（`authenticated but not connected`），自动降级 Graph（较慢）
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才能注册成功；7890/10808 数据中心 IP 长期风控后不可用
 
