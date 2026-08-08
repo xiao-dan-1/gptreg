@@ -162,6 +162,22 @@ def _summarize(results: list[tuple[str, str, str, int | None, float]]) -> None:
             if buckets[k]:
                 print(f"  {k:6s}: {buckets[k]} 个")
 
+    # 存活账号年龄分布(注册后已存活多久)——判断号源长期可靠性
+    # 新号存活(几分钟) vs 老号存活(数天) 意义不同: 老号仍活说明号源长期可靠
+    ok_ages = [round(a, 1) for _, _, s, _, a in results if s == "ok"]
+    if ok_ages:
+        print(f"\n存活账号年龄分布({len(ok_ages)} 个, 注册后已存活):")
+        buckets = Counter()
+        for a in ok_ages:
+            if a < 1: buckets["<1h"] += 1
+            elif a < 3: buckets["1-3h"] += 1
+            elif a < 6: buckets["3-6h"] += 1
+            elif a < 24: buckets["6-24h"] += 1
+            else: buckets["1d+"] += 1
+        for k in ("<1h", "1-3h", "3-6h", "6-24h", "1d+"):
+            if buckets[k]:
+                print(f"  {k:6s}: {buckets[k]} 个")
+
 
 def _age_h_float(ts: str) -> float:
     """时间戳 → 存活小时数(浮点, 便于分布统计)。失败返回 -1。"""
