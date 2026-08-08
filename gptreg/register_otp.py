@@ -16,8 +16,9 @@ from gptreg import auth
 from gptreg.config import random_birthdate, random_display_name, resolve_path
 from gptreg.health import check_account_health
 from gptreg.mail.pool import MailPool, choose_registration_email
+from gptreg.mail.providers import UsedCodeCache
+from gptreg.mail.wait_otp import wait_otp_with_retry
 from gptreg.postlogin import post_login_warmup
-from gptreg.mail.providers import UsedCodeCache, build_mail_client, mail_identity_key
 from gptreg.proxyutil import resolve_proxy
 from gptreg.session import BrowserSession
 from gptreg.account_store import save_success
@@ -226,41 +227,17 @@ def register_one(
         time.sleep(0.2)
 
         mail_cfg = cfg.get("mail", {})
-        browser = cfg.get("browser", {})
-        client = build_mail_client(
-            account,
-            proxy=resolved.session_url or None,
-            impersonate=browser.get("impersonate", "chrome142"),
-            cfg=cfg,
-        )
-        identity = mail_identity_key(account)
-        if used_cache is None:
-            cache_path = resolve_path(
-                mail_cfg.get("used_code_cache", "data/used_otp_codes.json"),
-                _root(cfg),
-            )
-            used_cache = UsedCodeCache(cache_path)
-        exclude = used_cache.seen_codes(identity)
-
-        def _on_poll(info: dict) -> None:
-            if info.get("excluded"):
-                logger.info("[OTP] API 返回已排除旧码 %s，继续等", info.get("code"))
-            else:
-                logger.debug("[OTP] 候选码 %s source=%s", info.get("code"), info.get("source"))
-
-        logger.info("[OTP] 等待验证码 %s exclude=%s", email, len(exclude))
-        otp = client.wait_for_otp(
-            after_ts=otp_after,
+        # 共享收码: 代理决策(仅 ms_oauth 走隧道) + UsedCodeCache + wait_for_otp
+        otp, _otp_extra = wait_otp_with_retry(
+            cfg, account, email=email,
+            after_ts=otp_after, proxy_url=resolved.session_url or None,
+            max_attempts=1,
             timeout=int(mail_cfg.get("max_wait", 90)),
             interval=int(mail_cfg.get("poll_interval", 3)),
             settle_seconds=int(mail_cfg.get("settle_seconds", 5)),
-            exclude_codes=exclude,
-            on_poll=_on_poll,
         )
-        # 先记住再提交，无论成败都排除，避免共享收件箱 stale 重放
-        used_cache.remember(identity, otp, email=email, status="submitted")
         _mark("otp_got")
-        logger.info("[OTP] 拿到验证码，提交中")
+        logger.info("[OTP] 拿到验证码 %s，提交中", email)
 
         validate_result = auth.validate_email_otp(session, otp, sentinel_otp)
         auth.maybe_follow_external(session, validate_result)

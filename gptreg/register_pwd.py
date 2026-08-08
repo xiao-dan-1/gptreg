@@ -22,10 +22,10 @@ from typing import Any
 
 from gptreg import auth
 from gptreg.browser_sentinel import harvest_browser_sentinel
-from gptreg.config import _root, resolve_path
 from gptreg.health import check_account_health
+from gptreg.mail.mail_util import MailClientError
 from gptreg.mail.pool import parse_mail_line  # noqa: F401  (CLI 选号复用)
-from gptreg.mail.providers import UsedCodeCache, build_mail_client, mail_identity_key
+from gptreg.mail.wait_otp import wait_otp_with_retry
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
 from gptreg.session import BrowserSession
@@ -166,55 +166,22 @@ def _stage_wait_otp(
     st: dict[str, float],
     diag: dict[str, Any],
 ) -> str:
-    """Stage 3: 收码(IMAP 快 / Graph 降级)。超时重发, 最多 otp_max_attempts 次。"""
+    """Stage 3: 收码(共享 wait_otp_with_retry: 代理决策+重发+到件延迟)。"""
     _t0 = time.time()
-    otp_after = st["start"]
-    # 收码代理决策: 仅 ms_oauth(Outlook IMAP/Graph)需走链式隧道(本地直连 MS 被拒)。
-    # iCloud 接码 URL/CloudMail admin/API 是第三方或自托管服务, 直连可通,
-    # 套隧道反而 TLS WRONG_VERSION_NUMBER 失败(实测: icloud-api.top 直连 200, 走代理 35 错误)。
-    mail_type = str(account.get("mail_type") or "")
-    otp_proxy = proxy_url if mail_type == "ms_oauth" else None
-    client = build_mail_client(account, proxy=otp_proxy,
-                               impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
-                               cfg=cfg)
-    # 收码通道类型(ms_oauth/icloud/cloudmail/api...), 归因分析用
-    # 优先用号源 mail_type(与号源名一致), fallback 类名去 Client/OAuth 后缀
-    _ch = str(account.get("mail_type") or "")
-    if not _ch:
-        _ch = type(client).__name__.replace("Client", "").replace("OAuth", "")
-    diag["otp_channel"] = _ch
-    identity = mail_identity_key(account)
-    cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
-    used_cache = UsedCodeCache(cache_path)
-    exclude = used_cache.seen_codes(identity)
     mail_cfg = cfg.get("mail", {})
     otp_timeout = int(mail_cfg.get("otp_wait", 150) or 150)
     otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 2) or 2))
-    otp = None
-    otp_delay_s: float | None = None  # 真实到件延迟(wait_for_otp 内部口径, 与日志一致)
-    for attempt in range(otp_max_attempts):
-        try:
-            def _on_poll(info: dict) -> None:
-                nonlocal otp_delay_s
-                if info.get("elapsed_s") is not None:
-                    otp_delay_s = float(info["elapsed_s"])
-
-            otp = client.wait_for_otp(after_ts=otp_after, timeout=otp_timeout,
-                                      interval=3, settle_seconds=5, exclude_codes=exclude,
-                                      on_poll=_on_poll)
-            break
-        except Exception as exc:
-            if attempt >= otp_max_attempts - 1:
-                raise _OtpFailed(f"OTP 收码失败: {type(exc).__name__}: {exc}") from exc
-            time.sleep(1)
-            session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
-                        allow_redirects=True)
-            otp_after = time.time()
-    used_cache.remember(identity, otp, email=email, status="submitted")
+    otp, extra = wait_otp_with_retry(
+        cfg, account, email=email,
+        after_ts=st["start"], proxy_url=proxy_url,
+        send_url=send_url, session=session,
+        max_attempts=otp_max_attempts, timeout=otp_timeout,
+        interval=3, settle_seconds=5,
+    )
     diag["otp"] = otp
     diag["otp_s"] = round(time.time() - _t0, 1)  # 纯 OTP 段(收码+重发)
-    if otp_delay_s is not None:
-        diag["otp_delay_s"] = round(otp_delay_s, 1)  # 纯等待验证码的到件延迟
+    for k, v in extra.items():
+        diag[k] = v
 
     # validate
     auth.validate_email_otp(session, otp, None)
@@ -469,7 +436,7 @@ def register_account(
             time.sleep(1)
         except _SoFailed as exc:
             return RegistrationResult(RegisterOutcome.SO_FAILED, email, {"reason": str(exc)[:150]})
-        except _OtpFailed as exc:
+        except (MailClientError, _OtpFailed) as exc:
             return RegistrationResult(RegisterOutcome.OTP_FAILED, email, {"reason": str(exc)[:150]})
         except _CreateFailed as exc:
             return RegistrationResult(RegisterOutcome.CREATE_FAILED, email, {"reason": str(exc)[:150]})
