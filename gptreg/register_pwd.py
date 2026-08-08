@@ -175,6 +175,9 @@ def _stage_wait_otp(
     client = build_mail_client(account, proxy=proxy_url or None,
                                impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
                                cfg=cfg)
+    # 收码通道类型(IMAP/Graph/CloudMail/API/XDAuv/Gmail), 归因分析用
+    _ch = type(client).__name__.replace("Client", "").replace("OAuth", "")
+    diag["otp_channel"] = _ch
     identity = mail_identity_key(account)
     cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
     used_cache = UsedCodeCache(cache_path)
@@ -459,20 +462,24 @@ def register_account(
         _health_s = round(time.time() - _h_t0, 1)
         if health.get("status") != "ok":
             rec = _partial_record(reg, email, password, name, bday, mail_main, "health_failed")
+            rec.setdefault("sentinel_obs", {})["health_s"] = _health_s
             save_account(cfg, record=rec)
             return RegistrationResult(RegisterOutcome.HEALTH_FAILED, email,
                                       {"reason": f"health {health.get('status')} http={health.get('http')}"}, rec)
         _en_t0 = time.time()
         totp = _enroll_totp(cfg, session, reg)  # type: ignore[arg-type]
-        record = _build_record(reg, email, password, name, bday, mail_main, totp)
+        _enroll_s = round(time.time() - _en_t0, 1)
+        record = _build_record(reg, email, password, name, bday, mail_main, totp,
+                               health_s=_health_s, enroll_s=_enroll_s)
         save_account(cfg, record=record)
         diag = dict(reg.get("diag") or {})
         diag["health_s"] = _health_s
-        diag["enroll_s"] = round(time.time() - _en_t0, 1)
+        diag["enroll_s"] = _enroll_s
         diag["elapsed_s"] = round(time.time() - t0, 1)
         return RegistrationResult(RegisterOutcome.SUCCESS, email, diag, record)
     except _EnrollFailed as exc:
         rec = _partial_record(reg, email, password, name, bday, mail_main, "registered_no_totp")
+        rec.setdefault("sentinel_obs", {})["health_s"] = _health_s
         save_account(cfg, record=rec)
         return RegistrationResult(RegisterOutcome.ENROLL_FAILED, email,
                                   {"reason": str(exc)[:150]}, rec)
@@ -491,7 +498,7 @@ def _partial_record(reg, email, password, name, bday, mail_main, status) -> dict
     }
 
 
-def _build_record(reg, email, password, name, bday, mail_main, totp) -> dict[str, Any]:
+def _build_record(reg, email, password, name, bday, mail_main, totp, health_s=None, enroll_s=None) -> dict[str, Any]:
     rec = _partial_record(reg, email, password, name, bday, mail_main, "ok")
     rec["totp_secret"] = totp["totp_secret"]
     rec["sentinel_obs"] = {
@@ -502,5 +509,7 @@ def _build_record(reg, email, password, name, bday, mail_main, totp) -> dict[str
         "flow": FLOW_PWD,
         "create_flow": FLOW_OAUTH,
         "totp_enrolled": True,
+        "health_s": health_s,   # 秒封检测耗时(段增量), 便于 2FA 激活/存活耗时分析
+        "enroll_s": enroll_s,   # 2FA enroll→activate 耗时(段增量)
     }
     return rec

@@ -31,6 +31,40 @@ def _base(m: str) -> str:
     return (m or "").split("@")[0].split("+")[0]
 
 
+def _timing_str(d: dict) -> str:
+    """按 diag 已有字段拼 6 段耗时归因(成功/失败通用, 缺失段跳过)。
+
+    diag 里 register_s/otp_s/create_s/session_s 是累计时刻(相对 st.start),
+    health_s/enroll_s 是段增量。失败发生在哪段就只有该段之前的字段。
+    """
+    parts = []
+    reg_s = d.get("register_s")
+    otp_s = d.get("otp_s")
+    create_s = d.get("create_s")
+    session_s = d.get("session_s")
+    if reg_s is not None:
+        parts.append(f"signin+register={reg_s:.1f}s")
+    if otp_s is not None:
+        base = reg_s if reg_s is not None else otp_s
+        parts.append(f"OTP等待={otp_s - base:.1f}s")
+    if create_s is not None:
+        base = otp_s if otp_s is not None else create_s
+        parts.append(f"create段={create_s - base:.1f}s")
+    if session_s is not None:
+        base = create_s if create_s is not None else session_s
+        parts.append(f"session={session_s - base:.1f}s")
+    if d.get("health_s") is not None:
+        parts.append(f"health={d['health_s']}s")
+    if d.get("enroll_s") is not None:
+        parts.append(f"enroll={d['enroll_s']}s")
+    st_ = d.get("so_timing") or {}
+    if st_:
+        parts.append(f"[so: nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s]")
+    elif d.get("create_parallel") is not None:
+        parts.append(f"并行(t={d.get('t_s')}s so={d.get('so_s')}s)={d.get('create_parallel')}s")
+    return " ".join(parts)
+
+
 def main() -> int:
     import argparse as _ap
     import logging as _logging
@@ -97,13 +131,15 @@ def main() -> int:
         otp_s = d.get("otp_s") or 0
         create_s = d.get("create_s") or 0
         session_s = d.get("session_s") or create_s
+        # 收码通道(IMAP 快 / Graph 降级等) 便于快慢通道归因
+        ch = d.get("otp_channel") or "?"
         if otp_s:
             # 段增量(非累计时刻), 归因完整: signin/OTP/create/session/health/enroll
             st_ = d.get("so_timing") or {}
             so_inner = ""
             if st_:
                 so_inner = f"[nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s]"
-            print(f"[耗时] signin+register={reg_s:.1f}s OTP等待={otp_s - reg_s:.1f}s "
+            print(f"[耗时] signin+register={reg_s:.1f}s OTP等待({ch})={otp_s - reg_s:.1f}s "
                   f"create段={create_s - otp_s:.1f}s session={session_s - create_s:.1f}s "
                   f"health={d.get('health_s', '?')}s enroll={d.get('enroll_s', '?')}s "
                   f"并行(t={d.get('t_s')}s so={d.get('so_s')}s{so_inner})={d.get('create_parallel')}s")
@@ -119,6 +155,11 @@ def main() -> int:
             print(f"TOTP: {secret}")
             print(f"otpauth: otpauth://totp/ChatGPT:{email}?secret={secret}&issuer=ChatGPT")
             print("=" * 50)
+            # 出口代理脱敏(host/region/sid, 不含密码), IP 信誉归因用
+            from gptreg.proxyutil import proxy_label as _pl
+            pu = rec.get("proxy_used") or ""
+            if pu:
+                print(f"[出口] {_pl(pu)}")
         print(f"[总耗时] {(time.time()-t0):.1f}s")
         return 0
 
@@ -127,20 +168,31 @@ def main() -> int:
         ld = d.get("landing_diag")
         if ld:
             print(f"[register/诊断] {ld}")
+        ts = _timing_str(d)
+        if ts:
+            print(f"[耗时] {ts}")
         print(f"[总耗时] {(time.time()-t0):.1f}s")
         return 2
 
     if result.outcome == RegisterOutcome.MAIL_REGISTERED:
         print(f"[x] 邮箱已注册(永久弃用): {d.get('landing_diag') or d.get('reason', '')[:80]}")
+        print(f"[总耗时] {(time.time()-t0):.1f}s")
         return 2
 
     if result.outcome == RegisterOutcome.ENROLL_FAILED:
         print(f"[warn] 账号已建但 2FA 未激活: {str(d.get('reason', ''))[:100]}")
         if result.record:
             print(f"[落盘] 已保存 registered_no_totp: {result.record.get('email')}")
+        ts = _timing_str(d)
+        if ts:
+            print(f"[耗时] {ts}")
+        print(f"[总耗时] {(time.time()-t0):.1f}s")
         return 3
 
     print(f"[x] 注册失败[{result.outcome.value}]: {str(d.get('reason', ''))[:120]}")
+    ts = _timing_str(d)
+    if ts:
+        print(f"[耗时] {ts}")
     print(f"[总耗时] {(time.time()-t0):.1f}s")
     return 2
 

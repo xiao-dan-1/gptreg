@@ -59,12 +59,15 @@ def proxy_label(url: str) -> str:
         if m:
             sid = m.group(1)
         bits = [f"{p.scheme}://"]
+        tag_parts = []
         if region:
-            bits.append(f"region-{region}")
+            tag_parts.append(f"region-{region}")
         if sid:
-            bits.append(f"sid-{sid}")
-        bits.append(f"@{host}:{port}")
-        return "".join(bits) if region or sid else f"{p.scheme}://***@{host}:{port}"
+            tag_parts.append(f"sid-{sid}")
+        if tag_parts:
+            bits.append("-".join(tag_parts) + "@")
+        bits.append(f"{host}:{port}")
+        return "".join(bits) if tag_parts else f"{p.scheme}://***@{host}:{port}"
     except Exception:
         return "已配置"
 
