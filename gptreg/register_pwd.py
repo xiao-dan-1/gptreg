@@ -10,6 +10,7 @@ CLI 与 batch_totp 共享本模块，失败类型决定主号"可重试 vs 永�
 from __future__ import annotations
 
 import json
+import logging
 import random
 import re
 import string
@@ -29,6 +30,8 @@ from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
 from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
 from gptreg.session import BrowserSession
 from gptreg.store import save_account
+
+logger = logging.getLogger(__name__)
 
 FLOW_PWD = "username_password_create"
 FLOW_OAUTH = "oauth_create_account"
@@ -103,6 +106,209 @@ def _landing_diag(final: str) -> str:
     return land[:60]
 
 
+def _stage_signin(session: BrowserSession, email: str, diag: dict[str, Any]) -> str:
+    """Stage 1: get_providers → CSRF → signin → authorize。返回落点 URL。"""
+    auth.get_providers(session)
+    time.sleep(0.3)
+    csrf = auth.get_csrf_token(session)
+    time.sleep(0.3)
+    au = auth.signin_openai(session, csrf, email)
+    time.sleep(0.3)
+    final = auth.follow_authorize(session, au, attempts=1)
+    time.sleep(0.5)
+    diag["landing"] = final
+    return final
+
+
+def _stage_register(
+    session: BrowserSession,
+    cfg: dict[str, Any],
+    email: str,
+    password: str,
+    final: str,
+    st: dict[str, float],
+    diag: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    """Stage 2: register(设密码) + send_otp。返回 (reg, send_url)。
+
+    400 分类: 落 log-in=邮箱已注册(永久弃用) / 其他=IP 信誉(换 sid 可重试)。
+    """
+    # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
+    token, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_PWD, cfg=cfg,
+                                              log=lambda m: None)
+    logger.info("  [quickjs/t] register 真 t 就绪 t_len=%s (so: 密码 register 无 so)", len(token))
+    headers = session.auth_api_headers(referer=PASSWORD_REFERER)
+    headers["openai-sentinel-token"] = token
+    resp = session.post(REGISTER_URL, headers=headers,
+                        data=json.dumps({"username": email, "password": password}))
+    if resp.status_code != 200:
+        err = f"register HTTP {resp.status_code}: {resp.text[:150]}"
+        if "log-in" in (final or "") or "/login" in (final or ""):
+            e = _MailRegistered(err)
+            e.diag = {"landing_diag": _landing_diag(final), "reason": err}
+            raise e
+        e = _RegisterBlocked(err)
+        e.diag = {"landing_diag": _landing_diag(final), "reason": err}
+        raise e
+    reg = resp.json()
+    diag["register_s"] = round(time.time() - st["start"], 1)
+
+    send_url = reg.get("continue_url") or "https://auth.openai.com/api/accounts/email-otp/send"
+    r = session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
+                    allow_redirects=True)
+    diag["send_otp"] = r.status_code
+    return reg, send_url
+
+
+def _stage_wait_otp(
+    session: BrowserSession,
+    cfg: dict[str, Any],
+    account: dict[str, Any],
+    email: str,
+    send_url: str,
+    proxy_url: str,
+    st: dict[str, float],
+    diag: dict[str, Any],
+) -> str:
+    """Stage 3: 收码(IMAP 快 / Graph 降级)。超时重发, 最多 otp_max_attempts 次。"""
+    otp_after = st["start"]
+    client = build_mail_client(account, proxy=proxy_url or None,
+                               impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
+                               cfg=cfg)
+    identity = mail_identity_key(account)
+    cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
+    used_cache = UsedCodeCache(cache_path)
+    exclude = used_cache.seen_codes(identity)
+    mail_cfg = cfg.get("mail", {})
+    otp_timeout = int(mail_cfg.get("otp_wait", 150) or 150)
+    otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 2) or 2))
+    otp = None
+    for attempt in range(otp_max_attempts):
+        try:
+            otp = client.wait_for_otp(after_ts=otp_after, timeout=otp_timeout,
+                                      interval=3, settle_seconds=5, exclude_codes=exclude)
+            break
+        except Exception as exc:
+            if attempt >= otp_max_attempts - 1:
+                raise _OtpFailed(f"OTP 收码失败: {type(exc).__name__}: {exc}") from exc
+            time.sleep(1)
+            session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
+                        allow_redirects=True)
+            otp_after = time.time()
+    used_cache.remember(identity, otp, email=email, status="submitted")
+    diag["otp"] = otp
+    diag["otp_s"] = round(time.time() - st["start"], 1)
+
+    # validate
+    auth.validate_email_otp(session, otp, None)
+    return otp
+
+
+def _stage_create(
+    session: BrowserSession,
+    cfg: dict[str, Any],
+    name: str,
+    bday: str,
+    proxy_url: str,
+    st: dict[str, float],
+    diag: dict[str, Any],
+) -> tuple[str, str, str]:
+    """Stage 4: create_account —— quickjs 真 t 与 browser 真 so 并行(独立资源)。
+
+    so 采集失败重试 3 次, 仍无 so 中止(无 so 账号必死, 测活实证)。
+    返回 (tok2, so_b, continue_url)。
+    """
+    holder: dict[str, Any] = {}
+
+    def _gen_t() -> None:
+        _ct = time.time()
+        try:
+            # 静默 quickjs 默认 log(so_len 是 vm so, 会被忽略); so 由 browser 采集
+            tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg,
+                                                    log=lambda m: None)
+            holder["tok2"] = tok
+            logger.info("  [quickjs/t] create 真 t 就绪 t_len=%s (%.1fs, so 由 browser 采集)", len(tok), time.time() - _ct)
+        except Exception as exc:
+            holder["t_err"] = f"{type(exc).__name__}: {exc}"
+        holder["t_s"] = time.time() - _ct
+
+    def _gen_so() -> None:
+        _ct = time.time()
+        so = None
+        # 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
+        for _try in range(3):
+            try:
+                br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
+                                              proxy=proxy_url, headless=True, timeout_s=90)
+                if br.get("ok") and br.get("so_header"):
+                    so = br["so_header"]
+                    # so 内部细分(nav/SDK加载/token采集), 定位慢点
+                    holder["so_timing"] = {
+                        "nav": br.get("nav_s"), "sdk": br.get("sdk_s"),
+                        "token": br.get("token_s"), "total": br.get("elapsed_s"),
+                    }
+                    break
+            except Exception as exc:
+                holder["so_warn"] = f"{type(exc).__name__}: {str(exc)[:80]}"
+            time.sleep(1)
+        holder["so_b"] = so
+        holder["so_s"] = time.time() - _ct
+
+    _ct0 = time.time()
+    _th_t = threading.Thread(target=_gen_t)
+    _th_so = threading.Thread(target=_gen_so)
+    _th_t.start()
+    _th_so.start()
+    _th_t.join()
+    _th_so.join()
+    tok2 = str(holder.get("tok2") or "")
+    so_b = holder.get("so_b")
+    diag["t_s"] = round(float(holder.get("t_s", 0)), 1)
+    diag["so_s"] = round(float(holder.get("so_s", 0)), 1)
+    diag["create_parallel"] = round(time.time() - _ct0, 1)
+    if holder.get("so_timing"):
+        diag["so_timing"] = holder["so_timing"]
+    if holder.get("t_err"):
+        raise _SessionFailed(f"quickjs t 生成失败: {holder['t_err']}")
+    if not so_b:
+        warn = holder.get("so_warn") or ""
+        raise _SoFailed(f"browser so 采集失败(重试3次后仍无 so): {str(warn)[:120]}")
+
+    h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
+    h2["openai-sentinel-token"] = tok2
+    h2["openai-sentinel-so-token"] = so_b
+    resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
+    diag["create_http"] = resp2.status_code
+    diag["create_s"] = round(time.time() - st["start"], 1)
+    if resp2.status_code != 200:
+        raise _CreateFailed(f"create_account HTTP {resp2.status_code}: {resp2.text[:150]}")
+    cr = resp2.json()
+    cu = cr.get("continue_url") or cr.get("url")
+    if not cu:
+        raise _CreateFailed("create_account 无 continue_url")
+    return tok2, so_b, cu
+
+
+def _stage_session(
+    session: BrowserSession,
+    cu: str,
+    st: dict[str, float],
+    diag: dict[str, Any],
+) -> tuple[str, str, list[dict[str, Any]]]:
+    """Stage 5: callback → session(access_token)。返回 (at, refresh_token, cookies)。"""
+    auth.follow_oauth_callback(session, cu)
+    info = auth.fetch_session(session)
+    at = info.get("accessToken")
+    if not at:
+        raise _SessionFailed("session 无 accessToken")
+    diag["session_s"] = round(time.time() - st["start"], 1)
+    cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
+                "secure": bool(getattr(c, "secure", False))}
+               for c in session.session.cookies.jar]
+    refresh = info.get("refreshToken") or info.get("refresh_token") or ""
+    return at, refresh, cookies
+
+
 def _register_chain(
     cfg: dict[str, Any],
     account: dict[str, Any],
@@ -112,166 +318,27 @@ def _register_chain(
     bday: str,
     proxy_url: str,
 ) -> dict[str, Any]:
-    """一次完整注册(signin→register→OTP→create→session), 返回注册凭据或抛分类异常。"""
+    """一次完整注册(signin→register→OTP→create→session), 返回注册凭据或抛分类异常。
+
+    阶段序列编排器: 各阶段独立函数(Signin/Register/WaitOtp/Create/Session),
+    统一 diag 累加, 任一段抛分类异常由 register_account 统一归类。
+    """
     resolved = resolve_proxy(cfg, override=proxy_url)
     session = BrowserSession(cfg, proxy=resolved.session_url)
     st = {"start": time.time()}
     diag: dict[str, Any] = {}
     try:
-        auth.get_providers(session)
-        time.sleep(0.3)
-        csrf = auth.get_csrf_token(session)
-        time.sleep(0.3)
-        au = auth.signin_openai(session, csrf, email)
-        time.sleep(0.3)
-        final = auth.follow_authorize(session, au, attempts=1)
-        time.sleep(0.5)
-        diag["landing"] = final
-
-        # register(设密码) —— 400 分类: 落 log-in=邮箱已注册 / 其他=IP 信誉
-        # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
-        token, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_PWD, cfg=cfg,
-                                                  log=lambda m: None)
-        print(f"  [quickjs/t] register 真 t 就绪 t_len={len(token)} (so: 密码 register 无 so)")
-        headers = session.auth_api_headers(referer=PASSWORD_REFERER)
-        headers["openai-sentinel-token"] = token
-        resp = session.post(REGISTER_URL, headers=headers,
-                            data=json.dumps({"username": email, "password": password}))
-        if resp.status_code != 200:
-            err = f"register HTTP {resp.status_code}: {resp.text[:150]}"
-            if "log-in" in (final or "") or "/login" in (final or ""):
-                e = _MailRegistered(err)
-                e.diag = {"landing_diag": _landing_diag(final), "reason": err}
-                raise e
-            e = _RegisterBlocked(err)
-            e.diag = {"landing_diag": _landing_diag(final), "reason": err}
-            raise e
-        reg = resp.json()
-        diag["register_s"] = round(time.time() - st["start"], 1)
-
-        # send_otp
-        send_url = reg.get("continue_url") or "https://auth.openai.com/api/accounts/email-otp/send"
-        r = session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
-                        allow_redirects=True)
-        diag["send_otp"] = r.status_code
-
-        # 收码(IMAP 快 / Graph 降级; 超时重发, 最多 otp_max_attempts 次)
-        otp_after = st["start"]
-        client = build_mail_client(account, proxy=resolved.session_url or None,
-                                   impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
-                                   cfg=cfg)
-        identity = mail_identity_key(account)
-        cache_path = resolve_path(cfg.get("mail", {}).get("used_code_cache", "data/used_otp_codes.json"), _root(cfg))
-        used_cache = UsedCodeCache(cache_path)
-        exclude = used_cache.seen_codes(identity)
-        mail_cfg = cfg.get("mail", {})
-        otp_timeout = int(mail_cfg.get("otp_wait", 150) or 150)
-        otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 2) or 2))
-        otp = None
-        for attempt in range(otp_max_attempts):
-            try:
-                otp = client.wait_for_otp(after_ts=otp_after, timeout=otp_timeout,
-                                          interval=3, settle_seconds=5, exclude_codes=exclude)
-                break
-            except Exception as exc:
-                if attempt >= otp_max_attempts - 1:
-                    raise _OtpFailed(f"OTP 收码失败: {type(exc).__name__}: {exc}") from exc
-                time.sleep(1)
-                session.get(send_url, headers=session.auth_navigate_headers(referer=PASSWORD_REFERER),
-                            allow_redirects=True)
-                otp_after = time.time()
-        used_cache.remember(identity, otp, email=email, status="submitted")
-        diag["otp"] = otp
-        diag["otp_s"] = round(time.time() - st["start"], 1)
-
-        # validate
-        auth.validate_email_otp(session, otp, None)
-
-        # create_account: quickjs 真 t 与 browser 真 so 并行(独立资源)
-        holder: dict[str, Any] = {}
-
-        def _gen_t() -> None:
-            _ct = time.time()
-            try:
-                # 静默 quickjs 默认 log(so_len 是 vm so, 会被忽略); so 由 browser 采集
-                tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg,
-                                                        log=lambda m: None)
-                holder["tok2"] = tok
-                print(f"  [quickjs/t] create 真 t 就绪 t_len={len(tok)} ({time.time()-_ct:.1f}s, so 由 browser 采集)")
-            except Exception as exc:
-                holder["t_err"] = f"{type(exc).__name__}: {exc}"
-            holder["t_s"] = time.time() - _ct
-
-        def _gen_so() -> None:
-            _ct = time.time()
-            so = None
-            # 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
-            for _try in range(3):
-                try:
-                    br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
-                                                  proxy=resolved.session_url, headless=True, timeout_s=90)
-                    if br.get("ok") and br.get("so_header"):
-                        so = br["so_header"]
-                        # so 内部细分(nav/SDK加载/token采集), 定位慢点
-                        holder["so_timing"] = {
-                            "nav": br.get("nav_s"), "sdk": br.get("sdk_s"),
-                            "token": br.get("token_s"), "total": br.get("elapsed_s"),
-                        }
-                        break
-                except Exception as exc:
-                    holder["so_warn"] = f"{type(exc).__name__}: {str(exc)[:80]}"
-                time.sleep(1)
-            holder["so_b"] = so
-            holder["so_s"] = time.time() - _ct
-
-        _ct0 = time.time()
-        _th_t = threading.Thread(target=_gen_t)
-        _th_so = threading.Thread(target=_gen_so)
-        _th_t.start()
-        _th_so.start()
-        _th_t.join()
-        _th_so.join()
-        tok2 = str(holder.get("tok2") or "")
-        so_b = holder.get("so_b")
-        diag["t_s"] = round(float(holder.get("t_s", 0)), 1)
-        diag["so_s"] = round(float(holder.get("so_s", 0)), 1)
-        diag["create_parallel"] = round(time.time() - _ct0, 1)
-        if holder.get("so_timing"):
-            diag["so_timing"] = holder["so_timing"]
-        if holder.get("t_err"):
-            raise _SessionFailed(f"quickjs t 生成失败: {holder['t_err']}")
-        if not so_b:
-            warn = holder.get("so_warn") or ""
-            raise _SoFailed(f"browser so 采集失败(重试3次后仍无 so): {str(warn)[:120]}")
-
-        h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
-        h2["openai-sentinel-token"] = tok2
-        h2["openai-sentinel-so-token"] = so_b
-        resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
-        diag["create_http"] = resp2.status_code
-        diag["create_s"] = round(time.time() - st["start"], 1)
-        if resp2.status_code != 200:
-            raise _CreateFailed(f"create_account HTTP {resp2.status_code}: {resp2.text[:150]}")
-        cr = resp2.json()
-        cu = cr.get("continue_url") or cr.get("url")
-        if not cu:
-            raise _CreateFailed("create_account 无 continue_url")
-
-        # callback + session
-        auth.follow_oauth_callback(session, cu)
-        info = auth.fetch_session(session)
-        at = info.get("accessToken")
-        if not at:
-            raise _SessionFailed("session 无 accessToken")
-        diag["session_s"] = round(time.time() - st["start"], 1)
-        cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
-                    "secure": bool(getattr(c, "secure", False))}
-                   for c in session.session.cookies.jar]
+        final = _stage_signin(session, email, diag)
+        reg, send_url = _stage_register(session, cfg, email, password, final, st, diag)
+        otp = _stage_wait_otp(session, cfg, account, email, send_url, resolved.session_url or None,
+                              st, diag)
+        tok2, so_b, cu = _stage_create(session, cfg, name, bday, resolved.session_url or None, st, diag)
+        at, refresh_token, cookies = _stage_session(session, cu, st, diag)
         return {
             "at": at,
             "device_id": session.device_id,
             "cookies": cookies,
-            "refresh_token": info.get("refreshToken") or info.get("refresh_token") or "",
+            "refresh_token": refresh_token,
             "t_len": len(tok2),
             "so_len": len(so_b),
             "has_so": True,
@@ -360,13 +427,13 @@ def register_account(
             last_outcome = RegisterOutcome.IP_BLOCKED
             last_diag = dict(getattr(exc, "diag", {}) or {})
             last_diag["attempt"] = att + 1
-            print(f"  [warn] register 被拒(IP 风控): {str(exc)[:70]}")
+            logger.warning("  [warn] register 被拒(IP 风控): %s", str(exc)[:70])
             if not auto_retry or att >= 2 or "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
                 break
             new_sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
             proxy_url = re.sub(r"-sid-[^-]+-t-", f"-sid-{new_sid}-t-", proxy_url, count=1)
             last_diag["retry_sid"] = att + 1
-            print(f"  [retry] 换新 sid 重试 ({att + 2}/3)")
+            logger.warning("  [retry] 换新 sid 重试 (%d/3)", att + 2)
             time.sleep(1)
         except _SoFailed as exc:
             return RegistrationResult(RegisterOutcome.SO_FAILED, email, {"reason": str(exc)[:150]})
