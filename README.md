@@ -150,12 +150,21 @@ INFO  [MSMail/Graph] 等待中 t+..s                    ← Graph 降级(索引�
 ## 号池格式（mail_pool.txt）
 
 ```text
-# Outlook（ms_oauth，OAuth 凭据收码）
+# ms_oauth（Outlook OAuth, IMAP/Graph 收码）
 alice@outlook.com----password----client_id----refresh_token
 
-# CloudMail 自托管（单段邮箱, 一邮箱一账号, 收码用 admin 拉该地址邮件）
+# gmail_api（邮箱----接码url, GET code_url 拉码）
+user@example.com----https://.../code
+
+# api（通用第三方 API, 配 mail.api_client）
+user@cloud.com----api_key
+
+# cloudmail（自托管 cloud-mail, 单段邮箱, admin 拉码, 一邮箱一账号）
 reg_x@send.xdauv.xyz
 ```
+
+**来源识别**：4 段 → `ms_oauth` / 2 段+URL → `gmail_api` / 2 段非 URL → `api` / 单段邮箱 → `cloudmail`。
+**新增来源**：写 `MailSource` 插件 + 注册进 `MAIL_SOURCES`，核心零改动。
 
 - 主号需未注册过 OpenAI（已用会走邮箱级风控，换 IP 无效）
 - 注册用 plus 别名（`use_alias: true`），收码用主号 OAuth
