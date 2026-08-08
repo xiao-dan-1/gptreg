@@ -387,6 +387,31 @@ def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, An
         pass  # session/resolved 由 register_account 统一关闭
 
 
+def _session_fail_retry(
+    cfg: dict[str, Any], exc: Exception, email: str, proxy_url: str,
+    att: int, last_diag: dict[str, Any], auto_retry: bool,
+) -> tuple[RegistrationResult, str]:
+    """SESSION_FAILED 处理: 瞬时网络错误(隧道中途断流/SSLError)换 sid 重试。
+
+    根因: 7890(Clash) 偶发抖动导致已建隧道中途断流 → 非账号问题, 重试大概率成功。
+    返回 (result_or_None, new_proxy_url): result 非 None 表示终止, None 表示调用方应
+    用 new_proxy_url 继续重试。
+    """
+    from gptreg.auth import _is_transient
+    reason = f"{type(exc).__name__}: {str(exc)[:120]}"
+    if not _is_transient(exc) or not auto_retry or att >= 2 or "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
+        last_diag["reason"] = reason
+        return RegistrationResult(RegisterOutcome.SESSION_FAILED, email, last_diag), proxy_url
+    # 瞬时网络错误: 换 sid 重建隧道重试(基建抖动, 非账号问题)
+    new_sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    new_url = re.sub(r"-sid-[^-]+-t-", f"-sid-{new_sid}-t-", proxy_url, count=1)
+    last_diag["reason"] = reason
+    last_diag["retry_sid"] = att + 1
+    logger.warning("  [retry] 瞬时网络错误换 sid 重试 (%d/3): %s", att + 2, reason[:60])
+    time.sleep(1)
+    return None, new_url
+
+
 def register_account(
     cfg: dict[str, Any],
     account: dict[str, Any],
@@ -440,11 +465,12 @@ def register_account(
             return RegistrationResult(RegisterOutcome.OTP_FAILED, email, {"reason": str(exc)[:150]})
         except _CreateFailed as exc:
             return RegistrationResult(RegisterOutcome.CREATE_FAILED, email, {"reason": str(exc)[:150]})
-        except _SessionFailed as exc:
-            return RegistrationResult(RegisterOutcome.SESSION_FAILED, email, {"reason": str(exc)[:150]})
-        except Exception as exc:
-            return RegistrationResult(RegisterOutcome.SESSION_FAILED, email,
-                                      {"reason": f"{type(exc).__name__}: {str(exc)[:150]}"})
+        except (_SessionFailed, Exception) as exc:
+            # 瞬时网络错误(隧道中途断流/SSLError)换 sid 重建重试; 非瞬时终止
+            res, new_url = _session_fail_retry(cfg, exc, email, proxy_url, att, last_diag, auto_retry)
+            if res is not None:
+                return res
+            proxy_url = new_url
 
     if reg is None:
         last_diag["elapsed_s"] = round(time.time() - t0, 1)

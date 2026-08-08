@@ -259,7 +259,12 @@ def _extract_region_sid(url: str) -> tuple[str, str]:
 
 
 def resolve_proxy(cfg: dict[str, Any], override: str | None = None) -> ResolvedProxy:
-    """生成本次注册代理；需要时启动粘性链式隧道。"""
+    """生成本次注册代理；需要时启动粘性链式隧道。
+
+    隧道探活 + 失败重建(最多 3 次): 容忍 hop1(7890 Clash) 偶发抖动——
+    实测 2/10 隧道 CONNECT 失败, 重建后 8/8 成功(失败是随机抖动, 重试大概率成功)。
+    探活不阻塞: probe 超时计入, 重建只在探活失败时发生。
+    """
     upstream = pick_proxy(cfg, override)
     if not upstream:
         return ResolvedProxy(session_url="", upstream_url="", region="", sid="")
@@ -268,15 +273,33 @@ def resolve_proxy(cfg: dict[str, Any], override: str | None = None) -> ResolvedP
     if needs_chain(cfg, upstream):
         dyn = (cfg.get("proxy") or {}).get("dynamic") or {}
         hop1 = ensure_http_proxy_url(dyn.get("chain_via") or "http://127.0.0.1:10808")
-        tunnel = StickyChainTunnel(hop1=hop1, hop2=upstream)
-        tunnel.start()
-        return ResolvedProxy(
-            session_url=tunnel.local_url,
-            upstream_url=upstream,
-            chain=tunnel,
-            region=region,
-            sid=sid,
-        )
+        last_tunnel: StickyChainTunnel | None = None
+        for attempt in range(3):
+            if last_tunnel is not None:
+                last_tunnel.close()
+            tunnel = StickyChainTunnel(hop1=hop1, hop2=upstream)
+            tunnel.start()
+            last_tunnel = tunnel
+            rp = ResolvedProxy(
+                session_url=tunnel.local_url,
+                upstream_url=upstream,
+                chain=tunnel,
+                region=region,
+                sid=sid,
+            )
+            # 探活: 隧道能通到外网才算建好; 失败重建
+            try:
+                info = probe_proxy(tunnel.local_url, timeout=10)
+                if info.get("status") == 200 and info.get("ip"):
+                    if attempt > 0:
+                        logger.warning("[Proxy] 隧道探活失败重建成功 (attempt %s)", attempt + 1)
+                    return rp
+            except Exception:
+                pass
+            logger.warning("[Proxy] 隧道探活失败 (attempt %s), 重建中", attempt + 1)
+        # 3 次都失败: 返回最后一个(注册链会按 outcome 失败重试)
+        logger.error("[Proxy] 隧道 3 次探活均失败, 返回最后隧道")
+        return rp
     return ResolvedProxy(session_url=upstream, upstream_url=upstream, region=region, sid=sid)
 
 
