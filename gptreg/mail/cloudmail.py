@@ -40,7 +40,8 @@ class CloudMailClient(MailClient):
         self.proxy = proxy
         self.impersonate = impersonate
         self.timeout = timeout
-        cm = ((cfg or {}).get("mail") or {}).get("cloud_mail") or {}
+        self.cfg = cfg or {}
+        cm = (self.cfg.get("mail") or {}).get("cloud_mail") or {}
         self.base_url = str(cm.get("base_url") or "").rstrip("/")
         self.admin_email = str(cm.get("admin_email") or "")
         self.admin_password = str(cm.get("admin_password") or "")
