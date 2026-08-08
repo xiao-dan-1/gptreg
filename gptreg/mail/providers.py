@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from gptreg.mail.base import MailClient
-from gptreg.mail.external import GmailApiClient, XDAuvMailClient
+from gptreg.mail.external import ICloudApiClient, XDAuvMailClient
 from gptreg.mail.imap import IMAPOAuthClient
 from gptreg.mail.otp_cache import (
     IMAP_OPENAI_SENDER,
@@ -29,7 +29,7 @@ __all__ = [
     "MAIL_SOURCES",
     "MailClient",
     "IMAPOAuthClient",
-    "GmailApiClient",
+    "ICloudApiClient",
     "XDAuvMailClient",
     "MailClientError",
     "UsedCodeCache",

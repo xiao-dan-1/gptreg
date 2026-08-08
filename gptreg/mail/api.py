@@ -137,7 +137,7 @@ class ApiMailClient(MailClient):
 
 
 class ApiMailSource(MailSource):
-    """通用 API 号源: 号池行 `email----api_key`(第二段非 URL, 区别于 gmail_api)。"""
+    """通用 API 号源: 号池行 `email----api_key`(第二段非 URL, 区别于 icloud 接码 URL)。"""
 
     name = "api"
 
@@ -149,7 +149,7 @@ class ApiMailSource(MailSource):
         if not email or "@" not in email or not api_key:
             return None
         if api_key.startswith(("http://", "https://")):
-            return None  # 那是 gmail_api(URL code_url)
+            return None  # 那是 icloud(URL code_url)
         return {
             "email": email,
             "api_key": api_key,

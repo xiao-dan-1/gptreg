@@ -14,7 +14,7 @@ from typing import Any
 from gptreg.mail.api import ApiMailSource
 from gptreg.mail.base import MailClient, MailSource
 from gptreg.mail.cloudmail import CloudMailSource
-from gptreg.mail.external import GmailApiClient, XDAuvMailClient
+from gptreg.mail.external import ICloudApiClient, XDAuvMailClient
 from gptreg.mail.imap import IMAPOAuthClient
 
 
@@ -58,10 +58,15 @@ class MsOAuthSource(MailSource):
         return MAIL_CLIENTS["ms_oauth"](account, proxy=proxy, impersonate=impersonate, cfg=use_cfg)
 
 
-class GmailApiSource(MailSource):
-    """Gmail get-code 号源: email----https://...code-url。"""
+class ICloudSource(MailSource):
+    """iCloud 接码号源: email----https://...code-url。
 
-    name = "gmail_api"
+    限定 iCloud 域名(@icloud.com/@me.com), 与 api(2 段非 URL) 区分。
+    收码走 GET code_url 拉码(ICloudApiClient), 不绑定 Gmail 语义。
+    """
+
+    name = "icloud"
+    _DOMAINS = ("icloud.com", "me.com")
 
     def parse_line(self, raw: str) -> dict[str, Any] | None:
         parts = raw.split("----")
@@ -72,10 +77,13 @@ class GmailApiSource(MailSource):
             return None
         if not code_url.startswith(("http://", "https://")):
             return None
+        dom = email.rsplit("@", 1)[1].lower()
+        if not any(dom == d or dom.endswith("." + d) for d in self._DOMAINS):
+            return None
         return {
             "email": email,
             "code_url": code_url,
-            "mail_type": "gmail_api",
+            "mail_type": "icloud",
             "raw_line": raw,
         }
 
@@ -83,12 +91,12 @@ class GmailApiSource(MailSource):
         self, account: dict, *, proxy: str | None = None,
         impersonate: str = "chrome142", cfg: dict | None = None,
     ) -> MailClient:
-        return MAIL_CLIENTS["gmail_api"](account, proxy=proxy, impersonate=impersonate)
+        return MAIL_CLIENTS["icloud"](account, proxy=proxy, impersonate=impersonate)
 
 
 # ── 收码通道注册表(MailClient 插件) ─────────────────────────────
 MAIL_CLIENTS: dict[str, type[MailClient]] = {
-    "gmail_api": GmailApiClient,
+    "icloud": ICloudApiClient,  # iCloud 接码 URL(GET code_url 拉码)
     "ms_oauth": IMAPOAuthClient,  # 本地 IMAP(use_xdauv=false)
     "ms_oauth_xdauv": XDAuvMailClient,  # 服务收码(use_xdauv=true)
 }
@@ -96,7 +104,7 @@ MAIL_CLIENTS: dict[str, type[MailClient]] = {
 # ── 邮箱来源注册表(MailSource 插件; 新增号源在此加一项) ─────────
 MAIL_SOURCES: dict[str, MailSource] = {
     "ms_oauth": MsOAuthSource(),
-    "gmail_api": GmailApiSource(),
+    "icloud": ICloudSource(),
     "api": ApiMailSource(),  # 通用第三方 API 接码(配置 mail.api_client)
     "cloudmail": CloudMailSource(),  # 自托管 cloud-mail(配置 mail.cloud_mail)
 }

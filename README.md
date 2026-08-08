@@ -47,6 +47,7 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 | 本地 IMAP (XOAUTH2) | 12/15 | ~10s | 经 chain_via 隧道, `_ManualImap` 手动协议, 秒级到件 |
 | Graph 降级 | 被拒账号 | ~161s | 索引延迟(服务端), $filter/top/Prefer 优化 + 进度日志 |
 | XDAuv 服务 | 全部 | ~8s | `use_xdauv: true`, 服务端直连 Exchange |
+| **iCloud 接码 URL** | iCloud | 看服务 | `email----URL` 号源, GET code_url 拉码 |
 | **通用 API 插件** | 任意 | 看服务 | `mail.api_client` 配端点即接入, 无需写代码 |
 | **CloudMail 号源** | 自托管 | ~7s | `mail.cloud_mail` 配置, admin 拉码, 一邮箱一账号 |
 
@@ -153,8 +154,8 @@ INFO  [MSMail/Graph] 等待中 t+..s                    ← Graph 降级(索引�
 # ms_oauth（Outlook OAuth, IMAP/Graph 收码）
 alice@outlook.com----password----client_id----refresh_token
 
-# gmail_api（邮箱----接码url, GET code_url 拉码）
-user@example.com----https://.../code
+# icloud（iCloud 邮箱----接码url, GET code_url 拉码; 限定 @icloud.com/@me.com）
+user@icloud.com----https://.../code
 
 # api（通用第三方 API, 配 mail.api_client）
 user@cloud.com----api_key
@@ -163,7 +164,7 @@ user@cloud.com----api_key
 reg_x@send.xdauv.xyz
 ```
 
-**来源识别**：4 段 → `ms_oauth` / 2 段+URL → `gmail_api` / 2 段非 URL → `api` / 单段邮箱 → `cloudmail`。
+**来源识别**：4 段 → `ms_oauth` / 2 段+URL(@icloud.com/@me.com) → `icloud` / 2 段非 URL → `api` / 单段邮箱 → `cloudmail`。
 **新增来源**：写 `MailSource` 插件 + 注册进 `MAIL_SOURCES`，核心零改动。
 
 - 主号需未注册过 OpenAI（已用会走邮箱级风控，换 IP 无效）
@@ -193,7 +194,7 @@ gptreg/
   mail/sources.py              插件注册表(MAIL_SOURCES/MAIL_CLIENTS)
   mail/imap.py                 本地 IMAP XOAUTH2
   mail/ms_graph.py             Graph 兜底
-  mail/external.py             XDAuv + Gmail
+  mail/external.py             iCloud 接码 URL + XDAuv
   mail/api.py                  通用第三方 API 接码(配置即用)
   mail/cloudmail.py            自托管 cloud-mail(admin 拉码)
   mail/otp_cache.py            缓存/身份键/时间

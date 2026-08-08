@@ -14,8 +14,12 @@ from gptreg.otp import extract_code_from_any
 
 logger = logging.getLogger(__name__)
 
-class GmailApiClient(MailClient):
-    """mailsapi 等 get-code 接口。"""
+class ICloudApiClient(MailClient):
+    """iCloud 接码 API: 号池行 `email----https://code-url`, GET code_url 拉码。
+
+    iCloud 邮箱注册 OTP 由接码服务/自建服务经 URL 返回(如 mailsapi get-code)。
+    不绑定 Gmail 语义——任何"GET 一个 URL 返回验证码"的通道都适用。
+    """
 
     def __init__(
         self,
@@ -73,7 +77,7 @@ class GmailApiClient(MailClient):
                 if on_poll and marker not in reported:
                     reported.add(marker)
                     try:
-                        on_poll({"code": str(code), "excluded": excluded, "source": "gmail_api"})
+                        on_poll({"code": str(code), "excluded": excluded, "source": "icloud"})
                     except Exception:
                         pass
                 if not excluded:

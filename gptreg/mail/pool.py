@@ -18,7 +18,7 @@ def parse_mail_line(line: str) -> dict[str, Any] | None:
 
     支持(由 sources.MAIL_SOURCES 各插件识别):
       email----password----client_id----refresh_token  -> ms_oauth
-      email----https://...get-code...                 -> gmail_api
+      email----https://...get-code...                 -> icloud(@icloud.com/@me.com)
     新增号源只需注册进 sources.MAIL_SOURCES, 本函数零改动。
     """
     line = (line or "").strip()
