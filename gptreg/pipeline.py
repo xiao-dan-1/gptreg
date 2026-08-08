@@ -595,35 +595,17 @@ def run_batch(
         logger.info("[批量] #%s 领取 %s", index + 1, email)
 
         def _attempt(tag: str) -> dict[str, Any]:
-            """执行一次注册并记池。返回 (result, bucket)。"""
+            """执行一次注册并返回结果(不标记号池——占用保持到 one_job 结束,
+            避免重试期间 mark_failed 释放 in_flight, 并发 worker 重复 claim 同主号)。"""
             try:
                 res = register_one(cfg, account, proxy=proxy, used_cache=cache)
             except Exception as exc:
-                mail_pool.mark_failed(email)
                 partial = {"success": False, "email": email, "error": str(exc)}
                 partial["fail_bucket"] = classify_result(partial)
                 partial["retry_tag"] = tag
                 return partial
-            if res.get("success"):
-                res.setdefault("fail_bucket", "success")
-                mail_pool.mark_used(email)
-                return res
             res["fail_bucket"] = classify_result(res)
             res["retry_tag"] = tag
-            bucket = res["fail_bucket"]
-            if res.get("create_acknowledged"):
-                # create 已 200 但后续失败。瞬时基建失败(网络/超时)不烧邮箱 → mark_failed 可重试;
-                # 明确账号占用(已存在/吊销)才 mark_bad 永久弃号。曾把健康检查网络抖动误判永久烧号。
-                if bucket in ("tls_ssl", "proxy", "otp_mail"):
-                    mail_pool.mark_failed(email)
-                else:
-                    mail_pool.mark_bad(email, reason=res.get("error", ""))
-            elif bucket == "create_disallow":
-                # OpenAI 拒建号 ≠ 邮箱封死；OTP 往往仍通。记 fail 进 retrying，勿 mark_bad
-                mail_pool.mark_failed(email)
-                res["mailbox_note"] = "create_disallow_not_mailbox_ban"
-            else:
-                mail_pool.mark_failed(email)
             return res
 
         result = _attempt("first")
@@ -639,6 +621,23 @@ def run_batch(
                 str(result.get("error"))[:80],
             )
             result = _attempt("retry")
+        # 统一标记号池(重试期间 in_flight 保持, 此处才释放; 防并发重复 claim)
+        bucket = result.get("fail_bucket")
+        if result.get("success"):
+            mail_pool.mark_used(email)
+        elif result.get("create_acknowledged"):
+            # create 已 200 但后续失败。瞬时基建失败(网络/超时)不烧邮箱 → mark_failed 可重试;
+            # 明确账号占用(已存在/吊销)才 mark_bad 永久弃号。
+            if bucket in ("tls_ssl", "proxy", "otp_mail"):
+                mail_pool.mark_failed(email)
+            else:
+                mail_pool.mark_bad(email, reason=result.get("error", ""))
+        elif bucket == "create_disallow":
+            # OpenAI 拒建号 ≠ 邮箱封死; OTP 往往仍通。记 fail 进 retrying, 勿 mark_bad
+            mail_pool.mark_failed(email)
+            result["mailbox_note"] = "create_disallow_not_mailbox_ban"
+        else:
+            mail_pool.mark_failed(email)
         return result
 
     if workers <= 1:
