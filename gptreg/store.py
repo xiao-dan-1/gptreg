@@ -11,6 +11,37 @@ from gptreg.config import resolve_path
 
 _LOCK = threading.RLock()
 
+# accounts.jsonl 字段顺序: 身份 → 凭据 → 状态 → 观测 → 运维(人读友好)
+# 落盘时按此重排, 未知字段追加末尾。只影响新写入, 旧记录不动。
+_FIELD_ORDER: tuple[str, ...] = (
+    # 身份
+    "email", "mail_main", "name", "birthdate", "mail_type",
+    # 凭据
+    "password", "totp_secret", "access_token", "session_token",
+    "refresh_token", "session_cookies",
+    # 设备
+    "device_id",
+    # 状态
+    "status", "health_status", "health_http", "health_note",
+    "last_checked", "last_refreshed", "session_expires",
+    # 观测
+    "sentinel_obs",
+    # 运维
+    "proxy_used", "saved_at", "updated_at",
+)
+
+
+def reorder_record(record: dict[str, Any]) -> dict[str, Any]:
+    """按 _FIELD_ORDER 重排字段(身份→凭据→状态→观测→运维), 未知字段追加末尾。"""
+    out: dict[str, Any] = {}
+    for k in _FIELD_ORDER:
+        if k in record:
+            out[k] = record[k]
+    for k, v in record.items():
+        if k not in out:
+            out[k] = v
+    return out
+
 
 def ensure_output_dir(cfg: dict[str, Any]) -> Path:
     out = resolve_path(cfg.get("output", {}).get("dir", "output"), Path(cfg["_root"]))
@@ -26,6 +57,7 @@ def _append_or_replace(path: Path, record: dict[str, Any]) -> None:
     写入走 tmp+os.replace 原子替换, 防崩溃/并发截断主库(曾用 write_text 先截断后写)。
     """
     email = record.get("email")
+    record = reorder_record(record)  # 统一字段顺序(身份→凭据→状态→观测→运维)
     line = json.dumps(record, ensure_ascii=False)
     if not email:
         with path.open("a", encoding="utf-8") as f:
