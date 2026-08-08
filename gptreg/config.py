@@ -45,6 +45,12 @@ _DEFAULTS: dict[str, Any] = {
             "otp_path": "",  # 响应里 OTP 的 JSON 路径(空=通用扫描)
             "interval": 3,
         },
+        # 自托管 cloud-mail(maillab) 号源: 号池行 user@domain, admin 拉码
+        "cloud_mail": {
+            "base_url": "",
+            "admin_email": "",
+            "admin_password": "",
+        },
     },
     "browser": {
         "user_agent": (

@@ -67,6 +67,8 @@ def main() -> int:
     # 默认 plus 别名(config mail.use_alias=true)——号池主号很多已在 OpenAI 注册,
     # 主号直接注册会落 email-verification/log-in → register 400; 别名是全新邮箱。
     use_alias = bool(cfg.get("mail", {}).get("use_alias", True))
+    if account.get("mail_type") == "cloudmail":
+        use_alias = False  # cloud-mail 一邮箱一账号, 注册用主邮箱(不用 +tag 别名)
     if args.no_alias:
         use_alias = False
     elif args.alias:

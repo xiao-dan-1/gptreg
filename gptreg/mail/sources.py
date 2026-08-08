@@ -13,6 +13,7 @@ from typing import Any
 
 from gptreg.mail.api import ApiMailSource
 from gptreg.mail.base import MailClient, MailSource
+from gptreg.mail.cloudmail import CloudMailSource
 from gptreg.mail.external import GmailApiClient, XDAuvMailClient
 from gptreg.mail.imap import IMAPOAuthClient
 
@@ -97,4 +98,5 @@ MAIL_SOURCES: dict[str, MailSource] = {
     "ms_oauth": MsOAuthSource(),
     "gmail_api": GmailApiSource(),
     "api": ApiMailSource(),  # 通用第三方 API 接码(配置 mail.api_client)
+    "cloudmail": CloudMailSource(),  # 自托管 cloud-mail(配置 mail.cloud_mail)
 }
