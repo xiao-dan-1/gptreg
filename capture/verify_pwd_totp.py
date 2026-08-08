@@ -84,28 +84,36 @@ def main() -> int:
     cfg = load_config()
     t0 = time.time()
 
-    # 号池文件(默认 mail_pool.txt; --pool 支持 icloud 快捷名)
-    pool_file = args.pool or "mail_pool.txt"
-    if pool_file == "icloud":
-        pool_file = "icloud_pool.txt"
-    if not Path(pool_file).exists():
-        print(f"号池文件不存在: {pool_file}")
-        return 1
+    # CloudMail: 动态生成邮箱(不依赖号池文件)
+    if args.pool == "cloudmail":
+        from gptreg.mail.cloudmail import generate_email
 
-    # 号池选主号(收码身份)
-    account = None
-    for line in Path(pool_file).read_text(encoding="utf-8").splitlines():
-        a = parse_mail_line(line.strip())
-        if not a:
-            continue
-        if args.email and _base(a["email"]) != _base(args.email):
-            continue
-        account = a
-        break
-    if not account:
-        print("号池找不到收码账号")
-        return 1
-    base_email = account["email"]
+        account = generate_email(cfg)
+        base_email = account["email"]
+        print(f"CloudMail 动态生成: {base_email}")
+    else:
+        # 号池文件(默认 mail_pool.txt; --pool 支持 icloud 快捷名)
+        pool_file = args.pool or "mail_pool.txt"
+        if pool_file == "icloud":
+            pool_file = "icloud_pool.txt"
+        if not Path(pool_file).exists():
+            print(f"号池文件不存在: {pool_file}")
+            return 1
+
+        # 号池选主号(收码身份)
+        account = None
+        for line in Path(pool_file).read_text(encoding="utf-8").splitlines():
+            a = parse_mail_line(line.strip())
+            if not a:
+                continue
+            if args.email and _base(a["email"]) != _base(args.email):
+                continue
+            account = a
+            break
+        if not account:
+            print("号池找不到收码账号")
+            return 1
+        base_email = account["email"]
 
     # 默认 plus 别名(config mail.use_alias=true)——号池主号很多已在 OpenAI 注册,
     # 主号直接注册会落 email-verification/log-in → register 400; 别名是全新邮箱。

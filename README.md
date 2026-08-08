@@ -49,7 +49,7 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 | XDAuv 服务 | 全部 | ~8s | `use_xdauv: true`, 服务端直连 Exchange |
 | **iCloud 接码 URL** | iCloud | 看服务 | `email----URL` 号源, GET code_url 拉码 |
 | **通用 API 插件** | 任意 | 看服务 | `mail.api_client` 配端点即接入, 无需写代码 |
-| **CloudMail 号源** | 自托管 | ~7s | `mail.cloud_mail` 配置, admin 拉码, 一邮箱一账号 |
+| **CloudMail 号源** | 自托管 | ~7s | `--pool cloudmail` 动态生成邮箱(不依赖号池), admin 拉码 |
 
 - 号池 ~12/15 账号 IMAP 可用；被拒账号（`authenticated but not connected`）自动降级 Graph
 - **新增收码通道/号源 = 写一个 MailClient/MailSource 插件 + 注册进注册表, 核心零改动**
@@ -160,11 +160,15 @@ user@icloud.com----https://.../code
 # api（通用第三方 API, 配 mail.api_client）
 user@cloud.com----api_key
 
-# cloudmail（自托管 cloud-mail, 单段邮箱, admin 拉码, 一邮箱一账号）
-reg_x@send.xdauv.xyz
+# cloudmail（自托管 cloud-mail, 一邮箱一账号; 不依赖号池, --pool cloudmail 动态生成）
 ```
 
 **来源识别**：4 段 → `ms_oauth` / 2 段+URL(@icloud.com/@me.com) → `icloud` / 2 段非 URL → `api` / 单段邮箱 → `cloudmail`。
+
+**号池文件**：各号源独立文件, CLI 用 `--pool` 选:
+- `mail_pool.txt`   Outlook 主号(默认池)
+- `icloud_pool.txt` iCloud 接码号(email----URL)
+- `--pool cloudmail` 动态生成 cloud-mail 邮箱(不读文件)
 **新增来源**：写 `MailSource` 插件 + 注册进 `MAIL_SOURCES`，核心零改动。
 
 - 主号需未注册过 OpenAI（已用会走邮箱级风控，换 IP 无效）

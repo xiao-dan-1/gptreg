@@ -105,11 +105,28 @@ def _mark_permanent(main: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=3, help="本次批量数量(默认 3)")
-    ap.add_argument("--pool", default="", help="号池文件(默认 mail_pool.txt; icloud 可用 icloud_pool.txt)")
+    ap.add_argument("--pool", default="", help="号池文件(默认 mail_pool.txt; icloud 可用 icloud_pool.txt; cloudmail=动态生成)")
     ap.add_argument("--proxy", default=None, help="固定代理(--no-dynamic 时用; 默认走 config 动态链式)")
     ap.add_argument("--no-dynamic", action="store_true", help="不用动态代理换 IP(用 --proxy 固定)")
     ap.add_argument("--list", action="store_true", help="只列出未用过主号不跑")
     args = ap.parse_args()
+
+    cfg = load_config()
+    # CloudMail: 动态生成邮箱(不依赖号池文件)
+    if args.pool == "cloudmail":
+        from gptreg.mail.cloudmail import generate_email
+
+        batch = []
+        for _ in range(args.limit):
+            acct = generate_email(cfg)
+            batch.append((acct["email"], acct))
+        print(f"CloudMail 动态生成 {len(batch)} 个邮箱")
+        if args.list:
+            for main, _ in batch:
+                print("  ", main)
+            return 0
+        proxy = None if not args.no_dynamic else args.proxy
+        return _run_batch(batch, proxy, cfg)
 
     # 号池文件(默认 mail_pool.txt; --pool 支持 icloud 快捷名)
     pool_file = args.pool or "mail_pool.txt"
@@ -125,7 +142,6 @@ def main() -> int:
             print("  ", main)
         return 0
 
-    cfg = load_config()
     proxy = None if not args.no_dynamic else args.proxy
     if proxy:
         print(f"固定代理: {proxy}")
@@ -133,6 +149,11 @@ def main() -> int:
         print("动态代理: 每次换 sid(新出口), register 400 自动换 IP 重试")
 
     batch = unused[: args.limit]
+    return _run_batch(batch, proxy, cfg)
+
+
+def _run_batch(batch: list[tuple[str, dict]], proxy, cfg) -> int:
+    """批量注册: batch=[(主号, account)]。"""
     results: list[tuple[str, bool, RegisterOutcome]] = []
     for i, (main, account) in enumerate(batch, 1):
         t0 = time.time()

@@ -143,10 +143,37 @@ class CloudMailClient(MailClient):
         raise MailClientError(f"cloud-mail 等待 {self.email} OTP 超时（>{timeout}s）")
 
 
+def generate_email(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """动态生成一个 cloud-mail 注册邮箱(不依赖号池文件)。
+
+    从 config mail.cloud_mail.domains 随机选域名 + 随机用户名, 一邮箱一账号。
+    收码由 admin 拉该地址邮件(CloudMailClient), 注册用主邮箱(不用别名)。
+    """
+    use_cfg = cfg or {}
+    cm = (use_cfg.get("mail") or {}).get("cloud_mail") or {}
+    domains = [str(d).lstrip("@") for d in (cm.get("domains") or []) if str(d).strip()]
+    if not domains:
+        # 无配置域名: 查 API list_domains()
+        try:
+            client = CloudMailClient({"email": ""}, cfg=use_cfg)
+            domains = client.list_domains()
+        except Exception:
+            domains = []
+    if not domains:
+        raise MailClientError("cloud_mail 未配置可用域名 (config mail.cloud_mail.domains)")
+    import secrets
+
+    dom = secrets.choice(domains)
+    user = "reg_" + secrets.token_hex(3)  # reg_xxxxxx
+    email = f"{user}@{dom}"
+    return {"email": email, "mail_type": "cloudmail", "raw_line": email}
+
+
 class CloudMailSource(MailSource):
     """cloud-mail 号源: 号池行单段邮箱 `user@xdauv.xyz`(无 ----)。
 
     注册用主邮箱(不用 plus 别名)——每个 cloud-mail 邮箱独立收件, 一邮箱一账号。
+    也可用 generate_email() 动态生成(不依赖号池文件)。
     """
 
     name = "cloudmail"
