@@ -72,12 +72,12 @@ python main.py export       # 导出 email----password----2fa 交付
 
 | 步骤 | 命令 | 说明 |
 |---|---|---|
-| **① 注册** | `batch_totp.py --pool icloud --limit N --workers M` | 批量注册；`--workers` 并发线程（建议 ≤ 可用代理数） |
-| **② 测活** | `main.py survival --source icloud` | 批量测活，回写 `health_status`，每 8 个换 IP |
-| **③ 续期** | `main.py refresh` | access_token 续期（**实测 ~6h 过期**，见 FAQ） |
-| **④ 导出** | `main.py export --filter alive --with-at` | 导出存活账号，四段含 access_token |
+| **① 注册** | `python capture/tools/batch_totp.py --pool icloud --limit N --workers M` | 批量注册；`--workers` 并发线程（建议 ≤ 可用代理数） |
+| **② 测活** | `python main.py survival --source icloud` | 批量测活，回写 `health_status`，每 8 个换 IP |
+| **③ 续期** | `python main.py refresh` | access_token 续期（**实测 ~6h 过期**，见 FAQ） |
+| **④ 导出** | `python main.py export --filter alive --with-at` | 导出存活账号，四段含 access_token |
 
-**其他工具**：`overview`（资产总览）/ `stats`（号池统计）/ `check-proxy`（探测出口 IP）/ `backfill`（补缺失 token）/ `imap`（收码通道检查）/ `subscription`（查订阅/优惠资格）/ `raw-check`（直接喂 JWT 测活）。
+**其他工具**：`python main.py overview`（资产总览）/ `stats`（号池统计）/ `check-proxy`（探测出口 IP）/ `backfill`（补缺失 token）/ `imap`（收码通道检查）/ `subscription`（查订阅/优惠资格）/ `raw-check`（直接喂 JWT 测活）。
 
 ---
 
