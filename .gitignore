@@ -11,6 +11,8 @@ output/
 backup/
 # 外部导入的 access_token(测活输入, 含真实凭据)
 capture/_raw_tokens.txt
+# 会话抓包数据(含真实 token/email, 历史已 filter-repo 清除, 勿再提交)
+capture/session-*/
 
 # ---- Python ----
 __pycache__/
