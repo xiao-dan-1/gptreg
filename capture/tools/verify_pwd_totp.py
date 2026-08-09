@@ -204,6 +204,9 @@ def main() -> int:
         ld = d.get("landing_diag")
         if ld:
             print(f"[register/诊断] {ld}")
+        # 服务器原始 code(区分 IP 信誉 vs session 未推进等)
+        if d.get("srv_code"):
+            print(f"[register/服务器] code={d.get('srv_code')} redirect={d.get('srv_redirect','')[:60]}")
         ts = _timing_str(d)
         if ts:
             print(f"[耗时] {ts}")
