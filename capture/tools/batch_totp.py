@@ -270,11 +270,15 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
                 print(f"  [出口] {proxy_label(pu)}", flush=True)
         else:
             d = result.diag or {}
-            if result.outcome == RegisterOutcome.IP_BLOCKED:
+            # IP_BLOCKED / MAIL_CONFLICT: 落点/状态诊断(专门文案) + 服务器原始 code/reason
+            if result.outcome in (RegisterOutcome.IP_BLOCKED, RegisterOutcome.MAIL_CONFLICT):
                 ld = str(d.get("landing_diag") or d.get("reason") or "")[:120]
                 print(f"  [{result.outcome.value}] {ld}", flush=True)
                 if d.get("srv_code"):
                     print(f"  [register/服务器] code={d.get('srv_code')} redirect={str(d.get('srv_redirect',''))[:60]}", flush=True)
+                elif d.get("reason"):
+                    # srv_code 空时补服务器原文(如 "Invalid authorization", 比 landing_diag 更精确)
+                    print(f"  [register/服务器] {str(d.get('reason'))[:120]}", flush=True)
             else:
                 reason = str(d.get("landing_diag") or d.get("reason") or "")[:150]
                 print(f"  [{result.outcome.value}] {reason}", flush=True)

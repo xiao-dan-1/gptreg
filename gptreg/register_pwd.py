@@ -241,7 +241,8 @@ def _stage_register(
         if "invalid_auth_step" in _low or "invalid authorization" in _low or "invalid_authorization" in _low:
             e = _MailStateConflict(err)
             e.diag = {
-                "landing_diag": _landing_diag(final),
+                **diag,  # 合并 signin_s 等耗时字段, 让 [耗时] 归因可见(不再只有 landing/reason)
+                "landing_diag": "邮箱已推进过注册流程(OTP 已消费/密码已设), 状态机不可重入, 弃用",
                 "reason": err,
                 "srv_code": srv_code,
                 "srv_redirect": srv_redirect,
