@@ -1,0 +1,15 @@
+# iCloud 号池：每行一个 iCloud 邮箱 + 接码 URL
+#
+# 格式: 邮箱----https://第三方接码服务/get-code?...
+#   - 仅限 @icloud.com / @me.com 邮箱
+#   - 注册用主邮箱（一邮箱一账号，不 alias；接码 URL/域名绑定主邮箱）
+#   - 收码时 GET code_url 拉 OTP（直连，不走代理隧道）
+#
+# 示例：
+user@icloud.com----https://你的接码服务/get-code?uid=xxx
+another@me.com----https://你的接码服务/api/get-code?email=another@me.com
+
+# 规则：
+# - # 开头为注释
+# - 行格式 邮箱----URL，URL 为 GET 拉码接口
+# - 主号需未注册过 OpenAI（已用会走邮箱级风控，换 IP 无效）
