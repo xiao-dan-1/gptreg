@@ -94,6 +94,8 @@ python main.py survival --source icloud
 python main.py refresh
 
 # ④ 导出：常用方式(完整参数见"📦 账号输出与交付")
+#   --filter alive = 只导存活的账号(测活 health_status=ok, 排除吊销/过期的)
+#   3 段 = email----password----2fa(邮箱----密码----TOTP密钥); 4 段 = 再加 access_token
 python main.py export --filter alive --with-at --out deliver.txt   # [最常用] 存活账号落盘, 4 段含 at
 python main.py export                                              # 全部账号打印到屏幕(3 段)
 python main.py export --filter alive --out alive.txt               # 存活账号落盘(3 段, 不带 at)
