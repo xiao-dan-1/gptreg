@@ -40,7 +40,18 @@ proxy:
     chain_via: "http://127.0.0.1:7890"   # 你本机代理的第一跳
 ```
 
-### 4️⃣ 填号池（`icloud_pool.txt`，首选号源）
+### 4️⃣ 检查环境（确认代理可用）
+
+配置后先验证代理出口能通、入口就绪，再继续（避免配错直接跑注册失败）：
+
+```bash
+python main.py check-proxy --times 2    # 探测出口 IP，应看到 2 个不同住宅 IP
+python main.py --version                # 确认 CLI 入口可用
+```
+
+> ⚠️ 出口是数据中心 IP 或探测失败 → **先解决代理再继续**（住宅 IP 必须，数据中心 IP 会被 OpenAI 风控）。
+
+### 5️⃣ 填号池（`icloud_pool.txt`，首选号源）
 
 准备你的邮箱号池（见 [号池](#号池自备邮箱)）。**iCloud 号池**（`邮箱----接码URL`）示例：
 
@@ -48,16 +59,16 @@ proxy:
 user@icloud.com----https://你的接码服务/get-code
 ```
 
-> 用 Outlook 池则填 `mail_pool.txt`（`email----password----client_id----refresh_token`），并把第 5 步命令去掉 `--pool icloud`。
+> 用 Outlook 池则填 `mail_pool.txt`（`email----password----client_id----refresh_token`），并把第 6 步命令去掉 `--pool icloud`。
 
-### 5️⃣ 注册第一个账号
+### 6️⃣ 注册第一个账号
 
 ```bash
 python capture/tools/batch_totp.py --pool icloud --limit 1
 # 成功 → output/accounts.jsonl 新增一条带 TOTP 的账号
 ```
 
-### 6️⃣ 查看结果
+### 7️⃣ 查看结果
 
 ```bash
 python main.py overview     # 账号总览(总数/存活/按号源存活率)
