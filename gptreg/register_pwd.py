@@ -521,6 +521,12 @@ def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, An
         if not activated:
             raise _EnrollFailed("activate_enrollment 未确认 mfa_enabled=true")
         return {"totp_secret": enroll_secret, "totp_enrolled": True}
+    except _EnrollFailed:
+        raise
+    except Exception as exc:
+        # 网络/瞬时异常(curl 超时/断流等) → 归入 ENROLL_FAILED(账号已建, 2FA 可后补),
+        # 不再逃逸导致整个批量中断(实测 activate_enrollment 超时崩溃线程池, dulcet 未落盘)
+        raise _EnrollFailed(f"enroll 网络异常: {type(exc).__name__}: {str(exc)[:150]}") from exc
     finally:
         pass  # session/resolved 由 register_account 统一关闭
 
