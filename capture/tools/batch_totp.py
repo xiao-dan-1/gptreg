@@ -105,6 +105,7 @@ def _mark_permanent(main: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=3, help="本次批量数量(默认 3)")
+    ap.add_argument("--workers", type=int, default=1, help="并发线程数(默认 1 串行; 建议≤可用代理/IP 数, 避免共用 IP 风控)")
     ap.add_argument("--pool", default="", help="号池文件(默认 mail_pool.txt; icloud 可用 icloud_pool.txt; cloudmail=动态生成)")
     ap.add_argument("--proxy", default=None, help="固定代理(--no-dynamic 时用; 默认走 config 动态链式)")
     ap.add_argument("--no-dynamic", action="store_true", help="不用动态代理换 IP(用 --proxy 固定)")
@@ -126,7 +127,7 @@ def main() -> int:
                 print("  ", main)
             return 0
         proxy = None if not args.no_dynamic else args.proxy
-        return _run_batch(batch, proxy, cfg)
+        return _run_batch(batch, proxy, cfg, workers=args.workers)
 
     # 号池文件(默认 mail_pool.txt; --pool 支持 icloud 快捷名)
     pool_file = args.pool or "mail_pool.txt"
@@ -153,14 +154,20 @@ def main() -> int:
         print("动态代理: 每次换 sid(新出口), register 400 自动换 IP 重试")
 
     batch = unused[: args.limit]
-    return _run_batch(batch, proxy, cfg, pool)
+    return _run_batch(batch, proxy, cfg, pool, workers=args.workers)
 
 
-def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None) -> int:
-    """批量注册: batch=[(主号, account)]。pool 为 MailPool(批量后标记 used/bad)。"""
-    results: list[tuple[str, bool, RegisterOutcome]] = []
-    for i, (main, account) in enumerate(batch, 1):
-        t0 = time.time()
+def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: int = 1) -> int:
+    """批量注册: batch=[(主号, account)]。pool 为 MailPool(批量后标记 used/bad)。
+
+    workers>1 用线程池并发(参考 turb-gpt-free-register 的 --workers 设计):
+      I/O 密集(等收码/网络), 多线程有效; 每账号独立隧道/浏览器, 无共享可变状态;
+      号池/落盘已有锁(线程安全)。建议 workers ≤ 可用代理/IP 数(避免共用 IP 风控)。
+    """
+    results: list[tuple[int, str, bool, RegisterOutcome]] = []  # (idx, main, ok, outcome)
+    workers = max(1, int(workers or 1))
+
+    def _one_job(idx: int, main: str, account: dict) -> tuple[int, str, bool, RegisterOutcome]:
         # iCloud/cloudmail 一邮箱一账号: 用主邮箱(URL绑定, alias 收码不可靠); 其余走别名
         if account.get("mail_type") in ("icloud", "cloudmail"):
             email = main
@@ -169,7 +176,8 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None) -> int:
         password = "".join(random.choice(string.ascii_letters + string.digits + "!@#$%") for _ in range(14))
         display_name = random_display_name()
         bday = random_birthdate(cfg)
-        print(f"\n[{i}/{len(batch)}] 主号 {main} ...", flush=True)  # flush: 边界先于该账号探活/重试日志
+        print(f"\n[{idx + 1}/{len(batch)}] 主号 {main} ...", flush=True)
+        t0 = time.time()
         result = _register_with_retry(
             cfg, account, email, password, display_name, bday, proxy,
         )
@@ -183,7 +191,7 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None) -> int:
             print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
             print(f"  [{result.outcome.value}] {str(reason)[:100]}", flush=True)
             print(f"  -> 失败 ({dt:.0f}s)", flush=True)
-        # 主号生命周期: 与号池 state 同步(避免坏号反复试)
+        # 主号生命周期: 与号池 state 同步(避免坏号反复试); 锁内线程安全
         if result.outcome == RegisterOutcome.SUCCESS and pool is not None:
             pool.mark_used(main)
         elif result.outcome == RegisterOutcome.MAIL_REGISTERED:
@@ -191,13 +199,25 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None) -> int:
             if pool is not None:
                 pool.mark_bad(main, reason="邮箱已注册")
             print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name} + 号池 bad", flush=True)
-        # SUCCESS 由 accounts.jsonl 落盘标记已用; 其他失败(IP_BLOCKED/基建)不烧号, 下次可重试
-        results.append((main, ok, result.outcome))
         time.sleep(1)
+        return idx, main, ok, result.outcome
 
-    n_ok = sum(1 for _, ok, _ in results if ok)
+    if workers <= 1:
+        for i, (main, account) in enumerate(batch):
+            results.append(_one_job(i, main, account))
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        print(f"并发注册: {workers} 线程", flush=True)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_one_job, i, main, account): i
+                       for i, (main, account) in enumerate(batch)}
+            for f in futures:
+                results.append(f.result())
+
+    results.sort(key=lambda r: r[0])  # 按提交顺序
+    n_ok = sum(1 for _, _, ok, _ in results if ok)
     print(f"\n批量完成: {n_ok}/{len(batch)} 成功", flush=True)
-    for main, ok, oc in results:
+    for _, main, ok, oc in results:
         print(f"  [{'OK' if ok else 'X'}] {main} ({oc.value})", flush=True)
     return 0 if n_ok == len(batch) else 1
 
