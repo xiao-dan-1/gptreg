@@ -222,6 +222,17 @@ user@cloud.com----api_key
 - 注册用 plus 别名（`use_alias: true`），收码用主号 OAuth
 - 号池状态（`mail_pool.txt.state.json`）：失败/弃用带 **TTL 自动回退**——基建失败 30min、账号弃用 24h 过期自动恢复（代理/网络恢复账号复活，无需人工清 state）
 
+**号池来源（自备邮箱，本项目不提供号池）**：
+
+| 号源 | 邮箱来源 | 需要准备 |
+|---|---|---|
+| ms_oauth（Outlook 池） | 自建 Outlook/Hotmail/Live 邮箱 | Microsoft OAuth 授权拿 `client_id + refresh_token`（4 段行 `email----password----client_id----refresh_token`） |
+| iCloud | 自备 `@icloud.com/@me.com` 邮箱 | 第三方接码服务，提供 get-code URL（2 段行 `email----URL`，收码时 GET code_url 拉码） |
+| CloudMail | 自托管 cloud-mail 服务 | 部署 cloud-mail（如 mail.xdauv.xyz），配 `config.mail.cloud_mail` 的 admin 账号，动态生成邮箱（`--pool cloudmail`，不依赖号池文件） |
+| api | 第三方接码平台 | 注册平台拿 api_key（2 段行 `email----api_key`），配 `config.mail.api_client` 端点即可接入 |
+
+> 号池是使用方的自有资产：**本项目只提供注册/收码管线，不包含任何邮箱或接码服务**。参考示例见 `mail_pool.txt.example`。
+
 ## 目录
 
 ```text
