@@ -35,8 +35,12 @@ def _load_2fa_accounts(cfg: dict[str, Any]) -> list[dict]:
 def _promo_info(r: dict) -> tuple[str, bool]:
     """accounts/check 响应 → 优惠资格标记 (display_str, has_promo)。
 
-    优惠资格字段: promo_data(促销/优惠数据) / has_previously_paid_subscription(历史付费) /
-    is_most_recent_expired_subscription_gratis(免费赠送订阅)。空则只有 plan 标记。
+    对齐 at-hub 的正确优惠字段(而非 promo_data):
+      - eligible_promo_campaigns: 优惠活动(metadata.plan_name/title/discount)
+      - eligible_offers: 可购买 offer 列表
+      - is_eligible_for_yearly_plus_subscription: 年付 plus 资格
+      - has_previously_paid_subscription: 历史付费
+    空则只有 plan 标记(免费无订阅, subscriptions 接口返回 404)。
     """
     try:
         d = json.loads(r.get("body") or "")
@@ -46,15 +50,31 @@ def _promo_info(r: dict) -> tuple[str, bool]:
         a = next(iter(accs.values())).get("account") or {}
         flags: list[str] = []
         has = False
-        promo = a.get("promo_data")
-        if promo:
-            flags.append(f"promo={json.dumps(promo, ensure_ascii=False)[:60]}")
+        # 优惠活动: {campaign_id: {id, metadata:{plan_name,title,discount}}}
+        promo = a.get("eligible_promo_campaigns")
+        if promo and isinstance(promo, dict):
+            items = []
+            for _k, v in promo.items():
+                m = (v or {}).get("metadata") or {}
+                name = m.get("plan_name") or m.get("title") or ""
+                disc = m.get("discount")
+                items.append(f"{name}={disc}" if disc else name)
+            items = [x for x in items if x]
+            if items:
+                flags.append("promo=" + ",".join(items)[:60])
+                has = True
+        offers = a.get("eligible_offers")
+        if offers:
+            ids = [o.get("id") if isinstance(o, dict) else str(o) for o in (offers if isinstance(offers, list) else [])]
+            ids = [x for x in ids if x][:3]
+            if ids:
+                flags.append(f"offers={ids}")
+                has = True
+        if a.get("is_eligible_for_yearly_plus_subscription"):
+            flags.append("yearly_plus")
             has = True
         if a.get("has_previously_paid_subscription"):
             flags.append("paid")
-            has = True
-        if a.get("is_most_recent_expired_subscription_gratis"):
-            flags.append("gratis")
             has = True
         flags.append(f"plan={(a.get('plan_type') or '?')}")
         return " ".join(flags), has
