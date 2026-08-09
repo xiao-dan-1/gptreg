@@ -134,7 +134,7 @@ python capture/tools/batch_totp.py --pool icloud --limit 6 --workers 3         #
 python main.py survival --source icloud         # 按号源批量测活(每 8 个换 IP)
 python main.py overview                        # 资产总览(存活/吊销/按号源存活率)
 
-# ③ 续期(access_token 10 天过期前, 账号永活)
+# ③ 续期(实测 access_token ~6h 过期[非 10 天], 定期续期账号永活)
 python main.py refresh --dry-run                # 先试跑(不回写)
 python main.py refresh                          # 续期并回写
 

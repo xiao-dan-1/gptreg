@@ -76,6 +76,15 @@ def check_account_health(session: BrowserSession, access_token: str) -> dict[str
                 "endpoint": "accounts/check",
                 "body": text,
             }
+        if resp.status_code == 401 and "token_expired" in low:
+            # access_token 过期(实测 ~6h, 非 README 10 天)——账号存活, session_token 可续期
+            logger.warning("health: token_expired http=401 (access_token 过期, 可续期)")
+            return {
+                "status": "token_expired",
+                "http": resp.status_code,
+                "endpoint": "accounts/check",
+                "body": text,
+            }
         if resp.status_code == 401 and (
             "token_invalidated" in low
             or "token_revoked" in low

@@ -121,22 +121,25 @@ def run(cfg: dict[str, Any], args) -> int:
                 promo_str, has_promo = _promo_info(r)
                 results.append((email, mtype, st, http, age))
                 if st == "error":
-                    # error 多为代理/网络抖动(非账号死亡), 显示 detail 便于区分是否需重测
+                    # error 分两类: 401=token 过期(可续期) vs 无 http=网络异常——显示真实 http
                     det = str(r.get("detail") or r.get("body") or "")[:70]
-                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http=None ({dt:.1f}s) [{det}]")
+                    http_s = "None" if http is None else http
+                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http={http_s} ({dt:.1f}s) [{det}]")
                 elif promo_str:
-                    # 优惠资格标记(测活顺带观察: promo/paid/gratis/plan)
+                    # 优惠资格标记(测活顺带观察: promo/paid/gratis/plan); token_expired 也会显示
                     print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)  [{promo_str}]")
                 else:
                     print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)")
                 # 回写 accounts.jsonl(health_status + last_checked); 有优惠资格时记入 health_note,
-                # error 时 detail 也落盘(复盘 error 原因有据, 不再一次性 stdout 丢失)
+                # error 时 detail 也落盘; token_expired 标注"可续期"(复盘/续期有据)
                 try:
                     note = promo_str if has_promo else ""
                     if st == "error":
                         det_full = str(r.get("detail") or r.get("body") or "")[:200]
                         if det_full:
                             note = f"{note} | {det_full}" if note else det_full
+                    elif st == "token_expired":
+                        note = (f"{note} | " if note else "") + "access_token 过期, 可续期"
                     update_account_health(cfg, email=email, health_status=st, http=http, note=note)
                 except Exception as exc:
                     print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
@@ -147,16 +150,20 @@ def run(cfg: dict[str, Any], args) -> int:
         rot.close()
 
     _summarize(results)
+    tok_exp = sum(1 for _, _, s, _, _ in results if s == "token_expired")
+    if tok_exp:
+        print(f"提示: {tok_exp} 个 access_token 过期(非吊销, 有 session_token 可续期), 可运行 `main.py refresh` 续期")
     print(f"\n[总耗时] {(time.time()-t_start):.1f}s")
     return 0
 
 
 def _summarize(results: list[tuple[str, str, str, int | None, float]]) -> None:
-    """汇总: 总数 + 按号源存活率 + 吊销/存活年龄分布。"""
+    """汇总: 总数 + 按号源存活率 + 吊销/过期可续期/存活年龄分布。"""
     ok = sum(1 for _, _, s, _, _ in results if s == "ok")
     dead = sum(1 for _, _, s, _, _ in results if s in ("invalidated", "deactivated"))
-    other = len(results) - ok - dead
-    print(f"\n存活: {ok}/{len(results)}  吊销/封禁: {dead}  其他(error/限流): {other}")
+    tok = sum(1 for _, _, s, _, _ in results if s == "token_expired")
+    other = len(results) - ok - dead - tok
+    print(f"\n存活: {ok}/{len(results)}  吊销/封禁: {dead}  过期可续期: {tok}  其他: {other}")
 
     # 按号源存活率
     by_src: dict[str, list[str]] = defaultdict(list)

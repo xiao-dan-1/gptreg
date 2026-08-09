@@ -195,8 +195,8 @@ accounts.jsonl(分组字段: 身份→凭据→设备→状态→观测→运维
 │                                                             │
 │  batch_totp        main.py        main.py        main.py     │
 │  --pool icloud     survival       refresh        export      │
-│  --limit N         (回写health)   (每7-9天,      --filter     │
-│  --workers 3-5     --source icloud token过期前)   alive       │
+│  --limit N         (回写health)   (每~6h,        --filter     │
+│  --workers 3-5     --source icloud token实测~6h过期)  alive   │
 │  (Phase 2 → main.py register)                               │
 │     │                                                       │
 │     ▼                                                       │
