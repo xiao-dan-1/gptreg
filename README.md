@@ -55,6 +55,8 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 
 - 号池 ~12/15 账号 IMAP 可用；被拒账号（`authenticated but not connected`）自动降级 Graph
 - **收码代理策略**：仅 ms_oauth(Outlook IMAP/Graph)走链式隧道；iCloud/CloudMail/API 直连（第三方/自托管服务本身干净, 套隧道反而 TLS 失败）
+- **并发能力（实测）**：并发边界取决于收码方式——独立收码(iCloud URL/Outlook IMAP)高并发(实测 5 线程稳定 10/10)；
+  共享收码(CloudMail admin 拉码)低并发(≤2, 4 线程会收码超时)。`--workers` 建议 ≤ 可用代理/IP 数
 - **新增收码通道/号源 = 写一个 MailClient/MailSource 插件 + 注册进注册表, 核心零改动**
 
 ### 代理
@@ -133,6 +135,10 @@ python capture/tools/refresh_at.py
 # ④ 导出交付
 python capture/tools/export_accounts.py                               # email----password----2fa
 python capture/tools/export_accounts.py --filter alive --with-at --out deliver.txt  # 存活+at 存文件
+```
+
+> **生产循环实测**（iCloud 并发 5）：批量 10 个 → 10/10 成功(37-102s) → 测活 10/10 存活
+> → 导出 66 个存活账号。iCloud 号源高并发稳定, 存活率 100%(对比 CloudMail ~20%)。
 ```
 
 **注册参数说明**:
