@@ -44,6 +44,12 @@ proxy:
 
 准备你的邮箱号池（见 [号池](#号池自备邮箱)）。**iCloud 号池**（`邮箱----接码URL`）示例：
 
+```text
+user@icloud.com----https://你的接码服务/get-code
+```
+
+> 用 Outlook 池则填 `mail_pool.txt`（`email----password----client_id----refresh_token`），并把第 6 步命令去掉 `--pool icloud`。
+
 ### 5️⃣ 检查环境（确认代理可用）
 
 填好号池后、注册前，先验证代理出口能通、入口就绪（避免配错直接跑注册浪费号池）：
@@ -54,12 +60,6 @@ python main.py --version                # 确认 CLI 入口可用
 ```
 
 > ⚠️ 出口是数据中心 IP 或探测失败 → **先解决代理再继续**（住宅 IP 必须，数据中心 IP 会被 OpenAI 风控）。
-
-```text
-user@icloud.com----https://你的接码服务/get-code
-```
-
-> 用 Outlook 池则填 `mail_pool.txt`（`email----password----client_id----refresh_token`），并把第 6 步命令去掉 `--pool icloud`。
 
 ### 6️⃣ 注册第一个账号
 
