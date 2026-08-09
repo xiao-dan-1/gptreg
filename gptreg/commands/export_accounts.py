@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from gptreg.account_store import load_accounts
+from gptreg.account_store import ensure_output_dir, load_accounts
 
 
 def add_parser(subparsers) -> None:
@@ -48,8 +48,13 @@ def run(cfg: dict[str, Any], args) -> int:
             lines.append(f"{email}----{pw}----{totp}")
 
     if args.out:
-        Path(args.out).write_text("\n".join(lines) + "\n", encoding="utf-8")
-        print(f"已导出 {len(lines)} 个账号 → {args.out}")
+        out_path = Path(args.out)
+        # 纯文件名(无目录分隔)默认写到 output/(与账号主库同目录); 含目录则按显式路径
+        if str(out_path.parent) in (".", ""):
+            out_path = ensure_output_dir(cfg) / out_path.name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"已导出 {len(lines)} 个账号 → {out_path}")
     else:
         for line in lines:
             print(line)

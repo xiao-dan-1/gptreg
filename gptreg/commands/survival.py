@@ -6,11 +6,12 @@
 """
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from typing import Any
 
 from gptreg.account_store import load_accounts, mail_type_of, update_account_health
-from gptreg.commands.common import RotatingSession, age_h, age_h_float
+from gptreg.commands.common import RotatingSession, age_h, age_h_float, apply_region
 from gptreg.health import check_account_health
 
 
@@ -20,6 +21,7 @@ def add_parser(subparsers) -> None:
     p.add_argument("--rotate", type=int, default=8, help="每 N 个换一次出口 IP")
     p.add_argument("--email", default="", help="逗号分隔指定邮箱(覆盖默认全部)")
     p.add_argument("--source", default="", help="只测指定号源(ms_oauth/icloud/cloudmail), 与 --email 叠加")
+    p.add_argument("--region", default=None, help="动态代理地区(覆盖 config), 如 TR/US/JP/NL")
     p.set_defaults(func=run)
 
 
@@ -30,7 +32,38 @@ def _load_2fa_accounts(cfg: dict[str, Any]) -> list[dict]:
     return recs
 
 
+def _promo_info(r: dict) -> tuple[str, bool]:
+    """accounts/check 响应 → 优惠资格标记 (display_str, has_promo)。
+
+    优惠资格字段: promo_data(促销/优惠数据) / has_previously_paid_subscription(历史付费) /
+    is_most_recent_expired_subscription_gratis(免费赠送订阅)。空则只有 plan 标记。
+    """
+    try:
+        d = json.loads(r.get("body") or "")
+        accs = d.get("accounts") or {}
+        if not accs:
+            return "", False
+        a = next(iter(accs.values())).get("account") or {}
+        flags: list[str] = []
+        has = False
+        promo = a.get("promo_data")
+        if promo:
+            flags.append(f"promo={json.dumps(promo, ensure_ascii=False)[:60]}")
+            has = True
+        if a.get("has_previously_paid_subscription"):
+            flags.append("paid")
+            has = True
+        if a.get("is_most_recent_expired_subscription_gratis"):
+            flags.append("gratis")
+            has = True
+        flags.append(f"plan={(a.get('plan_type') or '?')}")
+        return " ".join(flags), has
+    except Exception:
+        return "", False
+
+
 def run(cfg: dict[str, Any], args) -> int:
+    apply_region(cfg, args.region)
     accounts = _load_2fa_accounts(cfg)
     if args.source:
         accounts = [d for d in accounts if mail_type_of(d) == args.source]
@@ -57,16 +90,21 @@ def run(cfg: dict[str, Any], args) -> int:
                 r = check_account_health(sess, d.get("access_token"))
                 st = r.get("status")
                 http = r.get("http")
+                promo_str, has_promo = _promo_info(r)
                 results.append((email, mtype, st, http, age))
                 if st == "error":
                     # error 多为代理/网络抖动(非账号死亡), 显示 detail 便于区分是否需重测
                     det = str(r.get("detail") or r.get("body") or "")[:70]
                     print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http=None [{det}]")
+                elif promo_str:
+                    # 优惠资格标记(测活顺带观察: promo/paid/gratis/plan)
+                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http}  [{promo_str}]")
                 else:
                     print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http}")
-                # 回写 accounts.jsonl(health_status + last_checked), 账号库保持活状态
+                # 回写 accounts.jsonl(health_status + last_checked); 有优惠资格时记入 health_note
                 try:
-                    update_account_health(cfg, email=email, health_status=st, http=http)
+                    update_account_health(cfg, email=email, health_status=st, http=http,
+                                          note=promo_str if has_promo else "")
                 except Exception as exc:
                     print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
             except Exception as exc:

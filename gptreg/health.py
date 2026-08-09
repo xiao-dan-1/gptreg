@@ -59,11 +59,13 @@ def check_account_health(session: BrowserSession, access_token: str) -> dict[str
     try:
         url = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27"
         resp = session.get(url, headers=headers)
-        text = (resp.text or "")[:500]
+        resp_text = resp.text or ""
+        text = resp_text[:500]  # 截断仅用于关键词匹配(account_deactivated 等在响应开头)
         low = text.lower()
         if resp.status_code == 200:
             logger.info("health check OK accounts/check=200")
-            return {"status": "ok", "http": 200, "endpoint": "accounts/check", "body": text}
+            # body 返回完整响应(8KB), 供 promo_data 等字段解析; 调用方按需截断
+            return {"status": "ok", "http": 200, "endpoint": "accounts/check", "body": resp_text}
         if resp.status_code in (401, 403) and (
             "account_deactivated" in low or "deactivated" in low or "deleted" in low
         ):
