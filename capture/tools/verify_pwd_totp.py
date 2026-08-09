@@ -22,7 +22,7 @@ for _s in (sys.stdout, sys.stderr):  # 中文 logger 走 stderr, 也必须 UTF-8
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
-from gptreg.config import load_config, random_birthdate, random_display_name  # noqa: E402
+from gptreg.config import load_config, pick_password, random_birthdate, random_display_name  # noqa: E402
 from gptreg.mail.pool import parse_mail_line  # noqa: E402
 from gptreg.register_pwd import RegisterOutcome, register_account, timing_str  # noqa: E402
 
@@ -99,7 +99,7 @@ def main() -> int:
         email = f"{name}+{tag}@{dom}"
     else:
         email = base_email
-    password = "".join(random.choice(string.ascii_letters + string.digits + "!@#$%") for _ in range(14))
+    password = pick_password(cfg)  # 统一密码(config)或随机——半注册邮箱可用统一密码找回
     display_name = random_display_name()
     bday = random_birthdate(cfg)
     print(f"注册邮箱: {email} (主号: {base_email}, {'别名' if use_alias else '直接用主号'})  密码: {password}")

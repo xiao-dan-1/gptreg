@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import random
+import string
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,9 @@ _DEFAULTS: dict[str, Any] = {
     },
     "register": {
         "default_name": "",
+        # 统一密码(空=每次随机)。填了则所有注册都用同一密码——半注册邮箱
+        # (register 成功但 create/so 失败)可用同一密码手动登录找回, 不再丢密码
+        "default_password": "",
         "birthday_year_min": 1995,
         "birthday_year_max": 2005,
         "finalize_attempts": 5,
@@ -202,3 +206,19 @@ def random_birthdate(cfg: dict[str, Any]) -> str:
     month = random.randint(1, 12)
     day = random.randint(1, 28)
     return f"{year}-{month:02d}-{day:02d}"
+
+
+def pick_password(cfg: dict[str, Any], length: int = 14) -> str:
+    """注册密码: config register.default_password(统一密码)或随机(空则随机)。
+
+    统一密码的意义: OpenAI 注册是 per-邮箱状态机, 半注册邮箱(register 成功设密码但
+    create/so 失败)不可重设密码; 若每次随机, 首设密码随进程丢失 → 半注册邮箱无法找回。
+    统一密码让"register 已设的密码"恒等于已知值 → 可用同一密码手动登录找回。
+    """
+    pw = str(((cfg or {}).get("register") or {}).get("default_password") or "")
+    if pw:
+        return pw
+    return "".join(
+        random.choice(string.ascii_letters + string.digits + "!@#$%")
+        for _ in range(max(8, int(length or 14)))
+    )
