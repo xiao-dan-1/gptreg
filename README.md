@@ -82,8 +82,8 @@ python main.py survival --source icloud
 # ③ 续期：access_token 续期（实测 ~6h 过期，见 FAQ）
 python main.py refresh
 
-# ④ 导出：导出存活账号，四段格式含 access_token
-python main.py export --filter alive --with-at
+# ④ 导出：导出存活账号到文件(四段格式含 access_token), --out 纯文件名写到 output/
+python main.py export --filter alive --with-at --out deliver.txt
 ```
 
 **其他工具**：
@@ -139,7 +139,7 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 - `totp_secret` = 2FA 密钥（有值 = 真 2FA 账号）
 - `session_token` = 刷新凭证（~3 月，token 过期续期用）
 
-**导出格式**：`email----password----2fa[----at]`（`--with-at` 加第 4 段 access_token）。
+**导出格式**：`email----password----2fa[----at]`（`--with-at` 加第 4 段 access_token）。默认打印到屏幕，`--out 文件名` 写入文件（纯文件名 → `output/`，含路径 → 按显式路径）。
 
 ---
 
