@@ -367,8 +367,11 @@ def _stage_create(
     _th_so = threading.Thread(target=lambda: _ctx_so.run(_gen_so))
     _th_t.start()
     _th_so.start()
-    _th_t.join()
-    _th_so.join()
+    # join 必须加超时: browser so 采集线程(playwright/Chrome) 偶发 hang(Chrome 无响应)时,
+    # 无超时 join 无限等待 → 整个批量卡死(实测 5 线程 20 账号卡在 so 采集 join, 主线程
+    # f.result 永久等待, 批量统计不打印、进程不退出)。超时后按 holder 无结果走失败分支。
+    _th_t.join(timeout=90)   # quickjs t 一般 <5s
+    _th_so.join(timeout=120)  # so 采集 ~10s + 重试 3 次
     tok2 = str(holder.get("tok2") or "")
     so_b = holder.get("so_b")
     diag["t_s"] = round(float(holder.get("t_s", 0)), 1)
