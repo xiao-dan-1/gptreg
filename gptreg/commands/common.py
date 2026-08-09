@@ -49,14 +49,17 @@ class RotatingSession:
         self.resolved = None
         self.sess: BrowserSession | None = None
         self.sid = ""
-        self.rotated = False  # 最近一次 get() 是否重建(换出口)了会话
+        self.rotated = False  # 最近一次 get() 是否重建(换出口)了会话(含首次建会话)
+        self.is_first = False  # 最近一次 get() 是否首个会话(首次建, 非真正轮换)
 
     def get(self, index: int) -> BrowserSession:
         """index 从 1 开始。每 rotate 个重建会话(换出口 IP)。
 
-        调用方可用 self.rotated 判断本次是否轮换(用于打印"新出口")。
+        调用方可用 self.rotated 判断本次是否重建(首次建会话也算),
+        self.is_first 区分"首个会话" vs "真正轮换"——避免首个账号误报轮换。
         """
-        self.rotated = self.resolved is None or (index - 1) % self.rotate == 0
+        self.is_first = self.resolved is None
+        self.rotated = self.is_first or (index - 1) % self.rotate == 0
         if self.rotated:
             if self.resolved is not None:
                 self.resolved.close()

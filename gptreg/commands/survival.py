@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -96,18 +97,25 @@ def run(cfg: dict[str, Any], args) -> int:
 
     results: list[tuple[str, str, str, int | None, float]] = []  # (email, type, status, http, age_h)
     rot = RotatingSession(cfg, rotate=args.rotate)
+    t_start = time.time()
     try:
         for i, d in enumerate(accounts, 1):
             sess = rot.get(i)  # 每 rotate 个重建(换出口 IP)
             if rot.rotated:
-                print(f"  [轮换{i}] 新出口 sid={rot.sid or '?'}")
+                # 首个会话(首次建) vs 真正轮换(达到 rotate 间隔)——措辞区分, 不再误报轮换
+                if rot.is_first:
+                    print(f"  [出口{i}] sid={rot.sid or '?'}")
+                else:
+                    print(f"  [轮换@{i}] 新出口 sid={rot.sid or '?'}")
 
             email = d.get("email", "?")
             mtype = mail_type_of(d)
             age = age_h_float(d.get("saved_at") or d.get("updated_at") or "")
             age_s = age_h(age)
             try:
+                _t0 = time.time()
                 r = check_account_health(sess, d.get("access_token"))
+                dt = time.time() - _t0
                 st = r.get("status")
                 http = r.get("http")
                 promo_str, has_promo = _promo_info(r)
@@ -115,16 +123,21 @@ def run(cfg: dict[str, Any], args) -> int:
                 if st == "error":
                     # error 多为代理/网络抖动(非账号死亡), 显示 detail 便于区分是否需重测
                     det = str(r.get("detail") or r.get("body") or "")[:70]
-                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http=None [{det}]")
+                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http=None ({dt:.1f}s) [{det}]")
                 elif promo_str:
                     # 优惠资格标记(测活顺带观察: promo/paid/gratis/plan)
-                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http}  [{promo_str}]")
+                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)  [{promo_str}]")
                 else:
-                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http}")
-                # 回写 accounts.jsonl(health_status + last_checked); 有优惠资格时记入 health_note
+                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)")
+                # 回写 accounts.jsonl(health_status + last_checked); 有优惠资格时记入 health_note,
+                # error 时 detail 也落盘(复盘 error 原因有据, 不再一次性 stdout 丢失)
                 try:
-                    update_account_health(cfg, email=email, health_status=st, http=http,
-                                          note=promo_str if has_promo else "")
+                    note = promo_str if has_promo else ""
+                    if st == "error":
+                        det_full = str(r.get("detail") or r.get("body") or "")[:200]
+                        if det_full:
+                            note = f"{note} | {det_full}" if note else det_full
+                    update_account_health(cfg, email=email, health_status=st, http=http, note=note)
                 except Exception as exc:
                     print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
             except Exception as exc:
@@ -134,6 +147,7 @@ def run(cfg: dict[str, Any], args) -> int:
         rot.close()
 
     _summarize(results)
+    print(f"\n[总耗时] {(time.time()-t_start):.1f}s")
     return 0
 
 
