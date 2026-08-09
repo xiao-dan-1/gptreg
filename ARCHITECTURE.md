@@ -4,11 +4,12 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                入口层 capture/ (tools 运维 / legacy 旧路径 / research 研究)     │
 │                                                                             │
-│  tools/ 单号注册     批量生产       测活/续期       资产视图                    │
-│  verify_pwd_totp   batch_totp    check_survival*  account_overview          │
-│  (CLI 薄壳: 选号   (复用核心,     refresh_at      backfill_token             │
-│   →别名→调核心→     按outcome      login_check   check_raw_tokens            │
-│   按outcome打印)    管主号不烧号)                 check_imap                  │
+│  tools/ 单号注册     批量生产(并发)   测活/续期      资产视图      导出交付      │
+│  verify_pwd_totp   batch_totp       check_survival* account_      export_     │
+│  (CLI 薄壳: 选号   (--workers N     refresh_at      overview      accounts    │
+│   →别名→调核心→     多线程并发,      login_check   backfill_     (email--     │
+│   按outcome打印)    按outcome管主号  check_totp    token          -password   │
+│                  不烧号)                       check_raw_      -2fa[--at])  │
 │  legacy/ verify_*(旧路径参考)   research/ probe_*/t_*_exp/so_*(研究)         │
 └──────────────┬──────────────────────┬───────────────────────────────────────┘
                │  密码+TOTP 主路线      │  OTP-only 并行路径
@@ -28,16 +29,21 @@
 │                         共享支撑层 (gptreg/)                                │
 │ 协议 auth.signin_flow │ Sentinel 引擎 │ 收码 mail/ │ 代理 proxyutil │ 账号   │
 │ (协议步骤内聚, 无散落  │ (quickjs真t   │ (IMAP/    │ (cliproxy住宅+ │ store  │
-│  sleep)               │  browser真so) │ Graph/    │  chain隧道)    │ 落盘)  │
-│  session/config/health/postlogin                                        │
+│  sleep)               │  browser真so) │ Graph/    │  chain隧道,    │ 落盘+  │
+│  session/config/health/postlogin    │ iCloud URL/│  探活重建)      │ 自动   │
+│                                     │ CloudMail) │                 │ 备份   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **账号管理闭环**（产出账号 → 可维护资产）:
 ```
-accounts.jsonl(分组字段) ←测活回写← check_survival_batch
-     │  ↑续期回写(refresh_at: session_token 过期前换新)
-     ▼  └─按号源存活率 / 吊销时长分布 / 资产视图(account_overview)
+accounts.jsonl(分组字段, 自动备份)
+   ↑ 注册落盘 (register_pwd)
+   ├─测活→ check_survival_batch → 回写 health_status + last_checked
+   ├─续期→ refresh_at → 回写 access_token + session_token + expires
+   ├─视图→ account_overview → 总数/存活/按号源存活率/年龄分布
+   ├─导出→ export_accounts → email----password----2fa[----at]
+   └─号池→ MailPool 与账号表联动(反查已注册主号)
 ```
 
 ## 分层明细
@@ -168,8 +174,34 @@ accounts.jsonl(分组字段: 身份→凭据→设备→状态→观测→运维
    │  注册落盘
    ├──测活── check_survival_batch (定期换IP) → 回写 health_status + last_checked
    ├──续期── refresh_at (过期前) → 回写 access_token + session_token + expires
-   ├──视图── account_overview (总数/存活/按号源存活率/吊销时长分布)
+   ├──视图── account_overview (总数/存活/按号源存活率/年龄分布)
+   ├──导出── export_accounts (email----password----2fa[----at])
    └──号池── MailPool 与账号表联动(反查已注册主号)
+```
+
+## 生产循环（完整流程）
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ① 注册           ② 测活          ③ 续期         ④ 导出交付    │
+│                                                             │
+│  batch_totp        check_survival  refresh_at    export_     │
+│  --pool icloud     _batch         (每7-9天,     accounts     │
+│  --limit N         (回写health)   token过期前)  --filter     │
+│  --workers 3-5                                           alive│
+│     │                                                       │
+│     ▼                                                       │
+│  10/10成功        10/10存活      账号永活       66个交付      │
+└──────────────────────────────────────────────────────────────┘
+        ↕ 号池管理: 坏号(已注册)标 bad / 换新号 / 看号源存活率
+```
+
+**批量并发流程**（batch_totp --workers N）:
+```
+号池文件 → MailPool.claim() → ThreadPoolExecutor(N线程)
+   每线程: resolve_proxy(新IP) → register_account → 落盘/标号池
+   N建议 ≤ 可用IP数; 独立收码号源(iCloud/Outlook)高并发,
+   共享收码(CloudMail admin)低并发(≤2)
 ```
 
 ## 号池生命周期（批量）
