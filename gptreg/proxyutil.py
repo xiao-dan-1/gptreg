@@ -433,10 +433,8 @@ class StickyChainTunnel:
             hop1_resp, _ = _read_until_headers(hop1_sock)
             hop1_status = hop1_resp.split(b"\r\n", 1)[0]
             if b" 200 " not in hop1_status:
-                logger.warning(
-                    "[Proxy] hop1 CONNECT hop2 失败: %s",
-                    hop1_status.decode(errors="replace"),
-                )
+                _st = hop1_status.decode(errors="replace").strip() or "(无响应/连接被断)"
+                logger.warning("[Proxy] hop1 CONNECT hop2 失败: %s", _st)
                 client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
                 return
 
@@ -450,11 +448,8 @@ class StickyChainTunnel:
                 hop2_resp, extra2 = _read_until_headers(hop1_sock)
                 hop2_status = hop2_resp.split(b"\r\n", 1)[0]
                 if b" 200 " not in hop2_status:
-                    logger.warning(
-                        "[Proxy] hop2 CONNECT %s 失败: %s",
-                        target,
-                        hop2_status.decode(errors="replace"),
-                    )
+                    _st = hop2_status.decode(errors="replace").strip() or "(无响应/连接被断)"
+                    logger.warning("[Proxy] hop2 CONNECT %s 失败: %s", target, _st)
                     client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
                     return
                 # 3) 告诉客户端隧道已建立，随后双向透传 TLS

@@ -116,6 +116,8 @@ def timing_str(diag: dict[str, Any]) -> str:
     """
     d = diag or {}
     parts: list[str] = []
+    if d.get("setup_s") is not None:
+        parts.append(f"setup={d['setup_s']}s")
     sn = d.get("signin_s")
     rg = d.get("register_s")
     otp = d.get("otp_s")
@@ -411,10 +413,13 @@ def _register_chain(
     阶段序列编排器: 各阶段独立函数(Signin/Register/WaitOtp/Create/Session),
     统一 diag 累加, 任一段抛分类异常由 register_account 统一归类。
     """
+    _setup_t0 = time.time()
     resolved = resolve_proxy(cfg, override=proxy_url)
     session = BrowserSession(cfg, proxy=resolved.session_url)
     st = {"start": time.time()}
-    diag: dict[str, Any] = {}
+    # setup_s: 隧道建立+会话初始化(在 st.start 之前, 故归入独立段, 不污染 signin 段)。
+    # 隧道探活失败重建时偏大——IP 排查有价值(段外开销归因, 收窄"段和 vs 墙钟"差额)。
+    diag: dict[str, Any] = {"setup_s": round(time.time() - _setup_t0, 1)}
     try:
         final = _stage_signin(session, email, diag)
         reg, send_url = _stage_register(session, cfg, email, password, final, st, diag)

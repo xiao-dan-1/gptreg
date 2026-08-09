@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import random
 import string
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -35,6 +37,21 @@ OUT = ROOT / "output"
 POOL = ROOT / "mail_pool.txt"
 FAILED_FILE = ROOT / "data" / "totp_failed.txt"
 FAIL_LOG = ROOT / "data" / "batch_failures.log"
+
+# 批量并发: 每个 worker 线程绑定当前账号, logging Filter 注入归属前缀(INFO 可归属账号)
+_account_local = threading.local()
+
+
+class _AccountFilter(logging.Filter):
+    """给 logger 记录注入当前账号前缀(thread-local), 并发下过程日志可归属账号。
+
+    挂在 root logger(propagate 到 root 的所有 record 都过它), format 用 %(account)s。
+    """
+
+    def filter(self, record):
+        acc = getattr(_account_local, "account", "") or ""
+        record.account = f"[{acc}] " if acc else ""
+        return True
 
 
 def _base(m: str) -> str:
@@ -132,13 +149,17 @@ def main() -> int:
     args = ap.parse_args()
 
     t_start = time.time()
-    import logging as _logging
 
     # 完整日志: 无 basicConfig 时根 logger 无 handler, register_account 的 INFO 诊断
     # (quickjs t/收码通道/enroll)全被丢弃(默认只 last-resort 显 WARNING)——恢复全可见,
     # -v 开 DEBUG 定位慢点(对齐 verify_pwd_totp)。
-    _logging.basicConfig(level=_logging.DEBUG if args.verbose else _logging.INFO,
-                         format="%(levelname)s %(message)s")
+    # format 含 %(account)s: 并发 worker 的 INFO 经 _AccountFilter 注入当前账号前缀可归属。
+    # 须挂 root handler(Handler.filter 对每个进 handler 的 record 生效)——logger 级 filter
+    # 只对发出点 logger 自身生效, 不覆盖 propagate 上来的子 logger record(会 KeyError: account)。
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format="%(levelname)s %(account)s%(message)s")
+    for _h in logging.getLogger().handlers:
+        _h.addFilter(_AccountFilter())
 
     cfg = load_config()
     # CloudMail: 动态生成邮箱(不依赖号池文件)
@@ -210,9 +231,13 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
         bday = random_birthdate(cfg)
         print(f"\n[{idx + 1}/{len(batch)}] 主号 {main} ...", flush=True)
         t0 = time.time()
-        result = _register_with_retry(
-            cfg, account, email, password, display_name, bday, proxy,
-        )
+        _account_local.account = main  # logging 归属前缀(线程内生效, 账号结束清理)
+        try:
+            result = _register_with_retry(
+                cfg, account, email, password, display_name, bday, proxy,
+            )
+        finally:
+            _account_local.account = ""
         dt = time.time() - t0
         ok = result.outcome == RegisterOutcome.SUCCESS
         print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
