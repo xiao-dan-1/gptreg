@@ -1,36 +1,33 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""检查号池主号的 IMAP 可用性(决定收码走 IMAP 秒级还是降级 Graph 慢速)。
+"""imap: 检查号池主号 IMAP 可用性(决定收码走 IMAP 秒级还是降级 Graph 慢速)。
 
-IMAP 不可用(缺 OAuth scope / 未开 IMAP) → build_mail_client 降级 Graph(150s+ 索引延迟)。
-本脚本对号池主号逐个测 IMAP 连接, 统计可用比例。
-
-用法: python capture/check_imap.py [--limit N]
+从 capture/tools/check_imap.py 收编, 修复 cwd 相对路径(Path("mail_pool.txt") →
+resolve_path 根目录定位)。
 """
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
+from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
-
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-from gptreg.mail.pool import parse_mail_line  # noqa: E402
-from gptreg.mail.providers import build_mail_client  # noqa: E402
+from gptreg.config import resolve_path
+from gptreg.mail.pool import parse_mail_line
+from gptreg.mail.providers import build_mail_client
 
 
-def main() -> int:
-    import argparse as _ap
-    ap = _ap.ArgumentParser()
-    ap.add_argument("--limit", type=int, default=10)
-    args = ap.parse_args()
+def add_parser(subparsers) -> None:
+    p = subparsers.add_parser("imap", help="检查号池主号 IMAP 可用性")
+    p.add_argument("--limit", type=int, default=10)
+    p.add_argument("--pool", default=None, help="号池路径，覆盖配置")
+    p.set_defaults(func=run)
 
+
+def run(cfg: dict[str, Any], args) -> int:
+    pool_file = resolve_path(
+        args.pool or cfg.get("mail", {}).get("pool_file", "mail_pool.txt"),
+        Path(cfg["_root"]),
+    )
     accounts = []
-    for line in Path("mail_pool.txt").read_text(encoding="utf-8").splitlines():
+    for line in pool_file.read_text(encoding="utf-8").splitlines():
         a = parse_mail_line(line.strip())
         if a:
             accounts.append(a)
@@ -39,7 +36,7 @@ def main() -> int:
     ok, fail, err = 0, 0, 0
     for i, a in enumerate(accounts[: args.limit], 1):
         try:
-            client = build_mail_client(a)
+            client = build_mail_client(a, cfg=cfg)
             cls = type(client).__name__
             if cls == "IMAPOAuthClient":
                 t0 = time.time()
@@ -61,7 +58,3 @@ def main() -> int:
 
     print(f"\nIMAP 可用 {ok} / 失败降级 {fail} / 其他 {err}")
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

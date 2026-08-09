@@ -9,11 +9,12 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
   - 薄壳：`capture/tools/verify_pwd_totp.py`（选号/生成参数/打印反馈）
   - `enroll` → `activate_enrollment` 完整链，产出 `mfa_enabled: true` 的真 2FA 账号
   - create 后即时健康检查（秒封检测）
-- **批量生产**（`capture/tools/batch_totp.py`）复用核心，按失败类型管主号（IP 风控不烧号），`--workers` 多线程并发
+- **统一 CLI 入口**（`main.py`，子命令式）：`register` / `survival` / `refresh` / `export` / `overview` / `backfill` / `imap` / `raw-check` / `check-proxy` / `stats`
+- **批量生产**（`capture/tools/batch_totp.py`，Phase 2 迁入 main.py）复用核心，按失败类型管主号（IP 风控不烧号），`--workers` 多线程并发
 - **本地 IMAP 收码**（XOAUTH2 经链式隧道），失败自动降级 Graph
-- **账号测活 / 补 token / 2FA 登录**（`capture/tools/check_survival.py` / `backfill_token.py` / `login_pwd_check_totp.py`）
-- **账号管理闭环**：测活回写（`check_survival_batch`）+ access_token 续期（`refresh_at`）+ 资产视图（`account_overview`）
-- **导出交付**（`export_accounts.py`）：`email----password----2fa[----at]` 格式
+- **账号测活 / 补 token / 2FA 登录**（`main.py survival` / `main.py backfill` / `capture/tools/login_pwd_check_totp.py`）
+- **账号管理闭环**：测活回写（`main.py survival`）+ access_token 续期（`main.py refresh`）+ 资产视图（`main.py overview`）
+- **导出交付**（`main.py export`）：`email----password----2fa[----at]` 格式
 - 统一落盘 `accounts.jsonl` 主库（去重 upsert + 自动备份）
 
 ## 主路线架构
@@ -118,7 +119,11 @@ register:
 ```
 
 ```bash
-# ① 注册（逐个/批量）
+# 统一入口 main.py（子命令式）。旧 capture/tools/xxx.py 已迁移:
+#   check_survival_batch→survival, refresh_at→refresh, account_overview→overview,
+#   export_accounts→export, backfill_token→backfill, check_imap→imap, check_raw_tokens→raw-check
+
+# ① 注册（逐个/批量）——Phase 2 迁入 main.py, 当前仍用 capture/tools
 python capture/tools/verify_pwd_totp.py --pool icloud --email 用户@icloud.com   # 单个
 python capture/tools/batch_totp.py --pool icloud --limit 3                     # 批量(串行)
 python capture/tools/batch_totp.py --pool icloud --limit 6 --workers 3         # 批量并发(3 线程)
@@ -126,15 +131,23 @@ python capture/tools/batch_totp.py --pool icloud --limit 6 --workers 3         #
 # --workers N: 并发线程数(默认 1 串行), 建议 ≤ 可用代理/IP 数(避免共用 IP 风控)
 
 # ② 测活(确认账号存活, 回写 health_status)
-python capture/tools/check_survival_batch.py
-python capture/tools/account_overview.py        # 资产总览(存活/吊销/按号源存活率)
+python main.py survival --source icloud         # 按号源批量测活(每 8 个换 IP)
+python main.py overview                        # 资产总览(存活/吊销/按号源存活率)
 
 # ③ 续期(access_token 10 天过期前, 账号永活)
-python capture/tools/refresh_at.py
+python main.py refresh --dry-run                # 先试跑(不回写)
+python main.py refresh                          # 续期并回写
 
 # ④ 导出交付
-python capture/tools/export_accounts.py                               # email----password----2fa
-python capture/tools/export_accounts.py --filter alive --with-at --out deliver.txt  # 存活+at 存文件
+python main.py export                           # email----password----2fa
+python main.py export --filter alive --with-at --out deliver.txt  # 存活+at 存文件
+
+# 工具
+python main.py check-proxy --times 2            # 探测出口 IP(换 sid 验证换 IP)
+python main.py stats                            # 号池统计
+python main.py backfill --emails xxx            # 补缺失 access_token
+python main.py imap --limit 3                   # 号池 IMAP 可用性
+echo "<jwt>" | python main.py raw-check         # 直接喂 token 测活
 ```
 
 > **生产循环实测**（iCloud 并发 5）：批量 10 个 → 10/10 成功(37-102s) → 测活 10/10 存活
@@ -203,28 +216,27 @@ user@cloud.com----api_key
 ## 目录
 
 ```text
-main.py                        OTP-only 流水线入口（非当前主路线）
-capture/
-  tools/                       运维工具(当前在用)
-    verify_pwd_totp.py         主路线：密码注册 + TOTP 2FA 激活
-    batch_totp.py              批量生产编排
-    check_imap.py              IMAP 可用性检查
-    check_survival*.py         账号测活(单/批量, 回写 health_status)
-    refresh_at.py              access_token 续期
-    account_overview.py        账号资产总览
-    export_accounts.py         导出账号(email----password----2fa[----at])
-    backfill_token.py          补 access_token
-    login_pwd_check_totp.py    密码+TOTP 登录验证
-  legacy/                      旧注册路径脚本(verify_* 等, 参考)
-  research/                    研究探测脚本(probe_*/t_*_exp/so_* 等)
-  reg-2fa-timing-*.md          耗时/性能存档
+main.py                        统一 CLI 入口(子命令式: register/check-proxy/stats/overview/export/survival/refresh/backfill/imap/raw-check)
 gptreg/
+  cli.py                       统一 CLI 路由器(parse + dispatch)
+  commands/                    子命令实现(每命令 add_parser + run(cfg, args))
+    register.py                OTP-only 注册(Phase 2 换密码+TOTP)
+    check_proxy.py             探测出口 IP
+    stats.py                   号池统计
+    overview.py                账号资产总览
+    export_accounts.py         导出(email----password----2fa[----at])
+    survival.py                批量测活(回写 health, 定期换 IP)
+    refresh_at.py              access_token 续期
+    backfill.py                补 access_token(密码+TOTP 登录)
+    check_imap.py              IMAP 可用性检查
+    raw_check.py               JWT 直喂测活
   register_pwd.py              主路线核心：register_account(注册+TOTP 2FA, 结构化结果)
   auth.py                      协议请求 + sentinel 接线
   register_otp.py              OTP-only 注册(与 register_pwd 对称) + 批量分桶
   browser_sentinel.py          真 Chrome token+so 采集
   sentinel_quickjs.py          Node VM 产真 t
   sentinel_engine.py           引擎注册表
+  jwtutil.py                   JWT 解码(email/name/exp)
   mail/base.py                 抽象基类(MailClient 收码 / MailSource 来源)
   mail/sources.py              插件注册表(MAIL_SOURCES/MAIL_CLIENTS)
   mail/imap.py                 本地 IMAP XOAUTH2
@@ -240,6 +252,17 @@ gptreg/
   sentinel_so.py               so 头构造(小PP HAR/内嵌 so 包装)
   sentinel_chatreq.py          chatReq 观测(诊断)
   account_store.py             accounts.jsonl 落盘(主库) + 测活/续期回写
+capture/
+  tools/                       未迁移(主路线 + Playwright 交互)
+    verify_pwd_totp.py         主路线：密码注册 + TOTP 2FA 激活
+    batch_totp.py              批量生产编排
+    login_pwd_check_totp.py    密码+TOTP 登录验证(Playwright)
+    check_totp_status.py       TOTP 激活状态检查(Playwright)
+    check_survival.py          单号测活(--mode, 被 main.py survival 取代)
+    refresh_health.py          刷新+测活二合一(被 refresh/survival 取代)
+  legacy/                      旧注册路径脚本(verify_* 等, 参考)
+  research/                    研究探测脚本(probe_*/t_*_exp/so_* 等)
+  reg-2fa-timing-*.md          耗时/性能存档
 vendor/sentinel/               官方 sdk.js + quickjs 适配器
 output/                        成功账号
 data/                          OTP 缓存等

@@ -192,3 +192,22 @@ class BrowserSession:
             self.session.close()
         except Exception:
             pass
+
+
+def set_cookies(session: BrowserSession, cookies: list[dict]) -> None:
+    """把 cookies 列表注入会话(续期/登录复用: 有 cookies 就能重抓 /api/auth/session)。
+
+    refresh/backfill 复用(替代各自 _cookie_jar)。
+    """
+    for c in cookies or []:
+        try:
+            session.session.cookies.set(c.get("name"), c.get("value"), domain=c.get("domain"))
+        except Exception:
+            pass
+
+
+def jar_to_list(session: BrowserSession) -> list[dict]:
+    """导出会话 cookie jar 为可落盘列表(与 set_cookies 对称)。"""
+    return [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
+             "secure": bool(getattr(c, "secure", False))}
+            for c in session.session.cookies.jar]

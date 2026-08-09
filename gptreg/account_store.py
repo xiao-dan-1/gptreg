@@ -323,3 +323,41 @@ def update_account_tokens(
                 pass
             raise
     return out_dir
+
+
+def load_accounts(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """读取 accounts.jsonl 全部记录(主库唯一事实源)。损坏行跳过。
+
+    overview/export/survival/refresh/raw-check/backfill 复用(替代各自 _load_accounts)。
+    """
+    out_dir = ensure_output_dir(cfg)
+    output = cfg.get("output", {})
+    accounts_path = out_dir / output.get("accounts_jsonl", "accounts.jsonl")
+    recs: list[dict[str, Any]] = []
+    if accounts_path.exists():
+        for ln in accounts_path.read_text(encoding="utf-8").splitlines():
+            if not ln.strip():
+                continue
+            try:
+                recs.append(json.loads(ln))
+            except Exception:
+                continue
+    return recs
+
+
+def mail_type_of(d: dict[str, Any]) -> str:
+    """号源类型: 优先 mail_type 字段, 否则按邮箱域名推断。
+
+    overview/survival 复用(替代各自 _mail_type)。
+    """
+    mt = str(d.get("mail_type") or "")
+    if mt:
+        return mt
+    email = (d.get("email") or "").lower()
+    if email.endswith(("icloud.com", "me.com")):
+        return "icloud"
+    if "xdauv" in email:
+        return "cloudmail"
+    if email.endswith("outlook.com"):
+        return "ms_oauth"
+    return "?"

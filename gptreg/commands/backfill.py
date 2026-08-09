@@ -1,34 +1,30 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""给 accounts.jsonl 中「有 totp_secret 但无 access_token」的账号补 token。
+"""backfill: 给 accounts.jsonl 中「有 totp_secret 但无 access_token」的账号补 token。
 
-登录链(密码 + TOTP): signin → authorize/continue → password/verify → mfa_challenge
-→ mfa/verify{type:totp,id,code} → callback → access_token。更新 accounts.jsonl 记录。
-
-用法: python capture/backfill_token.py [--emails 逗号分隔,默认全部缺 token 的] [--proxy 动态]
+从 capture/tools/backfill_token.py 收编, 修复写回非原子(原 open("w") 整写 →
+逐账号 account_store.save_account 原子 upsert + 自动备份)。
+登录链: signin → authorize/continue → password/verify → mfa_challenge
+→ mfa/verify{type:totp,id,code} → callback → access_token。
 """
 from __future__ import annotations
 
-import argparse
 import json
-import sys
 import time
-from pathlib import Path
+from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
+from gptreg import auth
+from gptreg.account_store import load_accounts, save_account
+from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
+from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
+from gptreg.session import BrowserSession, jar_to_list
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-from gptreg.config import load_config  # noqa: E402
-from gptreg.session import BrowserSession  # noqa: E402
-from gptreg.proxyutil import resolve_proxy  # noqa: E402
-from gptreg import auth  # noqa: E402
-from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs  # noqa: E402
-
-ACC = ROOT / "output" / "accounts.jsonl"
 ISSUER = "https://auth.openai.com"
+
+
+def add_parser(subparsers) -> None:
+    p = subparsers.add_parser("backfill", help="补缺失 access_token(密码+TOTP 登录)")
+    p.add_argument("--emails", default="", help="逗号分隔,默认全部缺 token 的 TOTP 账号")
+    p.add_argument("--proxy", default="", help="留空=config 动态链式")
+    p.set_defaults(func=run)
 
 
 def _api_headers(s, referer: str) -> dict:
@@ -75,6 +71,7 @@ def login_get_token(cfg, proxy_url: str, email: str, password: str, totp_secret:
             return None, "账号 2FA 未激活(无 TOTP factor), 需重新 enroll+activate"
 
         import pyotp
+
         code6 = pyotp.TOTP(totp_secret).now()
         r4 = s.post(f"{ISSUER}/api/accounts/mfa/verify",
                     headers=_api_headers(s, f"{ISSUER}/log-in/password"),
@@ -90,9 +87,7 @@ def login_get_token(cfg, proxy_url: str, email: str, password: str, totp_secret:
         at = info.get("accessToken")
         if not at:
             return None, "无 accessToken"
-        cookies = [{"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
-                    "secure": bool(getattr(c, "secure", False))}
-                   for c in s.session.cookies.jar]
+        cookies = jar_to_list(s)
         return (at, s.device_id, cookies), ""
     except Exception as exc:
         return None, f"{type(exc).__name__}: {str(exc)[:80]}"
@@ -100,14 +95,8 @@ def login_get_token(cfg, proxy_url: str, email: str, password: str, totp_secret:
         r.close()
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--emails", default="", help="逗号分隔,默认全部缺 token 的 TOTP 账号")
-    ap.add_argument("--proxy", default="", help="留空=config 动态链式")
-    args = ap.parse_args()
-
-    cfg = load_config()
-    recs = [json.loads(l) for l in ACC.read_text(encoding="utf-8").splitlines() if l.strip()]
+def run(cfg: dict[str, Any], args) -> int:
+    recs = load_accounts(cfg)
 
     want = {e.strip() for e in args.emails.split(",") if e.strip()}
     targets = [d for d in recs if d.get("totp_secret") and not d.get("access_token")
@@ -119,17 +108,10 @@ def main() -> int:
     for d in targets:
         print(f"  {d.get('email')}")
 
-    # 动态代理(每次换 IP, 避免连续登录限流)
-    import re as _re, random as _rnd, string as _str
-    tpl = ((cfg.get("proxy") or {}).get("dynamic") or {}).get("template") or ""
     ok = 0
     for i, d in enumerate(targets, 1):
-        proxy = ""
-        if tpl:
-            sid = "".join(_rnd.choices(_str.ascii_lowercase + _str.digits, k=8))
-            proxy = _re.sub(r"-sid-[a-zA-Z0-9]+-t-", f"-sid-{sid}-t-", tpl)
-        else:
-            proxy = args.proxy
+        # 每次换新 sid(独立出口 IP, 避免连续登录限流)
+        proxy = build_dynamic_proxy(cfg) if not args.proxy else args.proxy
         email, password, secret = d["email"], d.get("password", ""), d["totp_secret"]
         print(f"\n[{i}/{len(targets)}] 登录 {email} ...")
         got, reason = login_get_token(cfg, proxy or None, email, password, secret)
@@ -147,15 +129,12 @@ def main() -> int:
             d["sentinel_obs"] = {"challenge_mode": "quickjs_pwd_v3", "totp_enrolled": True}
         ok += 1
         print(f"  [OK] at 前20: {at[:20]}... cookies={len(cookies)}")
+        # 逐账号原子 upsert(替代原整写, 防并发截断), 自动备份
+        try:
+            save_account(cfg, record=d)
+        except Exception as exc:
+            print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
         time.sleep(3)
 
-    # 写回
-    with ACC.open("w", encoding="utf-8") as f:
-        for r in recs:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
     print(f"\n补齐 {ok}/{len(targets)} 个 token")
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

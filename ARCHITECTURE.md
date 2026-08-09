@@ -2,15 +2,13 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                入口层 capture/ (tools 运维 / legacy 旧路径 / research 研究)     │
-│                                                                             │
-│  tools/ 单号注册     批量生产(并发)   测活/续期      资产视图      导出交付      │
-│  verify_pwd_totp   batch_totp       check_survival* account_      export_     │
-│  (CLI 薄壳: 选号   (--workers N     refresh_at      overview      accounts    │
-│   →别名→调核心→     多线程并发,      login_check   backfill_     (email--     │
-│   按outcome打印)    按outcome管主号  check_totp    token          -password   │
-│                  不烧号)                       check_raw_      -2fa[--at])  │
-│  legacy/ verify_*(旧路径参考)   research/ probe_*/t_*_exp/so_*(研究)         │
+│                  统一 CLI 入口 main.py (gptreg/cli.py 路由器, 子命令式)          │
+│  gptreg/commands/ 每命令 add_parser + run(cfg, args):                         │
+│  register(OTP) check-proxy stats overview export survival refresh             │
+│  backfill imap raw-check                                                       │
+│  capture/tools/ 未迁移: verify_pwd_totp(主路线) batch_totp(批量)               │
+│   login_pwd_check_totp check_totp_status(Playwright) check_survival refresh_health │
+│  capture/legacy/(旧路径参考)  capture/research/(probe_*/t_*_exp/so_* 研究)      │
 └──────────────┬──────────────────────┬───────────────────────────────────────┘
                │  密码+TOTP 主路线      │  OTP-only 并行路径
                ▼                      ▼
@@ -19,9 +17,9 @@
 │ register_account()      │   │ register_one/     │
 │ → RegistrationResult    │   │ run_batch/        │
 │  (outcome/diag/record)  │   │ classify_result   │
-│  阶段序列: signin→       │   │  (经 main.py/cli) │
-│   register→wait_otp→    │   └────────┬──────────┘
-│   create→session→enroll │            │(共享 auth)
+│  阶段序列: signin→       │   │  (经 register 子   │
+│   register→wait_otp→    │   │   命令)           │
+│   create→session→enroll │   └────────┬──────────┘
 └─────────┬───────────────┘            │
           │                            │
           ▼                            ▼
@@ -39,33 +37,43 @@
 ```
 accounts.jsonl(分组字段, 自动备份)
    ↑ 注册落盘 (register_pwd)
-   ├─测活→ check_survival_batch → 回写 health_status + last_checked
-   ├─续期→ refresh_at → 回写 access_token + session_token + expires
-   ├─视图→ account_overview → 总数/存活/按号源存活率/年龄分布
-   ├─导出→ export_accounts → email----password----2fa[----at]
+   ├─测活→ main.py survival → 回写 health_status + last_checked
+   ├─续期→ main.py refresh → 回写 access_token + session_token + expires
+   ├─视图→ main.py overview → 总数/存活/按号源存活率/年龄分布
+   ├─导出→ main.py export → email----password----2fa[----at]
    └─号池→ MailPool 与账号表联动(反查已注册主号)
 ```
 
 ## 分层明细
 
-### 1. 入口层 `capture/`（tools 运维 / legacy 旧路径 / research 研究 三层）
-| 脚本(tools/) | 职责 |
+### 1. 统一入口 `main.py` + `gptreg/commands/`（子命令式）
+| 命令(commands/) | 职责 |
+|---|---|
+| `register.py` | OTP-only 注册（flag 下沉自原 cli.py；Phase 2 换密码+TOTP） |
+| `check_proxy.py` | 探测出口 IP（验证换 sid 换 IP） |
+| `stats.py` | 号池统计 |
+| `overview.py` | 账号资产总览 |
+| `export_accounts.py` | 导出 email----password----2fa[----at] |
+| `survival.py` | 批量测活（回写 health_status，每 N 个换 IP） |
+| `refresh_at.py` | access_token 续期（过期前跑） |
+| `backfill.py` | 补缺失 access_token（密码+TOTP 登录，原子 upsert） |
+| `check_imap.py` | 号池 IMAP 可用性检查（决定收码走快通道还是 Graph 降级） |
+| `raw_check.py` | 直接喂 JWT 测活（不经 accounts.jsonl） |
+| `common.py` | 共享 CLI helper（代理参数/region/RotatingSession/年龄显示） |
+
+**capture/tools/ 未迁移**（保留）：
+| 脚本 | 职责 |
 |---|---|
 | `verify_pwd_totp.py` | 单号注册 CLI 薄壳：选主号 → 生成别名/密码/姓名 → 调 `register_account` → 按 outcome 打印反馈 |
 | `batch_totp.py` | 批量：循环调核心（无 subprocess），按失败类型管主号生命周期（不烧号） |
-| `check_imap.py` | 号池 IMAP 可用性检查（决定收码走快通道还是 Graph 降级） |
-| `check_survival*.py` | 账号测活（单/批量, 回写 health_status） |
-| `refresh_at.py` | access_token 续期（过期前跑） |
-| `account_overview.py` | 账号资产总览 |
-| `check_raw_tokens.py` | 直接喂 JWT 测活（不经 accounts.jsonl） |
-| `backfill_token.py` | 补缺失 access_token（密码+TOTP 登录） |
-| `main.py` | OTP-only 旧流水线入口（非当前主路线） |
+| `login_pwd_check_totp.py` / `check_totp_status.py` | Playwright 交互诊断 |
+| `check_survival.py` / `refresh_health.py` | 单号测活 / 刷新+测活二合一（被 survival/refresh 取代，Phase 2 处理） |
 
 ### 2. 核心注册链（两条并行路径，共享子步骤）
 | 路径 | 文件 | 入口 |
 |---|---|---|
-| **密码+TOTP（主路线）** | `gptreg/register_pwd.py` | `verify_pwd_totp` / `batch_totp` |
-| OTP-only | `gptreg/register_otp.py` | `main.py` → `cli.py` |
+| **密码+TOTP（主路线）** | `gptreg/register_pwd.py` | `capture/tools/verify_pwd_totp` / `batch_totp`（Phase 2 迁入 `main.py register`） |
+| OTP-only | `gptreg/register_otp.py` | `main.py register` |
 
 **共享子步骤**（处女原则: 消除重复, 不强行合并流程）:
 ```
@@ -172,10 +180,10 @@ register_account()                        resolve_proxy() → 住宅代理
 ```
 accounts.jsonl(分组字段: 身份→凭据→设备→状态→观测→运维)
    │  注册落盘
-   ├──测活── check_survival_batch (定期换IP) → 回写 health_status + last_checked
-   ├──续期── refresh_at (过期前) → 回写 access_token + session_token + expires
-   ├──视图── account_overview (总数/存活/按号源存活率/年龄分布)
-   ├──导出── export_accounts (email----password----2fa[----at])
+   ├──测活── main.py survival (定期换IP) → 回写 health_status + last_checked
+   ├──续期── main.py refresh (过期前) → 回写 access_token + session_token + expires
+   ├──视图── main.py overview (总数/存活/按号源存活率/年龄分布)
+   ├──导出── main.py export (email----password----2fa[----at])
    └──号池── MailPool 与账号表联动(反查已注册主号)
 ```
 
@@ -185,10 +193,11 @@ accounts.jsonl(分组字段: 身份→凭据→设备→状态→观测→运维
 ┌──────────────────────────────────────────────────────────────┐
 │  ① 注册           ② 测活          ③ 续期         ④ 导出交付    │
 │                                                             │
-│  batch_totp        check_survival  refresh_at    export_     │
-│  --pool icloud     _batch         (每7-9天,     accounts     │
-│  --limit N         (回写health)   token过期前)  --filter     │
-│  --workers 3-5                                           alive│
+│  batch_totp        main.py        main.py        main.py     │
+│  --pool icloud     survival       refresh        export      │
+│  --limit N         (回写health)   (每7-9天,      --filter     │
+│  --workers 3-5     --source icloud token过期前)   alive       │
+│  (Phase 2 → main.py register)                               │
 │     │                                                       │
 │     ▼                                                       │
 │  10/10成功        10/10存活      账号永活       66个交付      │
