@@ -35,13 +35,15 @@ proxy:
     chain_via: "http://127.0.0.1:7890"   # 你本机代理的第一跳
 ```
 
-### 4. 填号池（`mail_pool.txt`）
+### 4. 填号池（`icloud_pool.txt`，首选号源）
 
-准备你的邮箱号池（见 [号池](#号池自备邮箱)）。Outlook 号池示例：
+准备你的邮箱号池（见 [号池](#号池自备邮箱)）。**iCloud 号池**（`邮箱----接码URL`）示例：
 
 ```text
-alice@outlook.com----password----client_id----refresh_token
+user@icloud.com----https://你的接码服务/get-code
 ```
+
+> 用 Outlook 池则填 `mail_pool.txt`（`email----password----client_id----refresh_token`），并把第 5 步命令去掉 `--pool icloud`。
 
 ### 5. 注册第一个账号
 
