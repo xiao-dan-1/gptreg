@@ -9,7 +9,7 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
   - 薄壳：`capture/tools/verify_pwd_totp.py`（选号/生成参数/打印反馈）
   - `enroll` → `activate_enrollment` 完整链，产出 `mfa_enabled: true` 的真 2FA 账号
   - create 后即时健康检查（秒封检测）
-- **批量生产**（`capture/tools/batch_totp.py`）复用核心，按失败类型管主号（IP 风控不烧号）
+- **批量生产**（`capture/tools/batch_totp.py`）复用核心，按失败类型管主号（IP 风控不烧号），`--workers` 多线程并发
 - **本地 IMAP 收码**（XOAUTH2 经链式隧道），失败自动降级 Graph
 - **账号测活 / 补 token / 2FA 登录**（`capture/tools/check_survival.py` / `backfill_token.py` / `login_pwd_check_totp.py`）
 - **账号管理闭环**：测活回写（`check_survival_batch`）+ access_token 续期（`refresh_at`）+ 资产视图（`account_overview`）
@@ -118,8 +118,10 @@ register:
 ```bash
 # ① 注册（逐个/批量）
 python capture/tools/verify_pwd_totp.py --pool icloud --email 用户@icloud.com   # 单个
-python capture/tools/batch_totp.py --pool icloud --limit 3                     # 批量
+python capture/tools/batch_totp.py --pool icloud --limit 3                     # 批量(串行)
+python capture/tools/batch_totp.py --pool icloud --limit 6 --workers 3         # 批量并发(3 线程)
 # 号源: 默认 Outlook 池 / --pool icloud / --pool cloudmail(动态生成, 不依赖号池)
+# --workers N: 并发线程数(默认 1 串行), 建议 ≤ 可用代理/IP 数(避免共用 IP 风控)
 
 # ② 测活(确认账号存活, 回写 health_status)
 python capture/tools/check_survival_batch.py
