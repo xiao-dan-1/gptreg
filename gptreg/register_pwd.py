@@ -137,6 +137,16 @@ def _stage_register(
     headers["openai-sentinel-token"] = token
     resp = session.post(REGISTER_URL, headers=headers,
                         data=json.dumps({"username": email, "password": password}))
+    # invalid_auth_step 修复: 干净号(落 email-verification)遇 session 未推进时
+    # warm_about_you 推进后重试一次(对齐 create_account 做法)——否则干净号被误判 IP_BLOCKED 弃掉
+    if resp.status_code == 400 and "invalid_auth_step" in (resp.text or "") \
+            and "log-in" not in (final or "") and "/login" not in (final or ""):
+        logger.warning("[Auth] register invalid_auth_step(干净号 session 未推进), warm_about_you 重试")
+        auth.warm_about_you(session)
+        time.sleep(0.3)
+        resp = session.post(REGISTER_URL, headers=headers,
+                            data=json.dumps({"username": email, "password": password}))
+
     if resp.status_code != 200:
         err = f"register HTTP {resp.status_code}: {resp.text[:150]}"
         # 提取服务器原始 code(如 invalid_auth_step), 让"已注册"判定可验证
