@@ -1,4 +1,4 @@
-# ✨ GPT 协议注册
+# ✨ GPTReg
 
 > **纯协议实现**的 ChatGPT / OpenAI 账号自动注册工具——产出带 `totp_secret` 的**真 2FA 账号**（`mfa_enabled: true`），可用密码 + TOTP 正常登录。
 

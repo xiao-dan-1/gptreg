@@ -17,7 +17,7 @@ def _banner() -> str:
     return (
         "\n"
         "  ╔══════════════════════════════════════╗\n"
-        "  ║     GPT 协议注册  v{ver:<8}          ║\n"
+        "  ║     GPTReg  v{ver:<8}              ║\n"
         "  ║     default pow · browser opt-in     ║\n"
         "  ╚══════════════════════════════════════╝\n"
     ).format(ver=__version__)
@@ -38,7 +38,7 @@ def configure_logging(verbose: bool = False) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="gptreg",
-        description="GPT 协议注册统一入口",
+        description="GPTReg统一入口",
     )
     p.add_argument("--config", default=None, help="配置文件路径（须置于子命令前）")
     p.add_argument("-v", "--verbose", action="store_true", help="详细日志")

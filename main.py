@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""GPT 协议注册入口。"""
+"""GPTReg入口。"""
 from gptreg.cli import main
 
 if __name__ == "__main__":
