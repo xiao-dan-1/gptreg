@@ -65,19 +65,33 @@ python main.py export       # 导出 email----password----2fa 交付
 
 ## 日常使用（生产循环）
 
-```
-① 注册 → ② 测活 → ③ 续期 → ④ 导出交付
-   ↕ 号池管理: 坏号(已注册)标 bad / 换新号
+生产循环：**① 注册 → ② 测活 → ③ 续期 → ④ 导出交付**（坏号标 bad / 换新号）
+
+```bash
+# ① 注册：批量注册，--workers 并发线程（建议 ≤ 可用代理数）
+python capture/tools/batch_totp.py --pool icloud --limit N --workers M
+
+# ② 测活：批量测活，回写 health_status，每 8 个换出口 IP
+python main.py survival --source icloud
+
+# ③ 续期：access_token 续期（实测 ~6h 过期，见 FAQ）
+python main.py refresh
+
+# ④ 导出：导出存活账号，四段格式含 access_token
+python main.py export --filter alive --with-at
 ```
 
-| 步骤 | 命令 | 说明 |
-|---|---|---|
-| **① 注册** | `python capture/tools/batch_totp.py --pool icloud --limit N --workers M` | 批量注册；`--workers` 并发线程（建议 ≤ 可用代理数） |
-| **② 测活** | `python main.py survival --source icloud` | 批量测活，回写 `health_status`，每 8 个换 IP |
-| **③ 续期** | `python main.py refresh` | access_token 续期（**实测 ~6h 过期**，见 FAQ） |
-| **④ 导出** | `python main.py export --filter alive --with-at` | 导出存活账号，四段含 access_token |
+**其他工具**：
 
-**其他工具**：`python main.py overview`（资产总览）/ `stats`（号池统计）/ `check-proxy`（探测出口 IP）/ `backfill`（补缺失 token）/ `imap`（收码通道检查）/ `subscription`（查订阅/优惠资格）/ `raw-check`（直接喂 JWT 测活）。
+```bash
+python main.py overview                  # 资产总览（总数/存活/按号源存活率）
+python main.py stats                     # 号池统计
+python main.py check-proxy --times 2     # 探测出口 IP（换 sid 验证换 IP）
+python main.py backfill --emails xxx     # 补缺失的 access_token
+python main.py imap --limit 3            # 号池 IMAP 可用性检查
+python main.py subscription              # 查订阅 / 优惠资格
+echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
+```
 
 ---
 
