@@ -9,7 +9,7 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
   - 薄壳：`capture/tools/verify_pwd_totp.py`（选号/生成参数/打印反馈）
   - `enroll` → `activate_enrollment` 完整链，产出 `mfa_enabled: true` 的真 2FA 账号
   - create 后即时健康检查（秒封检测）
-- **统一 CLI 入口**（`main.py`，子命令式）：`register` / `survival` / `refresh` / `export` / `overview` / `backfill` / `imap` / `raw-check` / `check-proxy` / `stats`
+- **统一 CLI 入口**（`main.py`，子命令式）：`register` / `survival` / `refresh` / `export` / `overview` / `backfill` / `imap` / `raw-check` / `check-proxy` / `stats` / `subscription`
 - **批量生产**（`capture/tools/batch_totp.py`，Phase 2 迁入 main.py）复用核心，按失败类型管主号（IP 风控不烧号），`--workers` 多线程并发
 - **本地 IMAP 收码**（XOAUTH2 经链式隧道），失败自动降级 Graph
 - **账号测活 / 补 token / 2FA 登录**（`main.py survival` / `main.py backfill` / `capture/tools/login_pwd_check_totp.py`）
@@ -21,7 +21,7 @@ ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实�
 
 ```
 号源(Outlook池/iCloud池/CloudMail动态) ──动态链式代理──> OpenAI 注册  [gptreg/register_pwd.register_account]
-  ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)  [400 自动换 sid 重试3次; 落 log-in=已注册弃用]
+  ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)  [400: invalid_auth_step/Invalid authorization=邮箱状态冲突弃用; 纯 IP 类换 sid 重试 1 次; 落 log-in=已注册弃用]
   ├─ send_otp → 收码(IMAP/Graph/iCloud URL/CloudMail admin) → validate  [iCloud/CloudMail 直连, Outlook 走隧道]
   ├─ create_account(quickjs 真 t + browser 真 so 并行; so 失败重试3次+中止)
   ├─ callback → session(access_token + session_token 刷新凭证) → 即时健康检查(秒封检测)
@@ -106,6 +106,8 @@ mail:
 protocol:
   sentinel_source: "browser"
 register:
+  default_password: ""     # 统一密码(空=每次随机)。填了则所有账号同密码——半注册邮箱
+                            # (register 成功但 create/so 失败)可用它找回, 否则密码随进程丢失
   post_login: true
 ```
 
@@ -134,7 +136,7 @@ python capture/tools/batch_totp.py --pool icloud --limit 6 --workers 3         #
 python main.py survival --source icloud         # 按号源批量测活(每 8 个换 IP)
 python main.py overview                        # 资产总览(存活/吊销/按号源存活率)
 
-# ③ 续期(实测 access_token ~6h 过期[非 10 天], 定期续期账号永活)
+# ③ 续期(实测 access_token ~6h 过期[非 10 天]; 续期机制见"注意事项"续期说明)
 python main.py refresh --dry-run                # 先试跑(不回写)
 python main.py refresh                          # 续期并回写
 
@@ -186,6 +188,13 @@ INFO  [MSMail/Graph] 等待中 t+..s                    ← Graph 降级(索引�
 - 6 段归因精确（各段和 = 总耗时）；**OTP段[到件X.Xs]** 区分段耗时与纯等码延迟；so 内部细分（nav/SDK 加载/token）定位慢点
 - 收码 channel 显示号源名（imap/icloud/cloudmail/...）；收码异常带 email + 通道故障 vs 无新邮件归因
 
+### 批量输出增强（batch_totp --workers N）
+
+- 并发 worker 的 INFO 日志带**账号前缀**（`[邮箱] [Auth] ...`）；so/t 采集子线程经 contextvars 继承也带前缀
+- 每账号 `[出口]`（脱敏代理）+ `[耗时]`（含 setup 段）归因；失败归因精确（mail_conflict 带服务器 code）
+- 批量结束输出 `批量耗时/串行预估/加速比`（量化 workers 并行效率）
+- 失败自动落盘 `data/batch_failures.log`（时间|主号|outcome|reason|耗时），复盘有据
+
 ## 号池格式（mail_pool.txt）
 
 ```text
@@ -216,7 +225,7 @@ user@cloud.com----api_key
 ## 目录
 
 ```text
-main.py                        统一 CLI 入口(子命令式: register/check-proxy/stats/overview/export/survival/refresh/backfill/imap/raw-check)
+main.py                        统一 CLI 入口(子命令式: register/check-proxy/stats/overview/export/survival/refresh/backfill/imap/raw-check/subscription)
 gptreg/
   cli.py                       统一 CLI 路由器(parse + dispatch)
   commands/                    子命令实现(每命令 add_parser + run(cfg, args))
@@ -230,6 +239,7 @@ gptreg/
     backfill.py                补 access_token(密码+TOTP 登录)
     check_imap.py              IMAP 可用性检查
     raw_check.py               JWT 直喂测活
+    subscription.py            两步查询订阅/优惠资格(对齐 at-hub)
   register_pwd.py              主路线核心：register_account(注册+TOTP 2FA, 结构化结果)
   auth.py                      协议请求 + sentinel 接线
   register_otp.py              OTP-only 注册(与 register_pwd 对称) + 批量分桶
@@ -271,11 +281,15 @@ data/                          OTP 缓存等
 ## 注意事项
 
 - **主号已注册（最常见根因）**：register 400 invalid_auth_step 先看输出诊断行（authorize 落点）——email-verification/log-in = 主号已在 OpenAI 注册，必须用 plus 别名（已默认）；create-account/password = 未注册
-- **IP 信誉**：落 create-account/password 仍 400 = 出口 IP 被 OpenAI 标记，需干净住宅 IP；单号注册已内置 register 400 自动换 sid 重试 3 次
+- **IP 信誉**：落 create-account/password 仍 400 = 出口 IP 被 OpenAI 标记，需干净住宅 IP；纯 IP 类 400 内置换 sid 重试 1 次（不反复戳同一邮箱，避免放大认证请求触发 rate_limit）
+- **邮箱状态冲突（不可重入）**：register 400 invalid_auth_step(warm 后仍 400)/Invalid authorization = 邮箱已推进过注册流程（OTP 已消费/密码已设），状态机不可重入——**重跑必 400，换 IP 无效**，批量下自动弃用（mail_conflict）
+- **已推进邮箱不可重跑**：register/OTP 之后的失败（so/create/session/health/enroll）= 邮箱已推进注册，批量下弃用不重跑（否则重跑 register 400）
 - **邮箱级风控**：同一邮箱多次注册失败会被 OpenAI 记住，换 IP 也无效（勿反复试同一邮箱）
 - **so 失败中止**：无 so 账号必死（测活实证 2/2 吊销），so 采集失败重试 3 次仍无则中止注册，不白建号
-- **主号生命周期（批量）**：SUCCESS 已用 / MAIL_REGISTERED 永久弃用(totp_failed) / IP 风控等可重试不烧号；失败/弃用带 TTL（30min/24h）过期自动回退
+- **主号生命周期（批量）**：SUCCESS 已用 / MAIL_CONFLICT + 已推进注册失败(so/create/session-otp 后)=弃用 / MAIL_REGISTERED 永久弃用 / OTP_FAILED 可重试；弃用带 TTL 过期自动回退
 - **IMAP 账号级差异**：部分 Outlook 账号被 MS 拒 IMAP（`authenticated but not connected`），自动降级 Graph（较慢）
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才能注册成功；7890/10808 数据中心 IP 长期风控后不可用
+- **access_token ~6h 过期（实测，非 10 天）**：测活 401 `token_expired` = token 过期（账号未删），`health_status=token_expired` 独立状态。续期靠 session_cookies 重抓 `/api/auth/session`（`main.py refresh`）——**注意**：实测部分账号 refresh 返回"同 token"（未换新 token），续期是否生效需以续期后重测为准（`refresh` 报成功 ≠ token 有效）
+- **统一密码（推荐）**：`register.default_password` 填统一密码——半注册邮箱（register 成功但 create/so 失败）可手动登录找回；不填则每次随机，密码随进程丢失无法找回
 
 仅供协议研究与学习。请遵守目标服务条款与当地法律。
