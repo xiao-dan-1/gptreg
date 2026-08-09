@@ -9,6 +9,7 @@ CLI 与 batch_totp 共享本模块，失败类型决定主号"可重试 vs 永�
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import random
@@ -331,8 +332,17 @@ def _stage_create(
         holder["so_s"] = time.time() - _ct
 
     _ct0 = time.time()
-    _th_t = threading.Thread(target=_gen_t)
-    _th_so = threading.Thread(target=_gen_so)
+    # 子线程复制调用线程 context: 批量并发用 contextvars 存账号归属时, so/t 采集子线程
+    # 可继承(threading.local/threading.Thread 默认都不传播——否则 so 日志无账号前缀)。
+    # 两点关键(实测踩坑):
+    #  1) copy_context() 须在父线程求值(捕获含账号的 context 快照)——写在 lambda 里会在
+    #     子线程执行时才求值, 捕获空 context(无前缀);
+    #  2) 每个线程必须独立 context 对象——共享同一 Context 被多线程并发 run 会抛
+    #     "cannot enter context ... already entered"(Context.run 单线程独占, so/t 双线程全挂)。
+    _ctx_t = contextvars.copy_context()
+    _ctx_so = contextvars.copy_context()
+    _th_t = threading.Thread(target=lambda: _ctx_t.run(_gen_t))
+    _th_so = threading.Thread(target=lambda: _ctx_so.run(_gen_so))
     _th_t.start()
     _th_so.start()
     _th_t.join()

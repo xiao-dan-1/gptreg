@@ -12,12 +12,12 @@
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
 import logging
 import random
 import string
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -38,18 +38,20 @@ POOL = ROOT / "mail_pool.txt"
 FAILED_FILE = ROOT / "data" / "totp_failed.txt"
 FAIL_LOG = ROOT / "data" / "batch_failures.log"
 
-# 批量并发: 每个 worker 线程绑定当前账号, logging Filter 注入归属前缀(INFO 可归属账号)
-_account_local = threading.local()
+# 批量并发: 每 worker 线程把当前账号写入 contextvar, logging Filter 注入归属前缀。
+# 用 contextvars(而非 threading.local): register_pwd 的 so/t 采集子线程经
+# contextvars.copy_context() 继承本 context, so 日志也能带账号前缀(threading.local 不传播)。
+_account_var: contextvars.ContextVar[str] = contextvars.ContextVar("batch_account", default="")
 
 
 class _AccountFilter(logging.Filter):
-    """给 logger 记录注入当前账号前缀(thread-local), 并发下过程日志可归属账号。
+    """给 logger 记录注入当前账号前缀(contextvar), 并发下过程日志可归属账号。
 
-    挂在 root logger(propagate 到 root 的所有 record 都过它), format 用 %(account)s。
+    挂在 root handler(propagate 到 root 的所有 record 都过它), format 用 %(account)s。
     """
 
     def filter(self, record):
-        acc = getattr(_account_local, "account", "") or ""
+        acc = _account_var.get() or ""
         record.account = f"[{acc}] " if acc else ""
         return True
 
@@ -217,10 +219,12 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
       I/O 密集(等收码/网络), 多线程有效; 每账号独立隧道/浏览器, 无共享可变状态;
       号池/落盘已有锁(线程安全)。建议 workers ≤ 可用代理/IP 数(避免共用 IP 风控)。
     """
-    results: list[tuple[int, str, bool, RegisterOutcome]] = []  # (idx, main, ok, outcome)
+    # (idx, main, ok, outcome, dt_s) —— dt 供串行预估/加速比
+    results: list[tuple[int, str, bool, RegisterOutcome, float]] = []
     workers = max(1, int(workers or 1))
+    _batch_t0 = time.time()
 
-    def _one_job(idx: int, main: str, account: dict) -> tuple[int, str, bool, RegisterOutcome]:
+    def _one_job(idx: int, main: str, account: dict) -> tuple[int, str, bool, RegisterOutcome, float]:
         # iCloud/cloudmail 一邮箱一账号: 用主邮箱(URL绑定, alias 收码不可靠); 其余走别名
         if account.get("mail_type") in ("icloud", "cloudmail"):
             email = main
@@ -231,13 +235,13 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
         bday = random_birthdate(cfg)
         print(f"\n[{idx + 1}/{len(batch)}] 主号 {main} ...", flush=True)
         t0 = time.time()
-        _account_local.account = main  # logging 归属前缀(线程内生效, 账号结束清理)
+        _tok = _account_var.set(main)  # logging 归属前缀(contextvar, 子线程经 copy_context 继承)
         try:
             result = _register_with_retry(
                 cfg, account, email, password, display_name, bday, proxy,
             )
         finally:
-            _account_local.account = ""
+            _account_var.reset(_tok)
         dt = time.time() - t0
         ok = result.outcome == RegisterOutcome.SUCCESS
         print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
@@ -270,7 +274,7 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
                 pool.mark_bad(main, reason="邮箱已注册")
             print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name} + 号池 bad", flush=True)
         time.sleep(1)
-        return idx, main, ok, result.outcome
+        return idx, main, ok, result.outcome, dt
 
     if workers <= 1:
         for i, (main, account) in enumerate(batch):
@@ -285,10 +289,15 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
                 results.append(f.result())
 
     results.sort(key=lambda r: r[0])  # 按提交顺序
-    n_ok = sum(1 for _, _, ok, _ in results if ok)
+    n_ok = sum(1 for _, _, ok, _, _ in results if ok)
+    batch_t = time.time() - _batch_t0
     print(f"\n批量完成: {n_ok}/{len(batch)} 成功", flush=True)
-    for _, main, ok, oc in results:
+    for _, main, ok, oc, _dt in results:
         print(f"  [{'OK' if ok else 'X'}] {main} ({oc.value})", flush=True)
+    # 吞吐基线: 串行预估(Σ 单号耗时) vs 实际批量耗时 → 并行加速比(workers 效率)
+    if len(results) > 1 and batch_t > 0:
+        serial = sum(_dt for _, _, _, _, _dt in results)
+        print(f"批量耗时 {batch_t:.1f}s | 串行预估 {serial:.0f}s | 加速比 {serial/batch_t:.2f}x ({workers} 线程)", flush=True)
     return 0 if n_ok == len(batch) else 1
 
 
