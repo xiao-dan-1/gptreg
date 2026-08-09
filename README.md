@@ -1,29 +1,34 @@
-# GPT 协议注册机
+# ✨ GPT 协议注册
 
-ChatGPT / OpenAI 账号**自动注册 + TOTP 2FA 激活**工具。纯协议实现，产出带 `totp_secret` 的**真 2FA 账号**（`mfa_enabled: true`），之后可用密码 + TOTP 正常登录。
+> **纯协议实现**的 ChatGPT / OpenAI 账号自动注册工具——产出带 `totp_secret` 的**真 2FA 账号**（`mfa_enabled: true`），可用密码 + TOTP 正常登录。
 
-> ⚠️ **运行前置**：本项目只提供注册/收码管线，**不包含任何邮箱号池、代理或接码服务**——需自备住宅代理 + 邮箱号池（见 [号池](#号池自备邮箱)）。仅供协议研究与学习，请遵守目标服务条款与当地法律。
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue)
+![Platform](https://img.shields.io/badge/Platform-Windows-0078D6)
+![Mode](https://img.shields.io/badge/纯协议注册-零浏览器交互-2ea44f)
+
+> ⚠️ **运行前置**：本项目只提供注册/收码管线，**不包含任何邮箱号池、代理或接码服务**——需自备住宅代理 + 邮箱号池（见 [号池](#📮-号池自备邮箱)）。仅供协议研究与学习，请遵守目标服务条款与当地法律。
 
 ---
 
-## 快速开始（5 分钟跑通第一个账号）
+## 🚀 快速开始（5 分钟跑通第一个账号）
 
-目标：装好环境 → 填号池 → 注册出第一个带 2FA 的账号。技术细节可先跳过（见文末"进阶"）。
+> 目标：装好环境 → 填号池 → 注册出第一个带 2FA 的账号。技术细节可先跳过（见文末 [🧠 进阶](#🧠-进阶架构与协议可跳读)）。
 
-### 1. 准备环境
+### 1️⃣ 准备环境
 
 - **Python 3.11+**
 - **Chrome**（so 采集用）+ **Node.js 18+**（token 生成用）
 - **一个能上外网的住宅代理**（数据中心 IP 会被 OpenAI 风控，注册必失败）
 
-### 2. 安装依赖
+### 2️⃣ 安装依赖
 
 ```bash
 pip install -r requirements.txt
 pip install playwright && playwright install chrome
 ```
 
-### 3. 配置代理（`config.yaml`）
+### 3️⃣ 配置代理（`config.yaml`）
 
 复制 `config.yaml.example` 为 `config.yaml`，填入你的代理：
 
@@ -35,7 +40,7 @@ proxy:
     chain_via: "http://127.0.0.1:7890"   # 你本机代理的第一跳
 ```
 
-### 4. 填号池（`icloud_pool.txt`，首选号源）
+### 4️⃣ 填号池（`icloud_pool.txt`，首选号源）
 
 准备你的邮箱号池（见 [号池](#号池自备邮箱)）。**iCloud 号池**（`邮箱----接码URL`）示例：
 
@@ -45,14 +50,14 @@ user@icloud.com----https://你的接码服务/get-code
 
 > 用 Outlook 池则填 `mail_pool.txt`（`email----password----client_id----refresh_token`），并把第 5 步命令去掉 `--pool icloud`。
 
-### 5. 注册第一个账号
+### 5️⃣ 注册第一个账号
 
 ```bash
 python capture/tools/batch_totp.py --pool icloud --limit 1
 # 成功 → output/accounts.jsonl 新增一条带 TOTP 的账号
 ```
 
-### 6. 查看结果
+### 6️⃣ 查看结果
 
 ```bash
 python main.py overview     # 账号总览(总数/存活/按号源存活率)
@@ -63,9 +68,9 @@ python main.py export       # 导出 email----password----2fa 交付
 
 ---
 
-## 日常使用（生产循环）
+## 🔁 日常使用（生产循环）
 
-生产循环：**① 注册 → ② 测活 → ③ 续期 → ④ 导出交付**（坏号标 bad / 换新号）
+> 生产循环：**① 注册 → ② 测活 → ③ 续期 → ④ 导出交付**（坏号标 bad / 换新号）
 
 ```bash
 # ① 注册：批量注册，--workers 并发线程（建议 ≤ 可用代理数）
@@ -95,7 +100,7 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 
 ---
 
-## 配置说明（`config.yaml` 关键项）
+## ⚙️ 配置说明（`config.yaml` 关键项）
 
 | 配置 | 作用 |
 |---|---|
@@ -109,7 +114,7 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 
 ---
 
-## 号池（自备邮箱）
+## 📮 号池（自备邮箱）
 
 本项目**不提供邮箱**，需自备。号池按行组织，行首 `#` 为注释。
 
@@ -126,7 +131,7 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 
 ---
 
-## 账号输出与交付
+## 📦 账号输出与交付
 
 成功账号写入 `output/accounts.jsonl`（主库，唯一事实源）。字段分组：
 `email/name/birthdate/mail_type` → `password/totp_secret/access_token/session_token/session_cookies` → `device_id` → `status/health_status` → `sentinel_obs` → `proxy_used/saved_at/updated_at`
@@ -138,31 +143,31 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 
 ---
 
-## 常见问题（FAQ）
+## ❓ 常见问题（FAQ）
 
-**Q1. 注册报 `register 400`，为什么？**
+**Q1. 🤔 注册报 `register 400`，为什么？**
 看输出的诊断行（authorize 落点）三选一：
 - `email-verification/log-in` → 主号已在 OpenAI 注册 → 用 plus 别名（已默认）或换邮箱
 - `create-account/password` 仍 400 → **出口 IP 被标记** → 换干净住宅 IP
 - `invalid_auth_step` / `Invalid authorization` → **邮箱已推进过注册流程**（状态机不可重入）→ 弃用，换新邮箱
 
-**Q2. 测活报 `token_expired`，账号死了吗？**
+**Q2. 🕒 测活报 `token_expired`，账号死了吗？**
 没死。**access_token 实测 ~6h 过期**（非 README 说的 10 天），账号还在，只是 token 需续期。`main.py refresh` 续期——**但注意**：实测部分账号 refresh 返回"同 token"（未换新），续期是否生效以续期后重测为准。
 
-**Q3. 每次注册都换 IP，为什么还会风控？**
+**Q3. 🌐 每次注册都换 IP，为什么还会风控？**
 风控是**多维**的：换 IP 只解决"IP 信誉"一维。**邮箱级**（同邮箱多次失败被记住）、**频率级**（`rate_limit_exceeded`）、**会话级**均换 IP 无效。今天注册量过大也会触发认证频率限流。
 
-**Q4. 半注册邮箱（register 成功但 create/so 失败）怎么找回？**
+**Q4. 🔑 半注册邮箱（register 成功但 create/so 失败）怎么找回？**
 用**统一密码**（`register.default_password`）手动登录——这就是统一密码的意义。不填统一密码则随机密码已随进程丢失，无法找回。
 
-**Q5. 收码失败/很慢？**
+**Q5. 📬 收码失败/很慢？**
 - iCloud/CloudMail/API 走**直连**；Outlook 走链式隧道
 - 被 MS 拒 IMAP 的 Outlook 账号自动降级 Graph（较慢 ~161s）
 - 共享收码源（CloudMail admin）并发 ≤2，独立收码（iCloud URL/Outlook IMAP）可高并发
 
 ---
 
-## 进阶：架构与协议（可跳读）
+## 🧠 进阶：架构与协议（可跳读）
 
 ### 主路线注册链
 
@@ -204,7 +209,7 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 
 ---
 
-## 目录结构
+## 📁 目录结构
 
 ```text
 main.py                        统一 CLI 入口(子命令式)
@@ -229,7 +234,7 @@ output/                        成功账号(accounts.jsonl)
 
 ---
 
-## 注意事项
+## ⚠️ 注意事项
 
 - **主号已注册（最常见根因）**：register 400 看 authorize 落点——`email-verification/log-in` = 主号已注册，用 plus 别名（已默认）；`create-account/password` = 未注册
 - **IP 信誉**：落 create-account/password 仍 400 = IP 被 OpenAI 标记，需干净住宅 IP；纯 IP 类 400 内置换 sid 重试 1 次（不反复戳同邮箱）
