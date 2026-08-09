@@ -139,12 +139,34 @@ def _stage_register(
                         data=json.dumps({"username": email, "password": password}))
     if resp.status_code != 200:
         err = f"register HTTP {resp.status_code}: {resp.text[:150]}"
+        # 提取服务器原始 code(如 invalid_auth_step), 让"已注册"判定可验证
+        srv_code = ""
+        srv_redirect = ""
+        try:
+            _ej = resp.json()
+            _err = _ej.get("error") or {}
+            srv_code = str(_err.get("code") or "")
+            srv_redirect = str(_err.get("redirect_uri") or "")
+        except Exception:
+            pass
+        # 落 log-in = 邮箱已注册(登录流程) → 永久弃用;
+        # 服务端 invalid_auth_step + redirect login_with 佐证(已注册邮箱不可再注册)
         if "log-in" in (final or "") or "/login" in (final or ""):
             e = _MailRegistered(err)
-            e.diag = {"landing_diag": _landing_diag(final), "reason": err}
+            e.diag = {
+                "landing_diag": _landing_diag(final),
+                "reason": err,
+                "srv_code": srv_code,
+                "srv_redirect": srv_redirect,
+            }
             raise e
         e = _RegisterBlocked(err)
-        e.diag = {"landing_diag": _landing_diag(final), "reason": err}
+        e.diag = {
+            "landing_diag": _landing_diag(final),
+            "reason": err,
+            "srv_code": srv_code,
+            "srv_redirect": srv_redirect,
+        }
         raise e
     reg = resp.json()
     diag["register_s"] = round(time.time() - _t0, 1)  # 纯 register 段(设密码+quickjs t)

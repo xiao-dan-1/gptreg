@@ -212,6 +212,9 @@ def main() -> int:
 
     if result.outcome == RegisterOutcome.MAIL_REGISTERED:
         print(f"[x] 邮箱已注册(永久弃用): {d.get('landing_diag') or d.get('reason', '')[:80]}")
+        # 服务器原始 code/redirect 佐证已注册(如 invalid_auth_step + login_with)
+        if d.get("srv_code"):
+            print(f"[register/服务器] code={d.get('srv_code')} redirect={d.get('srv_redirect','')[:60]}")
         print(f"[总耗时] {(time.time()-t0):.1f}s")
         return 2
 
