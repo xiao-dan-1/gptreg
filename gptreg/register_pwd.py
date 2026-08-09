@@ -51,6 +51,7 @@ class RegisterOutcome(Enum):
     SUCCESS = "success"
     IP_BLOCKED = "ip_blocked"  # register 400, 出口 IP 信誉不足 → 换 IP 可重试
     MAIL_REGISTERED = "mail_registered"  # 落 log-in, 邮箱已在 OpenAI 注册 → 永久弃用
+    MAIL_CONFLICT = "mail_conflict"  # register 400 invalid_auth_step/Invalid authorization: 邮箱已推进过注册流程(状态机不可重入) → 永久弃用
     SO_FAILED = "so_failed"  # so 采集失败(重试后), 无 so 必死 → 中止
     OTP_FAILED = "otp_failed"  # 收码超时/失败
     CREATE_FAILED = "create_failed"  # create 拒建/失败
@@ -73,6 +74,12 @@ class _RegisterBlocked(RuntimeError):
 
 class _MailRegistered(RuntimeError):
     """register 400 + 落 log-in：邮箱已注册, 永久弃用。"""
+
+
+class _MailStateConflict(RuntimeError):
+    """register 400 + invalid_auth_step/Invalid authorization：邮箱已推进过注册流程
+    (OTP 已消费/register 已设密码), OpenAI 状态机不可重入 → 永久弃用, 换 IP 无效。
+    """
 
 
 class _SoFailed(RuntimeError):
@@ -182,7 +189,8 @@ def _stage_register(
 ) -> tuple[dict[str, Any], str]:
     """Stage 2: register(设密码) + send_otp。返回 (reg, send_url)。
 
-    400 分类: 落 log-in=邮箱已注册(永久弃用) / 其他=IP 信誉(换 sid 可重试)。
+    400 分类: 落 log-in=邮箱已注册(永久弃用) / invalid_auth_step|Invalid authorization
+    =邮箱状态冲突(已推进过注册, 不可重入, 永久弃用) / 其他=IP 信誉(换 sid 可重试)。
     """
     _t0 = time.time()
     # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
@@ -219,6 +227,19 @@ def _stage_register(
         # 服务端 invalid_auth_step + redirect login_with 佐证(已注册邮箱不可再注册)
         if "log-in" in (final or "") or "/login" in (final or ""):
             e = _MailRegistered(err)
+            e.diag = {
+                "landing_diag": _landing_diag(final),
+                "reason": err,
+                "srv_code": srv_code,
+                "srv_redirect": srv_redirect,
+            }
+            raise e
+        # 邮箱状态冲突(状态机不可重入): invalid_auth_step(warm 重试后仍 400)/Invalid authorization
+        # = 邮箱已推进过注册流程(OTP 已消费/密码已设)。重跑同一邮箱必 400, 换 IP 无效 → 永久弃用。
+        # 若误判 IP_BLOCKED, batch 会换 sid 反复戳同一邮箱, 放大认证请求量, 反易触发 rate_limit。
+        _low = (resp.text or "").lower()
+        if "invalid_auth_step" in _low or "invalid authorization" in _low or "invalid_authorization" in _low:
+            e = _MailStateConflict(err)
             e.diag = {
                 "landing_diag": _landing_diag(final),
                 "reason": err,
@@ -550,8 +571,9 @@ def register_account(
 ) -> RegistrationResult:
     """执行一次密码注册 + TOTP 2FA, 返回结构化结果。
 
-    proxy 空则走 config 动态模板(可换 sid 重试)。register 400(IP 信誉)自动换 sid
-    重试最多 3 次; 落 log-in(邮箱已注册)直接 MAIL_REGISTERED 永久弃用。
+    proxy 空则走 config 动态模板(可换 sid 重试)。register 400: 落 log-in=邮箱已注册、
+    invalid_auth_step/Invalid authorization=邮箱状态冲突(状态机不可重入) → 永久弃用;
+    仅纯 IP 信誉才换 sid 重试 1 次(反复戳同一邮箱会放大认证请求量, 触发 rate_limit)。
     """
     t0 = time.time()
     proxy_url = proxy
@@ -572,17 +594,24 @@ def register_account(
                 RegisterOutcome.MAIL_REGISTERED, email,
                 getattr(exc, "diag", None) or {"reason": str(exc)[:150]},
             )
+        except _MailStateConflict as exc:
+            # 邮箱状态冲突(已推进过注册): 换 IP 无效, 直接弃用, 不重试
+            return RegistrationResult(
+                RegisterOutcome.MAIL_CONFLICT, email,
+                getattr(exc, "diag", None) or {"reason": str(exc)[:150]},
+            )
         except _RegisterBlocked as exc:
             last_outcome = RegisterOutcome.IP_BLOCKED
             last_diag = dict(getattr(exc, "diag", {}) or {})
             last_diag["attempt"] = att + 1
             logger.warning("  [warn] register 被拒(IP 风控): %s", str(exc)[:70])
-            if not auto_retry or att >= 2 or "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
+            # 仅换 IP 重试 1 次(att=0 → 第二次尝试): 反复戳同一邮箱会放大认证请求量
+            if not auto_retry or att >= 1 or "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
                 break
             new_sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
             proxy_url = re.sub(r"-sid-[^-]+-t-", f"-sid-{new_sid}-t-", proxy_url, count=1)
             last_diag["retry_sid"] = att + 1
-            logger.warning("  [retry] 换新 sid 重试 (%d/3)", att + 2)
+            logger.warning("  [retry] 换新 sid 重试 (1/2)", att + 2)
             time.sleep(1)
         except _SoFailed as exc:
             return RegistrationResult(RegisterOutcome.SO_FAILED, email, {"reason": str(exc)[:150]})

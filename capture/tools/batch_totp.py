@@ -139,6 +139,24 @@ def _log_failure(main: str, result: "RegistrationResult") -> None:
         pass
 
 
+def _is_progressed(result: "RegistrationResult") -> bool:
+    """邮箱是否已推进过注册流程(状态机不可重入, 重跑必 register 400)。
+
+    OpenAI 注册是 per-邮箱状态机: 一旦 OTP 消费/register 设密码/建号, 该邮箱不可重入。
+    含所有 OTP 之后失败(so/create/session/health/enroll) + 状态冲突(mail_conflict/已注册);
+    仅"未推进"失败(IP_BLOCKED/OTP_FAILED)保留可重试。
+    """
+    if result.outcome in (
+        RegisterOutcome.MAIL_REGISTERED, RegisterOutcome.MAIL_CONFLICT,
+        RegisterOutcome.SO_FAILED, RegisterOutcome.CREATE_FAILED,
+        RegisterOutcome.HEALTH_FAILED, RegisterOutcome.ENROLL_FAILED,
+    ):
+        return True
+    if result.outcome == RegisterOutcome.SESSION_FAILED:
+        return bool((result.diag or {}).get("otp_got"))  # OTP 已消费则已推进
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=3, help="本次批量数量(默认 3)")
@@ -265,15 +283,20 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
         ts = timing_str(result.diag)
         if ts:
             print(f"  [耗时] {ts}", flush=True)
-        # 主号生命周期: 与号池 state 同步(避免坏号反复试); 锁内线程安全
+        # 主号生命周期: 与号池 state 同步(避免坏号反复试); 锁内线程安全。
+        # 已推进注册流程的邮箱不可重跑(状态机不可重入, 重跑必 register 400, 换 IP 无效且
+        # 放大认证请求触发 rate_limit) → 一律弃用; 仅"未推进"失败(IP_BLOCKED/OTP_FAILED)保留。
         if result.outcome == RegisterOutcome.SUCCESS and pool is not None:
             pool.mark_used(main)
-        elif result.outcome == RegisterOutcome.MAIL_REGISTERED:
-            _mark_permanent(main)
-            if pool is not None:
-                pool.mark_bad(main, reason="邮箱已注册")
-            print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name} + 号池 bad", flush=True)
-        time.sleep(1)
+        elif pool is not None and _is_progressed(result):
+            if result.outcome == RegisterOutcome.MAIL_REGISTERED:
+                _mark_permanent(main)
+                print(f"  [永久弃用] 邮箱已注册, 已记 {FAILED_FILE.name} + 号池 bad", flush=True)
+            else:
+                pool.mark_bad(main, reason=f"{result.outcome.value} 已推进注册")
+                print(f"  [弃用] {result.outcome.value}: 邮箱已推进注册流程(重跑必 400), 已记号池 bad", flush=True)
+        # 失败冷却: 避免快速连发(尤其 rate_limit 触发后), 降低认证请求频率
+        time.sleep(4 if not ok else 1)
         return idx, main, ok, result.outcome, dt
 
     if workers <= 1:
