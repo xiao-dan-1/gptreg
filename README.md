@@ -93,8 +93,10 @@ python main.py survival --source icloud
 # ③ 续期：access_token 续期（实测 ~6h 过期，见 FAQ）
 python main.py refresh
 
-# ④ 导出：导出存活账号到文件(四段格式含 access_token), --out 纯文件名写到 output/
-python main.py export --filter alive --with-at --out deliver.txt
+# ④ 导出：常用方式(完整参数见"📦 账号输出与交付")
+python main.py export --filter alive --with-at --out deliver.txt   # [最常用] 存活账号落盘, 4 段含 at
+python main.py export                                              # 全部账号打印到屏幕(3 段)
+python main.py export --filter alive --out alive.txt               # 存活账号落盘(3 段, 不带 at)
 ```
 
 **其他工具**：
