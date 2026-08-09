@@ -18,8 +18,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+for _s in (sys.stdout, sys.stderr):  # 中文 logger 走 stderr, 也必须 UTF-8(否则 cp936 乱码)
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8", errors="replace")
 
 from gptreg.config import load_config, random_birthdate, random_display_name  # noqa: E402
 from gptreg.mail.pool import parse_mail_line  # noqa: E402
@@ -157,7 +158,9 @@ def main() -> int:
             st_ = d.get("so_timing") or {}
             so_inner = ""
             if st_:
-                so_inner = f"[nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s]"
+                # nav/sdk/token 是采集开始后的累计时刻(非各段增量); token 含 SDK init+交互,
+                # 故 token 时刻 > nav/sdk(三者相加会 > 总耗时, 勿误读为串行)
+                so_inner = f"[nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s(累计时刻)]"
             # so 采集重试次数标注(so_attempts>1 说明有重试, so 稳定性分析用)
             so_att = d.get("so_attempts")
             so_att_str = f" retry={so_att - 1}" if so_att and so_att > 1 else ""
@@ -179,6 +182,8 @@ def main() -> int:
                   f"create段={cr}[{par_str} {http_str}] session={ss} "
                   f"health={d.get('health_s', '?')}s enroll={d.get('enroll_s', '?')}s "
                   f"并行(t={d.get('t_s')}s so={d.get('so_s')}s{so_inner}{so_att_str})={d.get('create_parallel')}s")
+        if d.get("send_otp") is not None:
+            print(f"[OTP/send] send_otp HTTP {d['send_otp']}")
         elif "t_s" in d:
             print(f"[create/timing] quickjs t={d.get('t_s')}s so={d.get('so_s')}s 并行总={d.get('create_parallel')}s")
         if result.record:

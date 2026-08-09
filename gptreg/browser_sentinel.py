@@ -228,8 +228,10 @@ def harvest_browser_sentinel(
             _pw["password"] = unquote(_pp.password or "")
         launch_kwargs["proxy"] = _pw
 
+    logger.info("  [browser/so] 启动 Chrome (headless=%s proxy=%s)", headless, proxy or "direct")
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_kwargs)
+        logger.info("  [browser/so] Chrome 已启动")
         try:
             context = browser.new_context(
                 user_agent=browser_cfg.get("user_agent") or None,
@@ -262,6 +264,7 @@ def harvest_browser_sentinel(
                 out["nav_error"] = f"{type(exc).__name__}: {exc}"
             out["nav_s"] = round(time.time() - t0, 2)
             out["final_url"] = page.url
+            logger.info("  [browser/so] 导航完成 nav=%.1fs url=%s", out["nav_s"], str(page.url)[:80])
 
             try:
                 page.mouse.move(120, 160)
@@ -289,6 +292,7 @@ def harvest_browser_sentinel(
                     out["sdk_load_mode"] = "remote_url"
                 page.wait_for_timeout(500)
                 out["sdk_s"] = round(time.time() - t0, 2)
+                logger.info("  [browser/so] SDK 加载完成 sdk=%.1fs mode=%s", out["sdk_s"], out.get("sdk_load_mode"))
             except Exception as exc:
                 out["error"] = f"sdk_load: {type(exc).__name__}: {exc}"
                 out["elapsed_s"] = round(time.time() - t0, 3)
@@ -362,6 +366,7 @@ def harvest_browser_sentinel(
                 return out
 
             out["token_s"] = round(time.time() - t0, 2)
+            logger.info("  [browser/so] token 采集完成 token=%.1fs (含 SDK init + 交互)", out["token_s"])
             token_text = (bundle or {}).get("token") or ""
             so_raw = (bundle or {}).get("so")
             out["sdk_keys"] = (bundle or {}).get("sdk_keys")

@@ -58,7 +58,12 @@ def run(cfg: dict[str, Any], args) -> int:
                 st = r.get("status")
                 http = r.get("http")
                 results.append((email, mtype, st, http, age))
-                print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http}")
+                if st == "error":
+                    # error 多为代理/网络抖动(非账号死亡), 显示 detail 便于区分是否需重测
+                    det = str(r.get("detail") or r.get("body") or "")[:70]
+                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http=None [{det}]")
+                else:
+                    print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http}")
                 # 回写 accounts.jsonl(health_status + last_checked), 账号库保持活状态
                 try:
                     update_account_health(cfg, email=email, health_status=st, http=http)

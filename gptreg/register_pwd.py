@@ -409,6 +409,7 @@ def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, An
         enroll_secret = str(ej.get("secret") or "")
         session_id = ej.get("session_id")
         factor_id = (ej.get("factor") or {}).get("id")
+        logger.info("  [enroll] mfa/enroll HTTP %s factor_id=%s", resp_enroll.status_code, factor_id)
         activated = False
         if enroll_secret and session_id and factor_id:
             import pyotp
@@ -418,12 +419,15 @@ def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, An
                 "code": code6, "session_id": session_id,
                 "factor_id": factor_id, "factor_type": "totp"}), timeout=30)
             activated = resp_act.status_code == 200 and '"success":true' in (resp_act.text or "")
+            logger.info("  [enroll] activate_enrollment HTTP %s activated=%s", resp_act.status_code, activated)
             try:
                 resp_info = session.get(MFA_INFO_URL, headers=h6, timeout=30)
+                logger.info("  [enroll] mfa_info HTTP %s mfa_enabled=%s", resp_info.status_code,
+                            '"mfa_enabled":true' in (resp_info.text or ""))
                 if '"mfa_enabled":true' in (resp_info.text or ""):
                     activated = True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("  [enroll] mfa_info 查询失败: %s", str(exc)[:60])
         if not activated:
             raise _EnrollFailed("activate_enrollment 未确认 mfa_enabled=true")
         return {"totp_secret": enroll_secret, "totp_enrolled": True}
@@ -530,13 +534,15 @@ def register_account(
         return RegistrationResult(last_outcome, email, last_diag)
 
     mail_main = account.get("email") or ""
+    mail_type = str(account.get("mail_type") or "")
     # create 后即时健康检查(秒封检测) + 2FA 激活; 复用注册会话/隧道(贯穿整条链)
     try:
         _h_t0 = time.time()
         health = check_account_health(session, reg["at"])  # type: ignore[arg-type]
         _health_s = round(time.time() - _h_t0, 1)
         if health.get("status") != "ok":
-            rec = _partial_record(reg, email, password, name, bday, mail_main, "health_failed")
+            rec = _partial_record(reg, email, password, name, bday, mail_main, "health_failed",
+                                  mail_type=mail_type)
             rec.setdefault("sentinel_obs", {})["health_s"] = _health_s
             save_account(cfg, record=rec)
             return RegistrationResult(RegisterOutcome.HEALTH_FAILED, email,
@@ -545,7 +551,7 @@ def register_account(
         totp = _enroll_totp(cfg, session, reg)  # type: ignore[arg-type]
         _enroll_s = round(time.time() - _en_t0, 1)
         record = _build_record(reg, email, password, name, bday, mail_main, totp,
-                               health_s=_health_s, enroll_s=_enroll_s)
+                               health_s=_health_s, enroll_s=_enroll_s, mail_type=mail_type)
         save_account(cfg, record=record)
         diag = dict(reg.get("diag") or {})
         diag["health_s"] = _health_s
@@ -553,7 +559,8 @@ def register_account(
         diag["elapsed_s"] = round(time.time() - t0, 1)
         return RegistrationResult(RegisterOutcome.SUCCESS, email, diag, record)
     except _EnrollFailed as exc:
-        rec = _partial_record(reg, email, password, name, bday, mail_main, "registered_no_totp")
+        rec = _partial_record(reg, email, password, name, bday, mail_main, "registered_no_totp",
+                              mail_type=mail_type)
         rec.setdefault("sentinel_obs", {})["health_s"] = _health_s
         save_account(cfg, record=rec)
         return RegistrationResult(RegisterOutcome.ENROLL_FAILED, email,
@@ -563,19 +570,20 @@ def register_account(
             resolved.close()
 
 
-def _partial_record(reg, email, password, name, bday, mail_main, status) -> dict[str, Any]:
+def _partial_record(reg, email, password, name, bday, mail_main, status, mail_type="") -> dict[str, Any]:
     return {
         "email": email, "password": password, "access_token": reg["at"],
         "session_token": reg.get("session_token", ""),  # 刷新凭证(~3月), token 过期续期用
         "refresh_token": reg["refresh_token"], "device_id": reg["device_id"],
         "name": name, "birthdate": bday, "mail_main": mail_main,
+        "mail_type": mail_type,  # 号源类型(号源可靠性统计; 缺省靠域名推断兜底)
         "status": status, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "session_cookies": reg["cookies"], "proxy_used": reg.get("proxy_used", ""),
     }
 
 
-def _build_record(reg, email, password, name, bday, mail_main, totp, health_s=None, enroll_s=None) -> dict[str, Any]:
-    rec = _partial_record(reg, email, password, name, bday, mail_main, "ok")
+def _build_record(reg, email, password, name, bday, mail_main, totp, health_s=None, enroll_s=None, mail_type="") -> dict[str, Any]:
+    rec = _partial_record(reg, email, password, name, bday, mail_main, "ok", mail_type=mail_type)
     rec["totp_secret"] = totp["totp_secret"]
     rec["sentinel_obs"] = {
         "challenge_mode": "quickjs_pwd_v3",

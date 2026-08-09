@@ -52,9 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     # UTF-8 输出（Windows cp936 控制台）——须在 parse/help 之前，否则中文 help 乱码
+    # line_buffering: stdout 块缓冲会把 print 挤到进程结束, 与 stderr 即时 logger 分离错乱
     for _stream in (sys.stdout, sys.stderr):
         if hasattr(_stream, "reconfigure"):
-            _stream.reconfigure(encoding="utf-8", errors="replace")
+            _stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):  # 无子命令 → 完整 help

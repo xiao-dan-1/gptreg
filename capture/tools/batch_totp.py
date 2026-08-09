@@ -22,8 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+for _s in (sys.stdout, sys.stderr):  # 中文 logger 走 stderr, 也必须 UTF-8(否则 cp936 乱码)
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8", errors="replace")
 
 from gptreg.config import load_config, random_birthdate, random_display_name  # noqa: E402
 from gptreg.mail.pool import MailPool, parse_mail_line  # noqa: E402
