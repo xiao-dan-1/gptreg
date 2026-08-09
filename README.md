@@ -150,7 +150,30 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 - `totp_secret` = 2FA 密钥（有值 = 真 2FA 账号）
 - `session_token` = 刷新凭证（~3 月，token 过期续期用）
 
-**导出格式**：`email----password----2fa[----at]`（`--with-at` 加第 4 段 access_token）。默认打印到屏幕，`--out 文件名` 写入文件（纯文件名 → `output/`，含路径 → 按显式路径）。
+**导出格式**：`email----password----2fa[----at]`
+
+**导出参数**（`python main.py export`）：
+
+| 参数 | 作用 |
+|---|---|
+| （无参数） | 打印**所有**完整账号（`email----password----2fa`）到屏幕 |
+| `--with-at` | 加第 4 段 access_token（JWT，实测 ~6h 过期，交付注意时效） |
+| `--filter alive` / `dead` | 只导存活（`health_status=ok`）/ 吊销账号 |
+| `--source <号源>` | 只导某号源（如 `icloud` / `ms_oauth`） |
+| `--out <文件>` | 写入文件（纯文件名 → `output/`；含路径 → 按路径）；不写则打印到屏幕 |
+
+**常用示例**：
+
+```bash
+# 打印全部完整账号(3 段)
+python main.py export
+
+# 导出存活账号到文件(4 段含 access_token)
+python main.py export --filter alive --with-at --out deliver.txt
+
+# 只导 iCloud 存活账号
+python main.py export --source icloud --filter alive --with-at --out deliver_icloud.txt
+```
 
 ---
 
