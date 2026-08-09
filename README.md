@@ -42,7 +42,7 @@ proxy:
 
 ### 4️⃣ 填号池（`icloud_pool.txt`，首选号源）
 
-准备你的邮箱号池（见 [号池](#号池自备邮箱)）。**iCloud 号池**（`邮箱----接码URL`）示例：
+复制 `icloud_pool.txt.example` 为 `icloud_pool.txt`，填入你的 iCloud 邮箱号池（见 [号池](#号池自备邮箱)）。**iCloud 号池**（`邮箱----接码URL`）示例：
 
 ```text
 user@icloud.com----https://你的接码服务/get-code
