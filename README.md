@@ -1,306 +1,228 @@
 # GPT 协议注册机
 
-ChatGPT / OpenAI 账号**密码注册 + TOTP 2FA 激活**工具。纯协议实现，主路线产出带 `totp_secret` 的真激活账号（`mfa_enabled: true`），可后续用密码+TOTP 登录。
+ChatGPT / OpenAI 账号**自动注册 + TOTP 2FA 激活**工具。纯协议实现，产出带 `totp_secret` 的**真 2FA 账号**（`mfa_enabled: true`），之后可用密码 + TOTP 正常登录。
 
-## 核心能力
+> ⚠️ **运行前置**：本项目只提供注册/收码管线，**不包含任何邮箱号池、代理或接码服务**——需自备住宅代理 + 邮箱号池（见 [号池](#号池自备邮箱)）。仅供协议研究与学习，请遵守目标服务条款与当地法律。
 
-- **密码注册 + TOTP 2FA 激活**（主路线）
-  - 核心：`gptreg/register_pwd.py` `register_account()`（结构化结果），CLI/批量共享
-  - 薄壳：`capture/tools/verify_pwd_totp.py`（选号/生成参数/打印反馈）
-  - `enroll` → `activate_enrollment` 完整链，产出 `mfa_enabled: true` 的真 2FA 账号
-  - create 后即时健康检查（秒封检测）
-- **统一 CLI 入口**（`main.py`，子命令式）：`register` / `survival` / `refresh` / `export` / `overview` / `backfill` / `imap` / `raw-check` / `check-proxy` / `stats` / `subscription`
-- **批量生产**（`capture/tools/batch_totp.py`，Phase 2 迁入 main.py）复用核心，按失败类型管主号（IP 风控不烧号），`--workers` 多线程并发
-- **本地 IMAP 收码**（XOAUTH2 经链式隧道），失败自动降级 Graph
-- **账号测活 / 补 token / 2FA 登录**（`main.py survival` / `main.py backfill` / `capture/tools/login_pwd_check_totp.py`）
-- **账号管理闭环**：测活回写（`main.py survival`）+ access_token 续期（`main.py refresh`）+ 资产视图（`main.py overview`）
-- **导出交付**（`main.py export`）：`email----password----2fa[----at]` 格式
-- 统一落盘 `accounts.jsonl` 主库（去重 upsert + 自动备份）
+---
 
-## 主路线架构
+## 快速开始（5 分钟跑通第一个账号）
 
-```
-号源(Outlook池/iCloud池/CloudMail动态) ──动态链式代理──> OpenAI 注册  [gptreg/register_pwd.register_account]
-  ├─ signin → authorize → register(设密码, quickjs_pwd_v3 t)  [400: invalid_auth_step/Invalid authorization=邮箱状态冲突弃用; 纯 IP 类换 sid 重试 1 次; 落 log-in=已注册弃用]
-  ├─ send_otp → 收码(IMAP/Graph/iCloud URL/CloudMail admin) → validate  [iCloud/CloudMail 直连, Outlook 走隧道]
-  ├─ create_account(quickjs 真 t + browser 真 so 并行; so 失败重试3次+中止)
-  ├─ callback → session(access_token + session_token 刷新凭证) → 即时健康检查(秒封检测)
-  ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活(复用注册隧道, 出口贯穿)
-  └─ save_account → accounts.jsonl(totp_secret + 凭据, 字段分组顺序)
-```
+目标：装好环境 → 填号池 → 注册出第一个带 2FA 的账号。技术细节可先跳过（见文末"进阶"）。
 
-> **默认 plus 别名注册**（config `mail.use_alias: true`）——号池主号很多已在 OpenAI 注册，主号直接注册会落 email-verification/log-in → register 400；别名是全新邮箱，register 直接过（已实证）。`--no-alias` 可强制用主号。**iCloud/CloudMail 一邮箱一账号，强制用主邮箱不别名**（接码 URL/域名绑定主邮箱）。
+### 1. 准备环境
 
-### Sentinel 策略（主路线）
+- **Python 3.11+**
+- **Chrome**（so 采集用）+ **Node.js 18+**（token 生成用）
+- **一个能上外网的住宅代理**（数据中心 IP 会被 OpenAI 风控，注册必失败）
 
-| 环节 | 引擎 | 说明 |
-|---|---|---|
-| register(设密码) | quickjs_pwd_v3 | Node VM 跑官方 sdk.js 产真 t |
-| create_account | quickjs 真 t + **browser 真 so** | so 走真 Chrome `sessionObserverToken`，跟随注册代理 |
-| 登录/OTP | pow | 纯 Python PoW |
-
-> t 一律 **quickjs(Node VM 协议)** 产真值，非浏览器产；`protocol.sentinel_source` 仅影响 OTP-only 流水线(main.py)，主路线 verify_pwd_totp 不读该项。
-
-**硬约束**：禁止假 so（SyntaxError 等）、禁止假 finalize。假 t ~6h 被吊销；真 t+真 so 才能长期存活。
-
-### 收码（插件化: MailSource/MailClient 注册表）
-
-| 通道 | 覆盖 | 速度 | 说明 |
-|---|---|---|---|
-| 本地 IMAP (XOAUTH2) | 12/15 | ~10s | 经 chain_via 隧道, `_ManualImap` 手动协议, 秒级到件 |
-| Graph 降级 | 被拒账号 | ~161s | 索引延迟(服务端), $filter/top/Prefer 优化 + 进度日志 |
-| XDAuv 服务 | 全部 | ~8s | `use_xdauv: true`, 服务端直连 Exchange |
-| **iCloud 接码 URL** | iCloud | 看服务 | `email----URL` 号源, GET code_url 拉码 |
-| **通用 API 插件** | 任意 | 看服务 | `mail.api_client` 配端点即接入, 无需写代码 |
-| **CloudMail 号源** | 自托管 | ~7s | `--pool cloudmail` 动态生成邮箱(不依赖号池), admin 拉码 |
-
-- 号池 ~12/15 账号 IMAP 可用；被拒账号（`authenticated but not connected`）自动降级 Graph
-- **收码代理策略**：仅 ms_oauth(Outlook IMAP/Graph)走链式隧道；iCloud/CloudMail/API 直连（第三方/自托管服务本身干净, 套隧道反而 TLS 失败）
-- **并发能力（实测）**：并发边界取决于收码方式——独立收码(iCloud URL/Outlook IMAP)高并发(实测 5 线程稳定 10/10)；
-  共享收码(CloudMail admin 拉码)低并发(≤2, 4 线程会收码超时)。`--workers` 建议 ≤ 可用代理/IP 数
-- **新增收码通道/号源 = 写一个 MailClient/MailSource 插件 + 注册进注册表, 核心零改动**
-
-### 代理
-
-- 动态链式：`proxy.dynamic.template`（cliproxy）经 `chain_via`（7890）隧道，换 sid 换出口 IP
-- **住宅 IP 必须**：OpenAI 对数据中心 IP 风控，`register 400 invalid_auth_step` 即 IP 被标记；换干净住宅 IP（AT&T/Comcast/KPN 等）可解
-- 当前 cliproxy 池混合住宅/数据中心，换 sid 抽奖——命中住宅 IP 才注册成功
-
-## 环境依赖
-
-- Python 3.11+
-- 本机 Chrome + Playwright（browser so 采集需要）
-- Node.js 18+（quickjs 引擎产 t 需要）
-- 可用外网代理（住宅 IP 出口）
+### 2. 安装依赖
 
 ```bash
-pip install -r requirements.txt          # curl_cffi + PyYAML
+pip install -r requirements.txt
 pip install playwright && playwright install chrome
 ```
 
-## 配置（config.yaml）
+### 3. 配置代理（`config.yaml`）
+
+复制 `config.yaml.example` 为 `config.yaml`，填入你的代理：
 
 ```yaml
 proxy:
   dynamic:
     enabled: true
-    template: "http://账号-region-US-sid-xxxx-t-5:密码@us.cliproxy.io:3010"
-    region: "US"
-    rotate_sid: false        # true=每次换IP; false=固定sid(粘性)
-    chain_via: "http://127.0.0.1:7890"
-mail:
-  use_xdauv: false           # true=服务收码; false=本地IMAP
-  otp_wait: 150              # 收码超时(需覆盖发码延迟)
-  otp_max_attempts: 2        # 超时重发次数
-  api_client:                # 通用第三方 API 接码(号池行 email----api_key)
-    endpoint: ""             # 收码 API URL(空=禁用该来源)
-    method: "POST"
-    request_body: '{"api_key":"{api_key}","email":"{email}","mailbox":"INBOX"}'
-    otp_path: ""             # 响应里 OTP 的 JSON 路径(空=通用扫描)
-  cloud_mail:                # 自托管 cloud-mail 号源(号池行单段邮箱, 一邮箱一账号)
-    base_url: "https://mail.xdauv.xyz"
-    admin_email: ""          # cloud-mail admin(拉码用)
-    admin_password: ""
-    domains: ["xdauv.xyz"]   # 可用域名(号池行用; 空则查 API)
-# 仅 OTP-only 流水线(main.py)用; 主路线 verify_pwd_totp 固定 quickjs 协议产 t, 不读此项
-protocol:
-  sentinel_source: "browser"
-register:
-  default_password: ""     # 统一密码(空=每次随机)。填了则所有账号同密码——半注册邮箱
-                            # (register 成功但 create/so 失败)可用它找回, 否则密码随进程丢失
-  post_login: true
+    template: "http://你的账号-region-US-sid-xxxx-t-5:你的密码@us.cliproxy.io:3010"
+    chain_via: "http://127.0.0.1:7890"   # 你本机代理的第一跳
 ```
 
-## 使用
+### 4. 填号池（`mail_pool.txt`）
 
-### 生产循环（一般流程）
+准备你的邮箱号池（见 [号池](#号池自备邮箱)）。Outlook 号池示例：
+
+```text
+alice@outlook.com----password----client_id----refresh_token
+```
+
+### 5. 注册第一个账号
+
+```bash
+python capture/tools/batch_totp.py --pool icloud --limit 1
+# 成功 → output/accounts.jsonl 新增一条带 TOTP 的账号
+```
+
+### 6. 查看结果
+
+```bash
+python main.py overview     # 账号总览(总数/存活/按号源存活率)
+python main.py export       # 导出 email----password----2fa 交付
+```
+
+> **首选 iCloud 号源**（实测存活率 ~100%）：`icloud_pool.txt` 填 `邮箱----接码URL`。
+
+---
+
+## 日常使用（生产循环）
 
 ```
 ① 注册 → ② 测活 → ③ 续期 → ④ 导出交付
-   ↕ 号池管理: 坏号(已注册)标 bad / 换新号 / 看号源存活率
+   ↕ 号池管理: 坏号(已注册)标 bad / 换新号
 ```
 
-```bash
-# 统一入口 main.py（子命令式）。旧 capture/tools/xxx.py 已迁移:
-#   check_survival_batch→survival, refresh_at→refresh, account_overview→overview,
-#   export_accounts→export, backfill_token→backfill, check_imap→imap, check_raw_tokens→raw-check
-
-# ① 注册（逐个/批量）——Phase 2 迁入 main.py, 当前仍用 capture/tools
-python capture/tools/verify_pwd_totp.py --pool icloud --email 用户@icloud.com   # 单个
-python capture/tools/batch_totp.py --pool icloud --limit 3                     # 批量(串行)
-python capture/tools/batch_totp.py --pool icloud --limit 6 --workers 3         # 批量并发(3 线程)
-# 号源: 默认 Outlook 池 / --pool icloud / --pool cloudmail(动态生成, 不依赖号池)
-# --workers N: 并发线程数(默认 1 串行), 建议 ≤ 可用代理/IP 数(避免共用 IP 风控)
-
-# ② 测活(确认账号存活, 回写 health_status)
-python main.py survival --source icloud         # 按号源批量测活(每 8 个换 IP)
-python main.py overview                        # 资产总览(存活/吊销/按号源存活率)
-
-# ③ 续期(实测 access_token ~6h 过期[非 10 天]; 续期机制见"注意事项"续期说明)
-python main.py refresh --dry-run                # 先试跑(不回写)
-python main.py refresh                          # 续期并回写
-
-# ④ 导出交付
-python main.py export                           # email----password----2fa
-python main.py export --filter alive --with-at --out deliver.txt  # 存活+at 存文件
-
-# 工具
-python main.py check-proxy --times 2            # 探测出口 IP(换 sid 验证换 IP)
-python main.py stats                            # 号池统计
-python main.py backfill --emails xxx            # 补缺失 access_token
-python main.py imap --limit 3                   # 号池 IMAP 可用性
-echo "<jwt>" | python main.py raw-check         # 直接喂 token 测活
-```
-
-> **生产循环实测**（iCloud 并发 5）：批量 10 个 → 10/10 成功(37-102s) → 测活 10/10 存活
-> → 导出 66 个存活账号。iCloud 号源高并发稳定, 存活率 100%(对比 CloudMail ~20%)。
-```
-
-**注册参数说明**:
-```bash
-# 默认 plus 别名(解决主号已注册→register 400); --no-alias 用主号
-python capture/tools/verify_pwd_totp.py --email 主号
-# 指定代理(住宅 IP)
-python capture/tools/verify_pwd_totp.py --email 主号 --proxy http://user:pass@host:port
-```
-
-成功账号写入 `output/accounts.jsonl`（主库，唯一事实源），字段分组顺序：
-`email/mail_main/name/birthdate/mail_type` → `password/totp_secret/access_token/session_token/refresh_token/session_cookies` → `device_id` → `status/health_status/last_checked` → `sentinel_obs` → `proxy_used/saved_at/updated_at`
-- `totp_secret` = 2FA 密钥（有值即真 2FA 账号）；`session_token` = 刷新凭证（~3月，access_token 过期续期用）
-- 账号管理闭环：测活回写 `health_status` / 续期回写 `session_expires`+`last_refreshed`
-
-### 单号注册输出解读（日志级别前缀 + 完整归因）
-
-```
-INFO  [Auth] 获取 providers → CSRF → signin → authorize 落点
-INFO  [IMAP] 到件 OTP=123456 uid=.. 延迟 3.0s        ← 收码快通道
-INFO  [iCloud] 到件 OTP=305108 延迟 1.9s             ← iCloud 接码 URL
-INFO  [MSMail/Graph] 等待中 t+..s                    ← Graph 降级(索引延迟)
-  [quickjs/t] register 真 t 就绪 (so: 密码 register 无 so)
-  [quickjs/t] create 真 t 就绪 (so 由 browser 采集)
-[耗时] signin+register=8.3s OTP段(cloudmail)=3.8s[到件2.5s]
-       create段=16.1s session=3.3s health=0.8s enroll=2.3s
-       并行(t=1.8s so=11.4s[nav=4.3s sdk=5.3s token=11.16s])=11.4s
-[出口] http://region-US-sid-2As2LXe5@us.cliproxy.io:3010   ← 出口 IP(脱敏)
-```
-
-- 级别前缀（INFO/WARNING/ERROR）区分正常/降级/失败；t/so 来源明确（quickjs 产 t，browser 采 so）
-- 6 段归因精确（各段和 = 总耗时）；**OTP段[到件X.Xs]** 区分段耗时与纯等码延迟；so 内部细分（nav/SDK 加载/token）定位慢点
-- 收码 channel 显示号源名（imap/icloud/cloudmail/...）；收码异常带 email + 通道故障 vs 无新邮件归因
-
-### 批量输出增强（batch_totp --workers N）
-
-- 并发 worker 的 INFO 日志带**账号前缀**（`[邮箱] [Auth] ...`）；so/t 采集子线程经 contextvars 继承也带前缀
-- 每账号 `[出口]`（脱敏代理）+ `[耗时]`（含 setup 段）归因；失败归因精确（mail_conflict 带服务器 code）
-- 批量结束输出 `批量耗时/串行预估/加速比`（量化 workers 并行效率）
-- 失败自动落盘 `data/batch_failures.log`（时间|主号|outcome|reason|耗时），复盘有据
-
-## 号池格式（mail_pool.txt）
-
-```text
-# ms_oauth（Outlook OAuth, IMAP/Graph 收码）
-alice@outlook.com----password----client_id----refresh_token
-
-# icloud（iCloud 邮箱----接码url, GET code_url 拉码; 限定 @icloud.com/@me.com）
-user@icloud.com----https://.../code
-
-# api（通用第三方 API, 配 mail.api_client）
-user@cloud.com----api_key
-
-# cloudmail（自托管 cloud-mail, 一邮箱一账号; 不依赖号池, --pool cloudmail 动态生成）
-```
-
-**来源识别**：4 段 → `ms_oauth` / 2 段+URL(@icloud.com/@me.com) → `icloud` / 2 段非 URL → `api` / 单段邮箱 → `cloudmail`。
-
-**号池文件**：各号源独立文件, CLI 用 `--pool` 选:
-- `mail_pool.txt`   Outlook 主号(默认池)
-- `icloud_pool.txt` iCloud 接码号(email----URL)
-- `--pool cloudmail` 动态生成 cloud-mail 邮箱(不读文件)
-**新增来源**：写 `MailSource` 插件 + 注册进 `MAIL_SOURCES`，核心零改动。
-
-- 主号需未注册过 OpenAI（已用会走邮箱级风控，换 IP 无效）
-- 注册用 plus 别名（`use_alias: true`），收码用主号 OAuth
-- 号池状态（`mail_pool.txt.state.json`）：失败/弃用带 **TTL 自动回退**——基建失败 30min、账号弃用 24h 过期自动恢复（代理/网络恢复账号复活，无需人工清 state）
-
-**号池来源（自备邮箱，本项目不提供号池）**：
-
-| 号源 | 邮箱来源 | 需要准备 |
+| 步骤 | 命令 | 说明 |
 |---|---|---|
-| ms_oauth（Outlook 池） | 自建 Outlook/Hotmail/Live 邮箱 | Microsoft OAuth 授权拿 `client_id + refresh_token`（4 段行 `email----password----client_id----refresh_token`） |
-| iCloud | 自备 `@icloud.com/@me.com` 邮箱 | 第三方接码服务，提供 get-code URL（2 段行 `email----URL`，收码时 GET code_url 拉码） |
-| CloudMail | 自托管 cloud-mail 服务 | 部署 cloud-mail（如 mail.xdauv.xyz），配 `config.mail.cloud_mail` 的 admin 账号，动态生成邮箱（`--pool cloudmail`，不依赖号池文件） |
-| api | 第三方接码平台 | 注册平台拿 api_key（2 段行 `email----api_key`），配 `config.mail.api_client` 端点即可接入 |
+| **① 注册** | `batch_totp.py --pool icloud --limit N --workers M` | 批量注册；`--workers` 并发线程（建议 ≤ 可用代理数） |
+| **② 测活** | `main.py survival --source icloud` | 批量测活，回写 `health_status`，每 8 个换 IP |
+| **③ 续期** | `main.py refresh` | access_token 续期（**实测 ~6h 过期**，见 FAQ） |
+| **④ 导出** | `main.py export --filter alive --with-at` | 导出存活账号，四段含 access_token |
 
-> 号池是使用方的自有资产：**本项目只提供注册/收码管线，不包含任何邮箱或接码服务**。参考示例见 `mail_pool.txt.example`。
+**其他工具**：`overview`（资产总览）/ `stats`（号池统计）/ `check-proxy`（探测出口 IP）/ `backfill`（补缺失 token）/ `imap`（收码通道检查）/ `subscription`（查订阅/优惠资格）/ `raw-check`（直接喂 JWT 测活）。
 
-## 目录
+---
+
+## 配置说明（`config.yaml` 关键项）
+
+| 配置 | 作用 |
+|---|---|
+| `proxy.dynamic.template` | 动态住宅代理模板（换 sid = 换出口 IP） |
+| `proxy.dynamic.chain_via` | 本地代理第一跳（如 127.0.0.1:7890） |
+| `mail.use_alias` | 用 plus 别名注册（解决主号已注册的 400），默认 true |
+| `register.default_password` | **统一密码**（推荐填）：所有账号同一密码，半注册邮箱可找回；不填则随机（密码会随进程丢失） |
+| `mail.otp_wait` | 收码超时（秒），需覆盖发码延迟 |
+
+完整配置示例见 `config.yaml.example`。
+
+---
+
+## 号池（自备邮箱）
+
+本项目**不提供邮箱**，需自备。号池按行组织，行首 `#` 为注释。
+
+| 号源 | 行格式 | 邮箱来源 |
+|---|---|---|
+| **ms_oauth**（Outlook 池，默认） | `email----password----client_id----refresh_token` | 自建 Outlook 邮箱 + OAuth 授权拿 refresh_token |
+| **iCloud**（推荐） | `email----https://.../get-code` | 自备 `@icloud.com/@me.com` 邮箱 + 第三方接码服务 |
+| **api** | `email----api_key` | 第三方接码平台（配 `mail.api_client`） |
+| **cloudmail** | 动态生成 | 自托管 cloud-mail 服务（`--pool cloudmail`，不依赖号池文件） |
+
+- **来源识别**：4 段 → `ms_oauth`；2 段+URL(@icloud.com/@me.com) → `icloud`；2 段非 URL → `api`；单段邮箱 → `cloudmail`
+- **号池状态**（`.state.json`）：失败/弃用带 TTL 自动回退（基建 30min、弃用 24h），代理恢复即复活
+- 主号需**未注册过 OpenAI**（已用会走邮箱级风控，换 IP 无效）
+
+---
+
+## 账号输出与交付
+
+成功账号写入 `output/accounts.jsonl`（主库，唯一事实源）。字段分组：
+`email/name/birthdate/mail_type` → `password/totp_secret/access_token/session_token/session_cookies` → `device_id` → `status/health_status` → `sentinel_obs` → `proxy_used/saved_at/updated_at`
+
+- `totp_secret` = 2FA 密钥（有值 = 真 2FA 账号）
+- `session_token` = 刷新凭证（~3 月，token 过期续期用）
+
+**导出格式**：`email----password----2fa[----at]`（`--with-at` 加第 4 段 access_token）。
+
+---
+
+## 常见问题（FAQ）
+
+**Q1. 注册报 `register 400`，为什么？**
+看输出的诊断行（authorize 落点）三选一：
+- `email-verification/log-in` → 主号已在 OpenAI 注册 → 用 plus 别名（已默认）或换邮箱
+- `create-account/password` 仍 400 → **出口 IP 被标记** → 换干净住宅 IP
+- `invalid_auth_step` / `Invalid authorization` → **邮箱已推进过注册流程**（状态机不可重入）→ 弃用，换新邮箱
+
+**Q2. 测活报 `token_expired`，账号死了吗？**
+没死。**access_token 实测 ~6h 过期**（非 README 说的 10 天），账号还在，只是 token 需续期。`main.py refresh` 续期——**但注意**：实测部分账号 refresh 返回"同 token"（未换新），续期是否生效以续期后重测为准。
+
+**Q3. 每次注册都换 IP，为什么还会风控？**
+风控是**多维**的：换 IP 只解决"IP 信誉"一维。**邮箱级**（同邮箱多次失败被记住）、**频率级**（`rate_limit_exceeded`）、**会话级**均换 IP 无效。今天注册量过大也会触发认证频率限流。
+
+**Q4. 半注册邮箱（register 成功但 create/so 失败）怎么找回？**
+用**统一密码**（`register.default_password`）手动登录——这就是统一密码的意义。不填统一密码则随机密码已随进程丢失，无法找回。
+
+**Q5. 收码失败/很慢？**
+- iCloud/CloudMail/API 走**直连**；Outlook 走链式隧道
+- 被 MS 拒 IMAP 的 Outlook 账号自动降级 Graph（较慢 ~161s）
+- 共享收码源（CloudMail admin）并发 ≤2，独立收码（iCloud URL/Outlook IMAP）可高并发
+
+---
+
+## 进阶：架构与协议（可跳读）
+
+### 主路线注册链
+
+```
+号源(Outlook/iCloud/CloudMail) ──动态链式代理──> OpenAI 注册
+  ├─ signin → authorize → register(设密码)   [400: 状态冲突弃用 / IP 类换 sid 重试 1 次]
+  ├─ send_otp → 收码 → validate
+  ├─ create_account(quickjs 真 t + browser 真 so 并行)
+  ├─ callback → session(access_token + session_token) → 健康检查(秒封检测)
+  ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活
+  └─ save_account → accounts.jsonl
+```
+
+### Sentinel 策略（产真 t + 真 so）
+
+| 环节 | 引擎 | 说明 |
+|---|---|---|
+| register(设密码) | quickjs_pwd_v3 | Node VM 跑官方 sdk.js 产真 t |
+| create_account | quickjs 真 t + **browser 真 so** | so 走真 Chrome `sessionObserverToken` |
+| 登录/OTP | pow | 纯 Python PoW |
+
+**硬约束**：禁止假 so / 假 finalize。假 t ~6h 被吊销；真 t + 真 so 才能长期存活。
+
+### 收码通道（插件化）
+
+| 通道 | 速度 | 说明 |
+|---|---|---|
+| 本地 IMAP (XOAUTH2) | ~10s | Outlook，经链式隧道 |
+| Graph 降级 | ~161s | 被 MS 拒 IMAP 的账号兜底 |
+| iCloud 接码 URL | 看服务 | `email----URL` 号源 |
+| CloudMail | ~7s | 自托管，admin 拉码 |
+| 通用 API | 看服务 | `mail.api_client` 配端点即接入 |
+
+### 代理
+
+- 动态链式：cliproxy 模板经 `chain_via` 隧道，换 sid 换出口 IP
+- **住宅 IP 必须**（数据中心 IP 被 OpenAI 风控）
+- cliproxy 池混合住宅/数据中心，换 sid 是"抽奖"——命中住宅 IP 才成功
+
+---
+
+## 目录结构
 
 ```text
-main.py                        统一 CLI 入口(子命令式: register/check-proxy/stats/overview/export/survival/refresh/backfill/imap/raw-check/subscription)
+main.py                        统一 CLI 入口(子命令式)
 gptreg/
-  cli.py                       统一 CLI 路由器(parse + dispatch)
-  commands/                    子命令实现(每命令 add_parser + run(cfg, args))
-    register.py                OTP-only 注册(Phase 2 换密码+TOTP)
-    check_proxy.py             探测出口 IP
-    stats.py                   号池统计
-    overview.py                账号资产总览
-    export_accounts.py         导出(email----password----2fa[----at])
-    survival.py                批量测活(回写 health, 定期换 IP)
-    refresh_at.py              access_token 续期
-    backfill.py                补 access_token(密码+TOTP 登录)
-    check_imap.py              IMAP 可用性检查
-    raw_check.py               JWT 直喂测活
-    subscription.py            两步查询订阅/优惠资格(对齐 at-hub)
-  register_pwd.py              主路线核心：register_account(注册+TOTP 2FA, 结构化结果)
-  auth.py                      协议请求 + sentinel 接线
-  register_otp.py              OTP-only 注册(与 register_pwd 对称) + 批量分桶
-  browser_sentinel.py          真 Chrome token+so 采集
-  sentinel_quickjs.py          Node VM 产真 t
-  sentinel_engine.py           引擎注册表
-  jwtutil.py                   JWT 解码(email/name/exp)
-  mail/base.py                 抽象基类(MailClient 收码 / MailSource 来源)
-  mail/sources.py              插件注册表(MAIL_SOURCES/MAIL_CLIENTS)
-  mail/imap.py                 本地 IMAP XOAUTH2
-  mail/ms_graph.py             Graph 兜底
-  mail/icloud_xdauv.py         iCloud 接码 URL + XDAuv
-  mail/api.py                  通用第三方 API 接码(配置即用)
-  mail/cloudmail.py            自托管 cloud-mail(admin 拉码)
-  mail/mail_util.py            公共工具(MailClientError/身份键/UsedCodeCache)
-  mail/wait_otp.py             共享收码(wait_otp_with_retry, 两注册路径共用)
-  mail/pool.py                 号池状态机
-  mail/providers.py            build_mail_client 工厂
+  cli.py                       CLI 路由器
+  commands/                    子命令实现(register/check-proxy/stats/overview/export/
+                                survival/refresh/backfill/imap/raw-check/subscription)
+  register_pwd.py              主路线核心: register_account(注册+TOTP 2FA)
+  register_otp.py              OTP-only 并行路径
+  auth.py                      协议请求
+  sentinel*.py                 Sentinel 引擎(quickjs 真 t / browser 真 so / pow)
+  mail/                        收码插件体系(IMAP/Graph/iCloud/CloudMail/API + 号池状态机)
   proxyutil.py                 动态代理 + 链式隧道
-  sentinel_so.py               so 头构造(小PP HAR/内嵌 so 包装)
-  sentinel_chatreq.py          chatReq 观测(诊断)
-  account_store.py             accounts.jsonl 落盘(主库) + 测活/续期回写
+  account_store.py             accounts.jsonl 落盘 + 测活/续期回写
+  health.py / session.py / jwtutil.py / postlogin.py
 capture/
-  tools/                       未迁移(主路线 + Playwright 交互)
-    verify_pwd_totp.py         主路线：密码注册 + TOTP 2FA 激活
-    batch_totp.py              批量生产编排
-    login_pwd_check_totp.py    密码+TOTP 登录验证(Playwright)
-    check_totp_status.py       TOTP 激活状态检查(Playwright)
-    check_survival.py          单号测活(--mode, 被 main.py survival 取代)
-    refresh_health.py          刷新+测活二合一(被 refresh/survival 取代)
-  legacy/                      旧注册路径脚本(verify_* 等, 参考)
-  research/                    研究探测脚本(probe_*/t_*_exp/so_* 等)
-  reg-2fa-timing-*.md          耗时/性能存档
+  tools/                       主路线 CLI(verify_pwd_totp 单号 / batch_totp 批量)
+  legacy/  research/           旧路径参考 + 研究探测脚本
 vendor/sentinel/               官方 sdk.js + quickjs 适配器
-output/                        成功账号
-data/                          OTP 缓存等
+output/                        成功账号(accounts.jsonl)
 ```
+
+---
 
 ## 注意事项
 
-- **主号已注册（最常见根因）**：register 400 invalid_auth_step 先看输出诊断行（authorize 落点）——email-verification/log-in = 主号已在 OpenAI 注册，必须用 plus 别名（已默认）；create-account/password = 未注册
-- **IP 信誉**：落 create-account/password 仍 400 = 出口 IP 被 OpenAI 标记，需干净住宅 IP；纯 IP 类 400 内置换 sid 重试 1 次（不反复戳同一邮箱，避免放大认证请求触发 rate_limit）
-- **邮箱状态冲突（不可重入）**：register 400 invalid_auth_step(warm 后仍 400)/Invalid authorization = 邮箱已推进过注册流程（OTP 已消费/密码已设），状态机不可重入——**重跑必 400，换 IP 无效**，批量下自动弃用（mail_conflict）
-- **已推进邮箱不可重跑**：register/OTP 之后的失败（so/create/session/health/enroll）= 邮箱已推进注册，批量下弃用不重跑（否则重跑 register 400）
-- **邮箱级风控**：同一邮箱多次注册失败会被 OpenAI 记住，换 IP 也无效（勿反复试同一邮箱）
-- **so 失败中止**：无 so 账号必死（测活实证 2/2 吊销），so 采集失败重试 3 次仍无则中止注册，不白建号
-- **主号生命周期（批量）**：SUCCESS 已用 / MAIL_CONFLICT + 已推进注册失败(so/create/session-otp 后)=弃用 / MAIL_REGISTERED 永久弃用 / OTP_FAILED 可重试；弃用带 TTL 过期自动回退
-- **IMAP 账号级差异**：部分 Outlook 账号被 MS 拒 IMAP（`authenticated but not connected`），自动降级 Graph（较慢）
-- **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才能注册成功；7890/10808 数据中心 IP 长期风控后不可用
-- **access_token ~6h 过期（实测，非 10 天）**：测活 401 `token_expired` = token 过期（账号未删），`health_status=token_expired` 独立状态。续期靠 session_cookies 重抓 `/api/auth/session`（`main.py refresh`）——**注意**：实测部分账号 refresh 返回"同 token"（未换新 token），续期是否生效需以续期后重测为准（`refresh` 报成功 ≠ token 有效）
-- **统一密码（推荐）**：`register.default_password` 填统一密码——半注册邮箱（register 成功但 create/so 失败）可手动登录找回；不填则每次随机，密码随进程丢失无法找回
+- **主号已注册（最常见根因）**：register 400 看 authorize 落点——`email-verification/log-in` = 主号已注册，用 plus 别名（已默认）；`create-account/password` = 未注册
+- **IP 信誉**：落 create-account/password 仍 400 = IP 被 OpenAI 标记，需干净住宅 IP；纯 IP 类 400 内置换 sid 重试 1 次（不反复戳同邮箱）
+- **邮箱状态冲突（不可重入）**：`invalid_auth_step`/`Invalid authorization` = 邮箱已推进注册（OTP 已消费/密码已设），重跑必 400，换 IP 无效——批量下自动弃用
+- **已推进邮箱不可重跑**：register/OTP 之后的失败（so/create/session/enroll）= 已推进，批量下弃用
+- **邮箱级风控**：同一邮箱多次失败会被 OpenAI 记住，换 IP 无效（勿反复试）
+- **so 失败中止**：无 so 账号必死（实测 2/2 吊销），so 采集失败重试 3 次仍无则中止，不白建号
+- **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
+- **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
+- **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才注册成功
 
 仅供协议研究与学习。请遵守目标服务条款与当地法律。
