@@ -28,11 +28,13 @@ for _s in (sys.stdout, sys.stderr):  # 中文 logger 走 stderr, 也必须 UTF-8
 
 from gptreg.config import load_config, random_birthdate, random_display_name  # noqa: E402
 from gptreg.mail.pool import MailPool, parse_mail_line  # noqa: E402
-from gptreg.register_pwd import RegisterOutcome, register_account  # noqa: E402
+from gptreg.proxyutil import proxy_label  # noqa: E402
+from gptreg.register_pwd import RegisterOutcome, register_account, timing_str  # noqa: E402
 
 OUT = ROOT / "output"
 POOL = ROOT / "mail_pool.txt"
 FAILED_FILE = ROOT / "data" / "totp_failed.txt"
+FAIL_LOG = ROOT / "data" / "batch_failures.log"
 
 
 def _base(m: str) -> str:
@@ -103,6 +105,21 @@ def _mark_permanent(main: str) -> None:
         f.write(f"{main}\n")
 
 
+def _log_failure(main: str, result: "RegistrationResult") -> None:
+    """失败诊断落盘(data/batch_failures.log): stdout 一次性输出不留档, 复盘靠它。"""
+    try:
+        FAIL_LOG.parent.mkdir(parents=True, exist_ok=True)
+        d = result.diag or {}
+        reason = str(d.get("landing_diag") or d.get("reason") or "")
+        with FAIL_LOG.open("a", encoding="utf-8") as f:
+            f.write(
+                f"{time.strftime('%Y-%m-%dT%H:%M:%S')} | {main} | {result.outcome.value}"
+                f" | {reason[:200]} | {timing_str(d)}\n"
+            )
+    except Exception:
+        pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=3, help="本次批量数量(默认 3)")
@@ -111,7 +128,17 @@ def main() -> int:
     ap.add_argument("--proxy", default=None, help="固定代理(--no-dynamic 时用; 默认走 config 动态链式)")
     ap.add_argument("--no-dynamic", action="store_true", help="不用动态代理换 IP(用 --proxy 固定)")
     ap.add_argument("--list", action="store_true", help="只列出未用过主号不跑")
+    ap.add_argument("-v", "--verbose", action="store_true", help="详细日志(DEBUG, 默认 INFO)")
     args = ap.parse_args()
+
+    t_start = time.time()
+    import logging as _logging
+
+    # 完整日志: 无 basicConfig 时根 logger 无 handler, register_account 的 INFO 诊断
+    # (quickjs t/收码通道/enroll)全被丢弃(默认只 last-resort 显 WARNING)——恢复全可见,
+    # -v 开 DEBUG 定位慢点(对齐 verify_pwd_totp)。
+    _logging.basicConfig(level=_logging.DEBUG if args.verbose else _logging.INFO,
+                         format="%(levelname)s %(message)s")
 
     cfg = load_config()
     # CloudMail: 动态生成邮箱(不依赖号池文件)
@@ -128,7 +155,9 @@ def main() -> int:
                 print("  ", main)
             return 0
         proxy = None if not args.no_dynamic else args.proxy
-        return _run_batch(batch, proxy, cfg, workers=args.workers)
+        rc = _run_batch(batch, proxy, cfg, workers=args.workers)
+        print(f"\n[总耗时] {(time.time()-t_start):.1f}s", flush=True)
+        return rc
 
     # 号池文件(默认 mail_pool.txt; --pool 支持 icloud 快捷名)
     pool_file = args.pool or "mail_pool.txt"
@@ -155,7 +184,9 @@ def main() -> int:
         print("动态代理: 每次换 sid(新出口), register 400 自动换 IP 重试")
 
     batch = unused[: args.limit]
-    return _run_batch(batch, proxy, cfg, pool, workers=args.workers)
+    rc = _run_batch(batch, proxy, cfg, pool, workers=args.workers)
+    print(f"\n[总耗时] {(time.time()-t_start):.1f}s", flush=True)
+    return rc
 
 
 def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: int = 1) -> int:
@@ -184,14 +215,27 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
         )
         dt = time.time() - t0
         ok = result.outcome == RegisterOutcome.SUCCESS
+        print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
         if ok:
-            print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
             print(f"  -> 成功 ({dt:.0f}s) TOTP: {((result.record or {}).get('totp_secret') or '')[:12]}...", flush=True)
+            pu = (result.record or {}).get("proxy_used") or ""
+            if pu:
+                print(f"  [出口] {proxy_label(pu)}", flush=True)
         else:
-            reason = result.diag.get("landing_diag") or result.diag.get("reason", "")
-            print(f"  注册邮箱: {email}  身份: {display_name}", flush=True)
-            print(f"  [{result.outcome.value}] {str(reason)[:100]}", flush=True)
+            d = result.diag or {}
+            if result.outcome == RegisterOutcome.IP_BLOCKED:
+                ld = str(d.get("landing_diag") or d.get("reason") or "")[:120]
+                print(f"  [{result.outcome.value}] {ld}", flush=True)
+                if d.get("srv_code"):
+                    print(f"  [register/服务器] code={d.get('srv_code')} redirect={str(d.get('srv_redirect',''))[:60]}", flush=True)
+            else:
+                reason = str(d.get("landing_diag") or d.get("reason") or "")[:150]
+                print(f"  [{result.outcome.value}] {reason}", flush=True)
             print(f"  -> 失败 ({dt:.0f}s)", flush=True)
+            _log_failure(main, result)
+        ts = timing_str(result.diag)
+        if ts:
+            print(f"  [耗时] {ts}", flush=True)
         # 主号生命周期: 与号池 state 同步(避免坏号反复试); 锁内线程安全
         if result.outcome == RegisterOutcome.SUCCESS and pool is not None:
             pool.mark_used(main)

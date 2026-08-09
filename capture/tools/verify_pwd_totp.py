@@ -24,7 +24,7 @@ for _s in (sys.stdout, sys.stderr):  # 中文 logger 走 stderr, 也必须 UTF-8
 
 from gptreg.config import load_config, random_birthdate, random_display_name  # noqa: E402
 from gptreg.mail.pool import parse_mail_line  # noqa: E402
-from gptreg.register_pwd import RegisterOutcome, register_account  # noqa: E402
+from gptreg.register_pwd import RegisterOutcome, register_account, timing_str  # noqa: E402
 
 
 def _base(m: str) -> str:
@@ -32,38 +32,6 @@ def _base(m: str) -> str:
     return (m or "").split("@")[0].split("+")[0]
 
 
-def _timing_str(d: dict) -> str:
-    """按 diag 已有字段拼 6 段耗时归因(成功/失败通用, 缺失段跳过)。
-
-    diag 里 register_s/otp_s/create_s/session_s 是累计时刻(相对 st.start),
-    health_s/enroll_s 是段增量。失败发生在哪段就只有该段之前的字段。
-    """
-    parts = []
-    reg_s = d.get("register_s")
-    otp_s = d.get("otp_s")
-    create_s = d.get("create_s")
-    session_s = d.get("session_s")
-    if reg_s is not None:
-        parts.append(f"signin+register={reg_s:.1f}s")
-    if otp_s is not None:
-        base = reg_s if reg_s is not None else otp_s
-        parts.append(f"OTP等待={otp_s - base:.1f}s")
-    if create_s is not None:
-        base = otp_s if otp_s is not None else create_s
-        parts.append(f"create段={create_s - base:.1f}s")
-    if session_s is not None:
-        base = create_s if create_s is not None else session_s
-        parts.append(f"session={session_s - base:.1f}s")
-    if d.get("health_s") is not None:
-        parts.append(f"health={d['health_s']}s")
-    if d.get("enroll_s") is not None:
-        parts.append(f"enroll={d['enroll_s']}s")
-    st_ = d.get("so_timing") or {}
-    if st_:
-        parts.append(f"[so: nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s]")
-    elif d.get("create_parallel") is not None:
-        parts.append(f"并行(t={d.get('t_s')}s so={d.get('so_s')}s)={d.get('create_parallel')}s")
-    return " ".join(parts)
 
 
 def main() -> int:
@@ -145,43 +113,10 @@ def main() -> int:
     d = result.diag
 
     if result.outcome == RegisterOutcome.SUCCESS:
-        # 各段均为纯段增量(signin+register+otp+create+session+health+enroll = 总耗时)
-        signin_s = d.get("signin_s")
-        reg_s = d.get("register_s")
-        otp_s = d.get("otp_s")
-        create_s = d.get("create_s")
-        session_s = d.get("session_s")
-        # 收码通道(IMAP 快 / Graph 降级等) 便于快慢通道归因
-        ch = d.get("otp_channel") or "?"
-        if otp_s:
-            # 段增量(非累计时刻), 归因完整: signin/OTP/create/session/health/enroll
-            st_ = d.get("so_timing") or {}
-            so_inner = ""
-            if st_:
-                # nav/sdk/token 是采集开始后的累计时刻(非各段增量); token 含 SDK init+交互,
-                # 故 token 时刻 > nav/sdk(三者相加会 > 总耗时, 勿误读为串行)
-                so_inner = f"[nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s(累计时刻)]"
-            # so 采集重试次数标注(so_attempts>1 说明有重试, so 稳定性分析用)
-            so_att = d.get("so_attempts")
-            so_att_str = f" retry={so_att - 1}" if so_att and so_att > 1 else ""
-            # OTP等待段 vs 真实到件延迟: 段含 register 完成后的构建/轮询开销,
-            # 到件延迟是 wait_for_otp 纯等码时间(与日志 [到件 OTP=.. 延迟..] 同口径)
-            delay = d.get("otp_delay_s")
-            delay_str = f"到件{delay:.1f}s" if delay is not None else "到件?"
-            sn = f"{signin_s:.1f}s" if signin_s is not None else "?"
-            rg = f"{reg_s:.1f}s" if reg_s is not None else "?"
-            cr = f"{create_s:.1f}s" if create_s is not None else "?"
-            ss = f"{session_s:.1f}s" if session_s is not None else "?"
-            chs = d.get("create_http_s")
-            cp = d.get("create_parallel")
-            # create 段构成: 并行(t+so 采集) + create HTTP(建号请求), 二者 = create 段
-            # 明确标注各自耗时, 避免 "并行+X" 误导(读者误以为 X 是并行)
-            par_str = f"并行={cp:.1f}s" if cp is not None else "并行=?"
-            http_str = f"http={chs:.1f}s" if chs is not None else "http=?"
-            print(f"[耗时] signin={sn} register={rg} OTP段({ch})={otp_s:.1f}s[{delay_str}] "
-                  f"create段={cr}[{par_str} {http_str}] session={ss} "
-                  f"health={d.get('health_s', '?')}s enroll={d.get('enroll_s', '?')}s "
-                  f"并行(t={d.get('t_s')}s so={d.get('so_s')}s{so_inner}{so_att_str})={d.get('create_parallel')}s")
+        # 段增量归因(signin+register+otp+create+session+health+enroll = 总耗时), 与 batch 共用
+        ts = timing_str(d)
+        if ts:
+            print(f"[耗时] {ts}")
         if d.get("send_otp") is not None:
             print(f"[OTP/send] send_otp HTTP {d['send_otp']}")
         elif "t_s" in d:
@@ -212,7 +147,7 @@ def main() -> int:
         # 服务器原始 code(区分 IP 信誉 vs session 未推进等)
         if d.get("srv_code"):
             print(f"[register/服务器] code={d.get('srv_code')} redirect={d.get('srv_redirect','')[:60]}")
-        ts = _timing_str(d)
+        ts = timing_str(d)
         if ts:
             print(f"[耗时] {ts}")
         print(f"[总耗时] {(time.time()-t0):.1f}s")
@@ -230,14 +165,14 @@ def main() -> int:
         print(f"[warn] 账号已建但 2FA 未激活: {str(d.get('reason', ''))[:100]}")
         if result.record:
             print(f"[落盘] 已保存 registered_no_totp: {result.record.get('email')}")
-        ts = _timing_str(d)
+        ts = timing_str(d)
         if ts:
             print(f"[耗时] {ts}")
         print(f"[总耗时] {(time.time()-t0):.1f}s")
         return 3
 
     print(f"[x] 注册失败[{result.outcome.value}]: {str(d.get('reason', ''))[:120]}")
-    ts = _timing_str(d)
+    ts = timing_str(d)
     if ts:
         print(f"[耗时] {ts}")
     print(f"[总耗时] {(time.time()-t0):.1f}s")

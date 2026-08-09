@@ -106,6 +106,59 @@ def _landing_diag(final: str) -> str:
     return land[:60]
 
 
+def timing_str(diag: dict[str, Any]) -> str:
+    """按 diag 字段拼耗时归因(段增量口径, 缺失段跳过)。
+
+    register_pwd 各 stage 记录的 signin_s/register_s/otp_s/create_s/session_s 均为
+    段增量(round(time.time()-段起点,1)), 与 health_s/enroll_s 同口径——成功/失败通用:
+    失败发生在哪段, 就只有该段及之前的字段。
+    verify_pwd_totp / batch_totp 共用本函数, 避免双份口径漂移。
+    """
+    d = diag or {}
+    parts: list[str] = []
+    sn = d.get("signin_s")
+    rg = d.get("register_s")
+    otp = d.get("otp_s")
+    cr = d.get("create_s")
+    ss = d.get("session_s")
+    if any(x is not None for x in (sn, rg, otp, cr, ss)):
+        ch = d.get("otp_channel") or "?"
+        delay = d.get("otp_delay_s")
+        delay_str = f"到件{delay:.1f}s" if delay is not None else "到件?"
+        seg = f"signin={sn:.1f}s" if sn is not None else "signin=?"
+        seg += f" register={rg:.1f}s" if rg is not None else " register=?"
+        if otp is not None:
+            seg += f" OTP段({ch})={otp:.1f}s[{delay_str}]"
+        seg += f" create段={cr:.1f}s" if cr is not None else " create段=?"
+        seg += f" session={ss:.1f}s" if ss is not None else " session=?"
+        parts.append(seg)
+    # create 内部: 并行(t+so 采集) + create HTTP(建号请求)
+    cp = d.get("create_parallel")
+    if cp is not None:
+        st_ = d.get("so_timing") or {}
+        # nav/sdk/token 是采集开始后的累计时刻(非段增量); token 含 SDK init+交互,
+        # 故 token 时刻 > nav/sdk(三者相加会 > 总耗时, 勿误读为串行)
+        so_inner = ""
+        if st_:
+            so_inner = f"[nav={st_.get('nav')}s sdk={st_.get('sdk')}s token={st_.get('token')}s(累计时刻)]"
+        so_att = d.get("so_attempts")
+        so_att_str = f" retry={so_att - 1}" if so_att and so_att > 1 else ""
+        t_s = d.get("t_s")
+        so_s = d.get("so_s")
+        parts.append(
+            f"并行(t={t_s:.1f}s so={so_s:.1f}s{so_inner}{so_att_str})={cp:.1f}s"
+            if t_s is not None and so_s is not None
+            else f"并行(t={t_s} so={so_s})={cp:.1f}s"
+        )
+    if d.get("create_http_s") is not None:
+        parts.append(f"create http={d['create_http_s']:.1f}s")
+    if d.get("health_s") is not None:
+        parts.append(f"health={d['health_s']}s")
+    if d.get("enroll_s") is not None:
+        parts.append(f"enroll={d['enroll_s']}s")
+    return " ".join(parts)
+
+
 def _stage_signin(session: BrowserSession, email: str, diag: dict[str, Any]) -> str:
     """Stage 1: signin 序列(协议节奏内聚在 auth.signin_flow)。返回落点 URL。"""
     t0 = time.time()
