@@ -5,6 +5,7 @@ register_pwd = 密码注册+TOTP(主路线); register_otp = 纯邮箱 OTP 注册
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -15,9 +16,48 @@ from typing import Any
 from gptreg import auth
 from gptreg.config import random_birthdate, random_display_name, resolve_path
 from gptreg.health import check_account_health
+from gptreg.mail.mail_util import mail_identity_key
 from gptreg.mail.pool import MailPool, choose_registration_email
 from gptreg.mail.providers import UsedCodeCache
 from gptreg.mail.wait_otp import wait_otp_with_retry
+
+_ENROLL_URL = "https://chatgpt.com/backend-api/accounts/mfa/enroll"
+_ACTIVATE_URL = "https://chatgpt.com/backend-api/accounts/mfa/user/activate_enrollment"
+
+
+def _enroll_totp_now(session, at: str, device_id: str, timeout: int = 30) -> dict:
+    """注册后立即开 TOTP（用新鲜会话 token，对齐 gpt-free-register）。
+
+    返回 {"totp_secret": str, "totp_enrolled": bool}；任何失败返回 totp_enrolled=False。
+    """
+    try:
+        import pyotp
+
+        h6 = session.chatgpt_headers(referer="https://chatgpt.com/")
+        h6["authorization"] = f"Bearer {at}"
+        h6["oai-device-id"] = device_id
+        h6["content-type"] = "application/json"
+        resp = session.post(_ENROLL_URL, headers=h6, data=json.dumps({"factor_type": "totp"}), timeout=timeout)
+        if resp.status_code != 200:
+            logger.warning("[TOTP] enroll HTTP %s: %s", resp.status_code, (resp.text or "")[:150])
+            return {"totp_secret": "", "totp_enrolled": False}
+        ej = resp.json()
+        secret = str(ej.get("secret") or "")
+        session_id = ej.get("session_id")
+        factor_id = (ej.get("factor") or {}).get("id")
+        if not (secret and session_id and factor_id):
+            logger.warning("[TOTP] enroll 缺 secret/session_id/factor_id")
+            return {"totp_secret": "", "totp_enrolled": False}
+        code6 = pyotp.TOTP(secret).now()
+        resp2 = session.post(_ACTIVATE_URL, headers=h6, data=json.dumps({
+            "code": code6, "session_id": session_id,
+            "factor_id": factor_id, "factor_type": "totp"}), timeout=timeout)
+        ok = resp2.status_code == 200 and '"success":true' in (resp2.text or "")
+        logger.info("[TOTP] activate_enrollment HTTP %s ok=%s", resp2.status_code, ok)
+        return {"totp_secret": secret if ok else "", "totp_enrolled": ok}
+    except Exception as exc:
+        logger.warning("[TOTP] enroll 异常: %s", str(exc)[:100])
+        return {"totp_secret": "", "totp_enrolled": False}
 from gptreg.postlogin import post_login_warmup
 from gptreg.proxyutil import resolve_proxy
 from gptreg.session import BrowserSession
@@ -180,6 +220,11 @@ def register_one(
     """
     mail_main = account["email"]  # 号池主邮箱 / 收码身份
     email, used_alias = choose_registration_email(account, cfg)  # 注册用（可 plus 别名）
+    # 仅 Outlook(ms_oauth) 用别名；iCloud/cloudmail/api 用主邮箱(URL绑定/独立收件箱/API按主号拉码,
+    # alias 收码不可靠)。对齐 batch_totp 策略。
+    if account.get("mail_type") != "ms_oauth" and used_alias:
+        email = mail_main
+        used_alias = False
     display_name = name or cfg.get("register", {}).get("default_name") or random_display_name()
     bday = birthdate or random_birthdate(cfg)
     resolved = resolve_proxy(cfg, proxy)
@@ -216,8 +261,10 @@ def register_one(
     )
 
     try:
-        auth.signin_flow(session, email, follow_sleep=1.5)
+        # otp_after 必须在 signin 之前抓：OTP 邮件可在 signin_flow 期间就到件(Outlook 实测 <1s),
+        # 若 signin 后抓, 邮件时间戳 < after_ts 会被 wait_for_otp 当旧件过滤 → 永远收不到码。
         otp_after = time.time()
+        auth.signin_flow(session, email, follow_sleep=1.5)
         _mark("authorize_done")
 
         # OTP 阶段 sentinel：始终 pow（Jennifer OTP 无 so；browser 留给 create）
@@ -401,6 +448,17 @@ def register_one(
             )
         _mark("health_done")
 
+        # Step B2：注册后立即开 TOTP 2FA（config register.enable_totp=true 开启）
+        # 用注册会话新鲜 token（对齐 gpt-free-register：OTP-only + TOTP 交付形态）。
+        # 若 recent_auth_required（token 不够新鲜）则记录未开，账号仍正常交付。
+        totp: dict[str, Any] = {"totp_secret": "", "totp_enrolled": False}
+        if bool((cfg.get("register") or {}).get("enable_totp", False)):
+            totp = _enroll_totp_now(session, access_token, session.device_id)
+            if totp.get("totp_enrolled"):
+                logger.info("[TOTP] ✅ OTP-only 账号 TOTP 已激活 (secret_len=%s)", len(str(totp.get("totp_secret") or "")))
+            else:
+                logger.warning("[TOTP] 未激活（token 可能不够新鲜，可后续 reauth 补开）")
+
         # Step B：post-login 最小集（默认关；config register.post_login=true 开启）
         # so 策略不变；不造假 finalize/pow/turnstile
         post_login_enabled = bool((cfg.get("register") or {}).get("post_login", False))
@@ -457,10 +515,12 @@ def register_one(
             device_id=session.device_id,
             name=display_name,
             birthdate=bday,
-            extra={"sentinel_obs": sentinel_obs, "health": health_status},
+            extra={"sentinel_obs": sentinel_obs, "health": health_status,
+                   "totp_secret": totp.get("totp_secret") or "",
+                   "totp_enrolled": bool(totp.get("totp_enrolled"))},
             session_cookies=sess_cookies,
         )
-        used_cache.remember(identity, otp, email=email, status="ok")
+        used_cache.remember(mail_identity_key(account), otp, email=email, status="ok")
         logger.info(
             "[完成] %s token=%s... out=%s health=%s has_so=%s so_len=%s post_login=%s total=%ss",
             email,

@@ -221,8 +221,10 @@ class XDAuvMailClient(MailClient):
         payload = {
             "account_text": self._account_text(),
             "mailbox": "INBOX",
-            "limit": 20,
-            "filter_recipient": True,
+            "limit": 50,
+            # 不过滤收件人：ms_oauth 注册用 plus 别名，OTP 收件人是别名，按主号过滤会漏掉。
+            # after_ts 已在 wait_for_otp 处理旧件。
+            "filter_recipient": False,
         }
         r = cr.post(self.endpoint, json=payload, timeout=self.timeout,
                     impersonate=self.impersonate, proxies=self._proxies())
@@ -264,7 +266,7 @@ class XDAuvMailClient(MailClient):
                     "text": m.get("body_preview") or "",
                     "content": m.get("body_preview") or "",
                 }
-                otp = extract_otp(item)
+                otp = _extract_otp_from_text(m.get("body_preview") or "")
                 if not otp:
                     continue
                 marker = (otp, otp in exclude)

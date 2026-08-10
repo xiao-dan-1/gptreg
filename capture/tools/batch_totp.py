@@ -243,11 +243,11 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
     _batch_t0 = time.time()
 
     def _one_job(idx: int, main: str, account: dict) -> tuple[int, str, bool, RegisterOutcome, float]:
-        # iCloud/cloudmail 一邮箱一账号: 用主邮箱(URL绑定, alias 收码不可靠); 其余走别名
-        if account.get("mail_type") in ("icloud", "cloudmail"):
-            email = main
-        else:
+        # 仅 Outlook(ms_oauth) 用别名；iCloud/cloudmail/api 用主邮箱(URL绑定/独立收件箱/API按主号拉码, alias 收码不可靠)
+        if account.get("mail_type") == "ms_oauth":
             email = _alias_of(main)
+        else:
+            email = main
         password = pick_password(cfg)  # 统一密码(config)或随机——半注册邮箱可用统一密码找回
         display_name = random_display_name()
         bday = random_birthdate(cfg)

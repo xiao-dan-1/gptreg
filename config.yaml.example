@@ -34,15 +34,37 @@ mail:
   pool_file: "mail_pool.txt"
   # OTP 轮询
   poll_interval: 3
+  # 收码单次超时(秒)。verify_pwd_v3/v3_totp 用 otp_wait; pipeline 用 max_wait
+  otp_wait: 150
   max_wait: 90
   # 抓到首个候选后，再观察几秒是否有更新的邮件（Outlook 有效）
   settle_seconds: 5
   # 共享 get-code 邮箱：已使用 OTP 持久化缓存，避免 stale code
   used_code_cache: "data/used_otp_codes.json"
+  # outlook 服务收码(海外干净 IP, 解决本地 IMAP 部分账号被 MS 拒)。
+  # true=ms_oauth 走服务收码(全部账号能连); false=本地 IMAP(经 chain_via)
+  use_xdauv: false
+  xdauv_endpoint: "https://outlook.xdauv.xyz/api/fetch"
+  # 通用第三方 API 接码(mail_type="api" 号池行: email----api_key)
+  # 配置端点/请求体/OTP 路径即可接入任意接码 API, 无需写代码
+  api_client:
+    endpoint: ""              # 收码 API URL(留空则该来源不可用)
+    method: "POST"
+    request_body: '{"api_key":"{api_key}","email":"{email}","mailbox":"INBOX"}'
+    otp_path: "data.code"     # 响应里 OTP 的 JSON 路径(空=通用扫描)
+    interval: 3
   # 注册用 plus 别名：主号 local+随机tag@domain；收码仍用号池 OAuth/主号
   # 号池已是手动别名时也会先剥掉 +xxx 再生成，避免 double alias
   use_alias: true
   alias_tag_len: 6
+  # 自托管 cloud-mail(maillab) 号源: 号池行 user@domain, 收码用 admin 拉该地址邮件
+  # (admin 登录 /api/login 拿 token → /api/mails?address= 拉邮件)
+  cloud_mail:
+    base_url: ""              # cloud-mail 服务地址(如 https://mail.example.xyz)
+    admin_email: ""           # cloud-mail admin 账号(需填)
+    admin_password: ""        # cloud-mail admin 密码(需填)
+    # 可用域名(号池行用)。不填则 list_domains() 查 API; 填了优先用配置
+    domains: []
 
 browser:
   # UA 与 impersonate 主版本必须对齐
@@ -82,15 +104,15 @@ protocol:
   # 空=自动用 proxy.dynamic.chain_via → proxy.default
   sentinel_browser_proxy: ""
   sentinel_browser_page: "https://auth.openai.com/about-you"
-  # Node 兼容/研究（注册主路径默认不走）
-  # url=k12 闭环：本地 1789 中转 + runner 自拉 challenge
-  # file=旧路径：Python 预拉 challenge 再 --challenge-file
-  sentinel_challenge_mode: "url"
+  # Node 兼容/研究（注册主路径默认不走；challenge 模式由调用方决定，无配置项）
   sentinel_proxy_port: 1789
 
 register:
   # 留空则每次随机英文名；生日默认随机 1995-2005
   default_name: ""
+  # 统一密码: 填了则所有注册用同一密码——半注册邮箱(register 成功设密码但 create/so 失败)
+  # 可用同一密码手动登录找回(每次 register 都设它, 不会丢)。空 = 每次随机(密码随进程丢失)。
+  default_password: ""
   birthday_year_min: 1995
   birthday_year_max: 2005
   # 回调后拉 session 的重试
