@@ -11,9 +11,17 @@
 |---|---|---|
 | ① OTP-only 无密码注册 | ✅ **可行**（社区主流） | register_otp 多次成功 |
 | ② 纯程序 so 建号（vm so） | ✅ **能过 create** | 3 次 health=ok，1-3s 无浏览器 |
-| ③ **补设密码（add_password）** | ❌ **被服务端彻底堵死** | 见下"三大硬结论" |
-| ④ 开 TOTP 2FA | ✅ **可行且无需密码** | 社区确认 + reauth 流程 |
+| ③ **补设密码（add_password）** | ✅ **纯协议跑通！** | `post_login_add_password=true` 参数，端到端验证 |
+| ④ 开 TOTP 2FA | ✅ **可行且无需密码** | register.enable_totp 实测通过 |
 | ⑤ 账号存活 | ⚠️ browser so 长活，vm so 短命 | 见下 |
+
+## 二之补：纯协议补密码（2026-08-11 突破）
+
+**原始研究目标完整达成**：OTP-only 注册 → 补密码 → TOTP，全程无浏览器。
+- 关键参数：chatgpt signin 带 `post_login_add_password=true`（UI 点 Add password 时 SPA 的请求，agent 逆向生产前端 JS 确认）
+- 序列：`signin/openai?reauth=password&max_age=0&post_login_add_password=true` → email OTP validate → `POST auth.openai.com/api/accounts/password/add {"password"}` → **200**
+- 端到端验证：CloudMail 账号最终产出 `email----password----2fa` 全凭据（password + totp_secret 落盘）
+- chatgpt backend `/add_password` 405 是死端点；真实机制在 auth.openai.com
 
 ## 二、三大硬结论
 
@@ -24,13 +32,13 @@
 - **根因**：服务端延迟批审识别"会话行为证据缺失/伪造"。空行为 so、合成 so、不发 so 全被标记；只有真实浏览器行为通过
 - **turb-gpt 的 Node VM so**：与我们的 vm so 同源（都无行为事件模拟），大概率同样短命
 
-### 2. add_password 对 OTP-only 账号彻底不可用
-- `chatgpt.com/backend-api/accounts/add_password/eligibility` → `{"eligible":false}`（vm so/browser so/长活账号全 false）
-- `POST /add_password` 突变端点 **405 全方法死**
-- `auth.openai.com/api/accounts/password/add` 存在（参数=password），但 OTP-only 会话返回 `invalid_auth_step`
-- **完整正常登录不翻转**（新 token claims 不变，仍 ineligible）
-- **`aas_eligible:true` = Advanced Account Security（passkey 计划）**——OpenAI 产品方向把无密码账号导向 **passkey，不是补密码**
-- Web3XiaoAn 只对 eligible=true 的真 passwordless-email 账号有效；社区补密码全走浏览器 Settings UI，**无纯 HTTP 先例**
+### 2. add_password 纯协议补密码 —— ✅ 跑通（2026-08-11 突破）
+- `chatgpt.com/backend-api/accounts/add_password` 是 **405 死端点**（chatgpt 侧突变端点不存在）
+- **真实机制在 auth.openai.com**：`POST /api/accounts/password/add` + `{"password"}`，需要 signin 带 **`post_login_add_password=true`**（UI 点 Add password 时 SPA 的请求参数）
+- 序列：`signin/openai?reauth=password&max_age=0&post_login_add_password=true` → email OTP validate → `password/add` → **200**
+- **端到端验证**：CloudMail OTP-only 账号 → 补密码 → 产出 `email----password----2fa` 全凭据，全程无浏览器
+- `add_password/eligibility=false` 不影响 auth.openai.com 的 password/add 流程
+- 缺 `post_login_add_password=true` 时返回 `invalid_auth_step`（我们此前的困惑根因）
 
 ### 3. 代理 IP 不是即时打标，但账号短命与代理强相关
 - 同 IP 连注册 6 次成功 5 次（反欺诈"4-5 次 no_perm"未复现）

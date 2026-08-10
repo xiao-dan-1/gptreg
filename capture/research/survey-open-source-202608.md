@@ -530,27 +530,57 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - OTP-only reauth + email OTP + 新 token → **mfa/enroll 仍 recent_auth_required**（重认证未真正完成，落点停在 email-verification 未到 chatgpt 回调）
 - `/add_password`/`/change_password` 所有方法 405（突变端点是死的）
 
-### ⭐ add_password 研究最终结论（2026-08-11 凌晨）
+### ⭐⭐ add_password 纯协议补密码跑通！（2026-08-11 06:10）
 
-**OTP-only 账号补密码被服务端彻底堵死**，证据链完整：
-1. **服务端门控**：`eligible:false` 无 reason 字段，客户端不可绕过
-2. **产品方向**：`aas_eligible:true` = Advanced Account Security（passkey 计划，2026-05 与 Yubico 合作）；无密码账号被导向 **passkey/AAS，不是补密码**（AAS 启用反而禁密码）
-3. **突变端点已死**：chatgpt backend `/add_password`/`/change_password` 全方法 405
-4. **auth.openai.com `/api/accounts/password/add` 存在**（参数=password），但 OTP-only 会话调它返回 invalid_auth_step（会话状态机不允许）
-5. **正常登录不翻转**：完整 OAuth 登录（authorize→email OTP→code→session）后新 token claims 不变（amr=[otp,otp_email]），仍 eligible:false
-6. **Web3XiaoAn 只对 eligible=true 的真 passwordless-email 账号有效**（它不查 eligibility，靠按钮是否存在；也不能让 ineligible 账号补密码）
-7. **无社区 false→true 先例**；社区补密码全走浏览器 Settings UI（auth.openai.com reauth）
+**关键突破**：agent 逆向 chatgpt 生产前端 JS 找到缺失参数 **`post_login_add_password=true`**（UI 点 Add password 时 SPA 的 signin 请求带它建立设密码事务）。
 
-**纯协议路线最终图景**：
-- OTP-only 注册 + vm so 建号：✅ 可行（30min 窗口够用）
-- **补密码：❌ 彻底堵死**（服务端门控 + 产品方向 passkey）
-- enroll TOTP：✅ 可行（需 reauth，recent_auth_required 可解决）
-- **可交付形态 = 无密码 + TOTP**（社区认可的标准形态，gpt-free-register 同款）
+**端到端验证通过**（CloudMail reg_afd22b）：
+```
+1. POST chatgpt.com/api/auth/signin/openai
+   ?reauth=password&max_age=0&post_login_add_password=true&login_hint=<email>&ext-oai-did=<did>
+   body: callbackUrl=https://chatgpt.com/&csrfToken=<csrf>&json=true
+2. 跟 authorize → email-verification → 邮箱 OTP
+3. POST auth.openai.com/api/accounts/email-otp/validate {code}
+4. POST auth.openai.com/api/accounts/password/add {"password": "..."} → 200！
+   （continue_url 指向 mfa-challenge，账号有 TOTP 所以重认证进入 MFA 挑战）
+```
+- **最终账号**：`reg_afd22b@a8f2.xdauv.xyz` → `password: ResearchPw2026!x` + `totp_secret` —— **email----password----2fa 全凭据，纯协议产出！**
+- **原始研究目标完整达成**：OTP-only 注册 → 补密码 → TOTP，全程无浏览器
+- 关键点：缺 `post_login_add_password=true` 就 invalid_auth_step；`add_password/eligibility=false` **不影响** auth.openai.com password/add（照常 200）
+
+**保留结论**：chatgpt backend `/add_password` 是 405 死端点（真实机制在 auth.openai.com）；Web3XiaoAn 走浏览器 UI（未逆向出参数，本次补全）
+
+### ✅ OTP-only + TOTP 交付完整验证（2026-08-11 05:24）
+
+`register_otp.py` 新增 `register.enable_totp` → 注册后立即自动开 TOTP：
+- **CloudMail 实测通过**：`reg_f7a493`（vm so）与 `reg_54d2c9`（browser so）均 `activate_enrollment → 200 ok=True`，totp_secret 落盘
+- **recent_auth_required 只卡陈旧 token**——注册后立即 enroll 用新鲜 token 直接成功，**无需 reauth**（对齐 gpt-free-register）
+- 纯协议路线可交付 = **无密码 + TOTP**（CloudMail + vm so + TOTP，全程无浏览器，~24s）
+
+### ⚠️ CloudMail 存活研究已中止（用户指导 2026-08-11）
+- **CloudMail 域名邮箱不研究存活**（域名质量差容易死，存活测试无意义）
+- **存活研究用 Outlook 别名**；**1 个 Outlook 最多可注册 5 个别名 GPT 号**（base+tag1~5）
+- CloudMail 只用于注册/收码流程验证，不用于存活
+- ✅ **Outlook 别名 + browser so 长活已实锤**（ElizabethJames 517min+、BrianBlake 99min+，n=2）
+
+### 🚀 browser so 采集优化调研（agent，2026-08-11）
+
+**现状**：`browser_sentinel.py` 每账号 `chromium.launch()` + `new_context()` = 社区最重做法（~8s 启动 + ~300MB/账号）。
+
+**最高杠杆优化（klsf 模式）**：
+1. **常驻浏览器复用**：按代理分池，每代理一个常驻 Chrome + context + page；每账号换 `oai-did` cookie + reload sentinel frame → 边际成本 ~12s/300MB → **~2-4s/~0**
+2. **导航改 frame URL**：`sentinel.openai.com/backend-api/sentinel/frame.html?sv=`（省 React 渲染）——**需验证 so 行为字段是否与 about-you 页一致**
+3. SDK 本地缓存已最优；可加 royp888 式 sv 自动探测
+4. **双轨策略**：短活号走 quickjs vm so（1-3.5s/30min），长活号走 browser so（生产）
+5. **so 不复用值**（绑定 id/device_id + c/challenge）；复用浏览器**会话**（reload 拿新 challenge）
+
+**关键**："最快 so"（vm 1-3.5s）≠ "长活 so"（真浏览器）。长活必须真浏览器行为，最快形态 = 常驻浏览器复用。
 
 ### 待验证
 
-- browser-so 长活极限（ElizabethJames 517min+ 仍活）
-- OTP-only + TOTP 完整流程（reauth 完成 enroll）
+- **"1 Outlook = 5 别名"容量实测**（别名数量上限）
+- browser so 采集优化落地（常驻浏览器复用 + frame_url 直连）
+- frame_url 直连 vs about-you 的 so 行为字段一致性
 - cloudmail 投递：a8f2 域正常；test.xdauv.xyz 等域收不到 OTP；max_wait 已从 90→200
 
 ---

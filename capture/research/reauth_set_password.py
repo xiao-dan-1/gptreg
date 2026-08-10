@@ -18,6 +18,9 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from gptreg.config import load_config  # noqa: E402
 from gptreg.proxyutil import resolve_proxy  # noqa: E402
 from gptreg.session import BrowserSession  # noqa: E402
@@ -40,13 +43,18 @@ def _find_account(sub: str) -> dict:
 
 def _find_mail_account(main_email: str) -> dict:
     base = main_email.split("@")[0].split("+")[0] + "@" + main_email.split("@")[1]
-    pool = Path("data/outlook_pool_ok.txt")
-    for line in pool.read_text(encoding="utf-8").splitlines():
-        if not line.strip() or line.startswith("#"):
+    # cloudmail 域：动态账号，无池凭据，直接构造（CloudMailClient 用 admin 配置拉码）
+    if base.endswith((".xdauv.xyz",)):
+        return {"email": base, "mail_type": "cloudmail", "raw_line": base}
+    for src in (Path("data/outlook_pool_ok.txt"), Path("mail_pool.txt")):
+        if not src.exists():
             continue
-        a = parse_mail_line(line)
-        if a and a["email"].split("@")[0].split("+")[0] + "@" + a["email"].split("@")[1] == base:
-            return a
+        for line in src.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            a = parse_mail_line(line)
+            if a and a["email"].split("@")[0].split("+")[0] + "@" + a["email"].split("@")[1] == base:
+                return a
     raise RuntimeError(f"号池找不到主号 {base}")
 
 
@@ -78,7 +86,7 @@ def main() -> int:
     r = resolve_proxy(cfg, override=proxy_override)
     acc = _find_account(sub)
     email = acc["email"]
-    main_email = email.split("+")[0] + "@" + email.split("@")[1]
+    main_email = email.split("@")[0].split("+")[0] + "@" + email.split("@")[1]
     print(f"账号: {email}  主号: {main_email}  新密码: {new_pw[:4]}***")
     print(f"代理: {r.label()}")
 
@@ -86,12 +94,13 @@ def main() -> int:
     sess.device_id = acc.get("device_id") or sess.device_id
     _inject_cookies(sess, acc.get("session_cookies") or [])
 
-    # 1. reauth signin
+    # 1. reauth signin（关键：post_login_add_password=true 建立设密码事务）
     auth.get_providers(sess)
     csrf = auth.get_csrf_token(sess)
     query = {"prompt": "login", "ext-oai-did": sess.device_id,
              "reauth": "password", "max_age": "0", "login_hint": email,
-             "screen_hint": "login_or_signup"}
+             "screen_hint": "login_or_signup",
+             "post_login_add_password": "true"}
     url = "https://chatgpt.com/api/auth/signin/openai?" + urlencode(query)
     h = sess.chatgpt_headers()
     h["content-type"] = "application/x-www-form-urlencoded"
