@@ -622,6 +622,13 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - **so_len：fast 484-492 vs 默认 460-484——精简未伤害字段量级，反而更稳定**。
 - 结论：默认固定 sleep 冗余（sessionObserver 行为采集不需要强制长等）。fast 默认关（存活未实证，需真注册对比存活后再定默认）；保留 config 开关。
 
+**StickyChainTunnel socks5 修复（2026-08-11 深夜，动态代理连不上根因）**：
+- **bug**：hop2=1024proxy 是 socks5 服务，`StickyChainTunnel` 用 HTTP CONNECT 转发 → 隧道建立成功但目标 CONNECT 超时/403（协议不匹配）。
+- 诊断链路：hop1(10808)→hop2 CONNECT 200，但 hop2 CONNECT 目标超时；改 socks5 握手后认证成功(01 00)、CONNECT 成功(05 00)、数据 200。
+- **修复**：`StickyChainTunnel.__init__` 解析 hop2_scheme；新增 `_socks5_connect`（方法协商→认证→CONNECT，支持 IPv4/6/域名 ATYP）；`_handle` CONNECT 分支按 scheme 分流。
+- 实测：`resolve_proxy` 全链路 probe 200（动态住宅 IP）；**真注册 1/1 成功**（KirstenScott5455，TOTP，frame.html 直连 so）。
+- **影响**：所有依赖动态代理的注册/测活/批量路径此前被此 bug 挡（"服务波动"表象实为协议错误）。
+
 **测活效率（2026-08-11）**：
 - 4 账号全部存活(accounts/check 200,稳定代理 10808 验证)。
 - **测活本身快**(每号 1 个 HTTP 请求 ~0.5-2s),瓶颈在**动态代理隧道可靠性**。
