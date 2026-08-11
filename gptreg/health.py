@@ -88,52 +88,6 @@ def check_account_health_me(
         return {"status": "error", "detail": str(exc), "endpoint": "me"}
 
 
-def check_plan_usage(
-    session: BrowserSession,
-    access_token: str,
-    *,
-    timeout: float | None = None,
-) -> dict[str, Any]:
-    """/backend-api/wham/usage：查 plan_type(plus/free/expired) + rate_limit(限流)。
-
-    CPA(FrciblyK12) 用 me + wham/usage 双端点：me 判存活，wham/usage 补 plan + 限流。
-    rate_limit.limit_reached 是风控前兆信号(比纯 me 更全面的存活指标)。
-    返回 {status: ok/error, plan_type, rate_limit, ...}。
-    """
-    if not access_token:
-        return {"status": "error", "detail": "empty token", "endpoint": "wham/usage"}
-    headers = session.chatgpt_headers(referer="https://chatgpt.com/")
-    headers["authorization"] = f"Bearer {access_token}"
-    headers["oai-device-id"] = session.device_id
-    headers["oai-language"] = (session.cfg.get("browser", {}) or {}).get("language", "en-US")
-    headers.pop("content-type", None)
-    try:
-        resp = session.get("https://chatgpt.com/backend-api/wham/usage", headers=headers, timeout=timeout)
-        text = (resp.text or "")[:500]
-        low = text.lower()
-        if resp.status_code == 200:
-            out: dict[str, Any] = {"status": "ok", "http": 200, "endpoint": "wham/usage", "body": resp.text}
-            try:
-                d = resp.json()
-                out["plan_type"] = d.get("plan_type") or ""
-                rl = d.get("rate_limit") or {}
-                out["rate_limited"] = bool(rl.get("limit_reached"))
-                out["rate_allowed"] = bool(rl.get("allowed"))
-                used = ((rl.get("primary_window") or {}).get("used_percent")) if isinstance(rl.get("primary_window"), dict) else None
-                if used is not None:
-                    out["usage_percent"] = used
-            except Exception:
-                pass
-            return out
-        if resp.status_code in (401, 403) and (
-            "token_invalidated" in low or "token_revoked" in low or "unauthorized" in low or "invalid" in low
-        ):
-            return {"status": "invalidated", "http": resp.status_code, "endpoint": "wham/usage", "body": text}
-        return {"status": "error", "http": resp.status_code, "endpoint": "wham/usage", "body": text}
-    except Exception as exc:
-        return {"status": "error", "detail": str(exc), "endpoint": "wham/usage"}
-
-
 def check_account_health(
     session: BrowserSession,
     access_token: str,
