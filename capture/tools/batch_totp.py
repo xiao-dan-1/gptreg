@@ -303,17 +303,28 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
         time.sleep(4 if not ok else 1)
         return idx, main, ok, result.outcome, dt
 
-    if workers <= 1:
-        for i, (main, account) in enumerate(batch):
-            results.append(_one_job(i, main, account))
-    else:
-        from concurrent.futures import ThreadPoolExecutor
-        print(f"并发注册: {workers} 线程", flush=True)
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = {ex.submit(_one_job, i, main, account): i
-                       for i, (main, account) in enumerate(batch)}
-            for f in futures:
-                results.append(f.result())
+    # 常驻浏览器池(klsf)生命周期：reuse 开时按 workers 设池大小(上限 config 控制)；批量结束关池
+    from gptreg.browser_pool import get_pool, shutdown_all
+
+    if bool(((cfg.get("protocol") or {}).get("sentinel_browser_reuse"))):
+        try:
+            get_pool(cfg).set_pool_size(min(workers, max(1, int((cfg.get("protocol") or {}).get("sentinel_browser_pool_size") or 2))))
+        except Exception as exc:
+            print(f"[浏览器池] 设池大小失败: {exc}", flush=True)
+    try:
+        if workers <= 1:
+            for i, (main, account) in enumerate(batch):
+                results.append(_one_job(i, main, account))
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            print(f"并发注册: {workers} 线程", flush=True)
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = {ex.submit(_one_job, i, main, account): i
+                           for i, (main, account) in enumerate(batch)}
+                for f in futures:
+                    results.append(f.result())
+    finally:
+        shutdown_all()
 
     results.sort(key=lambda r: r[0])  # 按提交顺序
     n_ok = sum(1 for _, _, ok, _, _ in results if ok)

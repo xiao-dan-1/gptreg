@@ -778,6 +778,10 @@ def run_batch(
                 time.sleep(delay)
         summary = summarize_buckets(results)
         logger.info("[汇总/分桶] %s", format_bucket_summary(summary))
+        # 常驻浏览器池(klsf)生命周期：批量结束关池（幂等，fresh 路径无池时无操作）
+        from gptreg.browser_pool import shutdown_all
+
+        shutdown_all()
         return results
 
     # 并发
@@ -785,6 +789,14 @@ def run_batch(
     future_map: dict = {}
     next_i = 0
     stop = False
+    # 常驻浏览器池(klsf)：并发 worker 时按 workers 设池大小（上限由 config 控制），批量结束关池
+    from gptreg.browser_pool import get_pool, shutdown_all
+
+    if bool(((cfg.get("protocol") or {}).get("sentinel_browser_reuse"))):
+        try:
+            get_pool(cfg).set_pool_size(min(workers, max(1, int((cfg.get("protocol") or {}).get("sentinel_browser_pool_size") or 2))))
+        except Exception as exc:
+            logger.warning("[批量] 设浏览器池大小失败: %s", exc)
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="gptreg") as ex:
         def submit_one() -> bool:
             nonlocal next_i
@@ -813,6 +825,8 @@ def run_batch(
                     stop = True
                 if not stop:
                     submit_one()
+    # 常驻浏览器池(klsf)生命周期：批量结束关池（幂等）
+    shutdown_all()
     summary = summarize_buckets(results)
     logger.info("[汇总/分桶] %s", format_bucket_summary(summary))
     return results

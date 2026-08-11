@@ -98,6 +98,14 @@ _DEFAULTS: dict[str, Any] = {
         "sentinel_browser_proxy": "",
         "sentinel_browser_page": "https://auth.openai.com/about-you",
         "sentinel_browser_local_sdk": False,
+        # 常驻浏览器复用(klsf): false=每账号全新 Chrome(现状); true=池化复用(browser_pool)
+        "sentinel_browser_reuse": False,
+        # 常驻 Chrome 进程数(每个 ~300MB)。so 被 OTP 收码门控非瓶颈, 2 足矣
+        "sentinel_browser_pool_size": 2,
+        # 单次 so 采集投递超时(秒), 超时隔离采集器 + 杀 Chrome + 补替代
+        "sentinel_browser_pool_timeout": 120,
+        # 单个常驻 Chrome 服务账号上限, 到数重建防内存爬升
+        "sentinel_browser_max_accounts": 50,
     },
     "register": {
         "default_name": "",

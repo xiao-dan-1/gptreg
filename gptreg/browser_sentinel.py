@@ -11,6 +11,7 @@ P1：browser 有 so 与 pow 无 so 在本环境 ≥2h 双活；真 so 非短窗�
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import time
@@ -155,6 +156,239 @@ def _normalize_so_header(
     return so_header, meta
 
 
+def _make_context(browser: Any, cfg: dict[str, Any], *, proxy: str | None, headless: bool) -> Any:
+    """在已 launch 的 browser 上建新 context（隔离的 incognito 会话）。
+
+    - fresh 路径（每账号全新 Chrome）与 pooled 路径共用。
+    - 每账号独立 context → 独立 cookie 栈，设各自 oai-did，天然隔离。
+    - proxy 传 browser context 级（pooled 路径浏览器 launch 时无 proxy，每账号 context 绑账号隧道口）。
+    """
+    browser_cfg = cfg.get("browser") or {}
+    kwargs: dict[str, Any] = {
+        "user_agent": browser_cfg.get("user_agent") or None,
+        "locale": browser_cfg.get("language") or "en-US",
+        "viewport": {
+            "width": int(browser_cfg.get("screen_width") or 1920),
+            "height": int(browser_cfg.get("screen_height") or 1080),
+        },
+    }
+    if proxy:
+        # Playwright 不解析 server URL 里的 user:pass,必须拆成 username/password 字段
+        # (本地无认证代理 10808/7890 未暴露;辣椒靠 chain_via 隧道绕开;cliproxy 直连带认证则必须拆)
+        from urllib.parse import unquote, urlparse
+
+        _pp = urlparse(proxy if "://" in proxy else "http://" + proxy)
+        _pw: dict[str, Any] = {"server": f"{_pp.scheme or 'http'}://{_pp.hostname}:{_pp.port}"}
+        if _pp.username:
+            _pw["username"] = unquote(_pp.username)
+            _pw["password"] = unquote(_pp.password or "")
+        kwargs["proxy"] = _pw
+    return browser.new_context(**kwargs)
+
+
+def _harvest_context(
+    context: Any,
+    cfg: dict[str, Any],
+    *,
+    flow: str,
+    device_id: str,
+    page_url: str,
+    timeout_s: int,
+    proxy: str | None = None,
+) -> dict[str, Any]:
+    """在已建 context 上采 token + so（导航/SDK/交互/token+so），返回 out dict。
+
+    不负责建/关 context。fresh 与 pooled 路径共用，返回结构完全一致。
+    """
+    from playwright.sync_api import TimeoutError as PwTimeout
+
+    timeout_ms = max(10, int(timeout_s)) * 1000
+    t0 = time.time()
+    out: dict[str, Any] = {
+        "ok": False,
+        "mode": "browser",
+        "flow": flow,
+        "device_id": device_id,
+        "page_url": page_url,
+        "proxy": proxy or "direct",
+        "has_so": False,
+        "so_len": 0,
+        "error": None,
+        # 分阶段计时(nav/sdk_load/token), 定位 23s 瓶颈
+        "nav_s": None,
+        "sdk_s": None,
+        "token_s": None,
+    }
+
+    for domain in (".openai.com", "auth.openai.com", ".chatgpt.com", "chatgpt.com"):
+        try:
+            context.add_cookies(
+                [
+                    {
+                        "name": "oai-did",
+                        "value": device_id,
+                        "domain": domain,
+                        "path": "/",
+                    }
+                ]
+            )
+        except Exception:
+            pass
+
+    page = context.new_page()
+    page.set_default_timeout(timeout_ms)
+    try:
+        page.goto(page_url, wait_until="domcontentloaded", timeout=timeout_ms)
+    except Exception as exc:
+        out["nav_error"] = f"{type(exc).__name__}: {exc}"
+    out["nav_s"] = round(time.time() - t0, 2)
+    out["final_url"] = page.url
+    logger.info("  [browser/so] 导航完成 nav=%.1fs url=%s", out["nav_s"], str(page.url)[:80])
+
+    try:
+        page.mouse.move(120, 160)
+        page.mouse.move(420, 280, steps=8)
+        page.mouse.wheel(0, 200)
+        page.wait_for_timeout(400)
+    except Exception:
+        pass
+
+    from pathlib import Path
+
+    root = Path(cfg.get("_root") or Path(__file__).resolve().parent.parent)
+    sdk_local = root / "vendor" / "sentinel" / "sdk.js"
+    # 优先本地缓存(按 sv, 首次下载后省 ~15s 远程加载)
+    cached = _ensure_local_sdk(cfg, proxy=proxy)
+    try:
+        if cached:
+            page.add_script_tag(path=cached)
+            out["sdk_load_mode"] = "local_cache"
+        elif sdk_local.exists():
+            page.add_script_tag(path=str(sdk_local))
+            out["sdk_load_mode"] = "local_file"
+        else:
+            page.add_script_tag(url=_sdk_url(cfg))
+            out["sdk_load_mode"] = "remote_url"
+        page.wait_for_timeout(500)
+        out["sdk_s"] = round(time.time() - t0, 2)
+        logger.info("  [browser/so] SDK 加载完成 sdk=%.1fs mode=%s", out["sdk_s"], out.get("sdk_load_mode"))
+    except Exception as exc:
+        out["error"] = f"sdk_load: {type(exc).__name__}: {exc}"
+        out["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+
+    has_sdk = page.evaluate(
+        "() => !!(window.SentinelSDK && typeof window.SentinelSDK.token === 'function')"
+    )
+    if not has_sdk:
+        try:
+            page.add_script_tag(url=_sdk_url(cfg))
+            page.wait_for_timeout(800)
+            has_sdk = page.evaluate(
+                "() => !!(window.SentinelSDK && typeof window.SentinelSDK.token === 'function')"
+            )
+            out["sdk_load_mode"] = "remote_url_retry"
+        except Exception as exc:
+            out["sdk_retry_error"] = f"{type(exc).__name__}: {exc}"
+    out["has_sentinel_sdk"] = bool(has_sdk)
+    if not has_sdk:
+        out["error"] = "SentinelSDK.token 未暴露"
+        out["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+
+    try:
+        page.evaluate(
+            """async (flow) => {
+                try {
+                  if (window.SentinelSDK && typeof window.SentinelSDK.init === 'function') {
+                    await window.SentinelSDK.init(flow);
+                  }
+                } catch (e) { return String(e); }
+                return null;
+            }""",
+            flow,
+        )
+        for i in range(3):
+            page.mouse.move(100 + i * 80, 150 + i * 40, steps=5)
+            page.wait_for_timeout(350)
+        page.mouse.wheel(0, 300)
+        page.wait_for_timeout(400)
+
+        bundle = page.evaluate(
+            """async (flow) => {
+                const out = {
+                  sdk_keys: window.SentinelSDK ? Object.keys(window.SentinelSDK) : [],
+                  token: null, so: null, token_err: null, so_err: null,
+                };
+                try {
+                  const t = await window.SentinelSDK.token(flow);
+                  out.token = (typeof t === 'string') ? t : JSON.stringify(t);
+                } catch (e) { out.token_err = String(e && e.stack || e); }
+                try {
+                  for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 400));
+                  if (typeof window.SentinelSDK.sessionObserverToken === 'function') {
+                    const s = await window.SentinelSDK.sessionObserverToken(flow);
+                    if (s != null) out.so = (typeof s === 'string') ? s : JSON.stringify(s);
+                  } else { out.so_err = 'no sessionObserverToken API'; }
+                } catch (e) { out.so_err = String(e && e.stack || e); }
+                return out;
+            }""",
+            flow,
+        )
+    except PwTimeout as exc:
+        out["error"] = f"token_timeout: {exc}"
+        out["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+    except Exception as exc:
+        out["error"] = f"token_eval: {type(exc).__name__}: {exc}"
+        out["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+
+    out["token_s"] = round(time.time() - t0, 2)
+    logger.info("  [browser/so] token 采集完成 token=%.1fs (含 SDK init + 交互)", out["token_s"])
+    token_text = (bundle or {}).get("token") or ""
+    so_raw = (bundle or {}).get("so")
+    out["sdk_keys"] = (bundle or {}).get("sdk_keys")
+    out["token_err"] = (bundle or {}).get("token_err")
+    out["so_api_err"] = (bundle or {}).get("so_err")
+    if not token_text:
+        out["error"] = out.get("token_err") or "empty token"
+        out["elapsed_s"] = round(time.time() - t0, 3)
+        return out
+
+    # 丢弃 token JSON 内假 so 字段（若有）
+    try:
+        parsed = json.loads(token_text)
+        so_val = parsed.get("so")
+        if isinstance(so_val, str) and _is_fake_so(so_val):
+            parsed.pop("so", None)
+            token_text = json.dumps(parsed, separators=(",", ":"))
+    except Exception:
+        pass
+
+    so_header, so_meta = _normalize_so_header(
+        so_raw if isinstance(so_raw, str) else None,
+        token_text=token_text,
+        device_id=device_id,
+        flow=flow,
+    )
+    out["token"] = token_text
+    out["so_header"] = so_header
+    out["has_so"] = bool(so_meta.get("has_so") and so_header)
+    out["so_len"] = int(so_meta.get("so_len") or 0)
+    out["so_header_len"] = len(so_header or "")
+    out["so_is_fake"] = bool(so_meta.get("so_is_fake"))
+    out["ok"] = True
+    out["elapsed_s"] = round(time.time() - t0, 3)
+    try:
+        tj = json.loads(token_text)
+        out["t_len"] = len(str(tj.get("t") or ""))
+        out["token_keys"] = list(tj.keys())
+    except Exception:
+        pass
+    return out
+
+
 def harvest_browser_sentinel(
     cfg: dict[str, Any],
     *,
@@ -165,9 +399,14 @@ def harvest_browser_sentinel(
     page_url: str | None = None,
     timeout_s: int | None = None,
     use_local_sdk: bool | None = None,
+    reuse: bool | None = None,
 ) -> dict[str, Any]:
-    """真 Chrome 采 token + so。device_id 应与协议 session.oai-did 一致。"""
-    from playwright.sync_api import TimeoutError as PwTimeout
+    """真 Chrome 采 token + so。device_id 应与协议 session.oai-did 一致。
+
+    reuse=None 时读 config `protocol.sentinel_browser_reuse`：
+      false=fresh 每账号全新 Chrome（默认，行为同旧版）
+      true=pooled 常驻浏览器池（klsf：省 launch ~8s + 300MB/账号）
+    """
     from playwright.sync_api import sync_playwright
 
     protocol = cfg.get("protocol") or {}
@@ -186,11 +425,10 @@ def harvest_browser_sentinel(
     )
     if proxy is None:
         proxy = browser_proxy_from_cfg(cfg)
+    if reuse is None:
+        reuse = bool(protocol.get("sentinel_browser_reuse", False))
 
-    timeout_ms = max(10, int(timeout_s)) * 1000
-    t0 = time.time()
     out: dict[str, Any] = {
-        "ok": False,
         "mode": "browser",
         "flow": flow,
         "device_id": device_id,
@@ -202,12 +440,34 @@ def harvest_browser_sentinel(
         "has_so": False,
         "so_len": 0,
         "error": None,
-        # 分阶段计时(nav/sdk_load/token), 定位 23s 瓶颈
-        "nav_s": None,
-        "sdk_s": None,
-        "token_s": None,
     }
 
+    if reuse:
+        # pooled：预缓存 sdk（幂等，省采集线程里首次下载），投递常驻浏览器池。
+        # 账号线程只投递+等结果，零 playwright 调用——线程亲和问题在池内隔离。
+        _ensure_local_sdk(cfg, proxy=proxy)
+        ctx = contextvars.copy_context()  # 账号日志前缀快照（batch_totp _AccountFilter）
+
+        def _job(browser: Any) -> dict[str, Any]:
+            c = _make_context(browser, cfg, proxy=proxy, headless=headless)
+            try:
+                return _harvest_context(
+                    c, cfg, flow=flow, device_id=device_id,
+                    page_url=page_url, timeout_s=timeout_s, proxy=proxy,
+                )
+            finally:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+
+        from gptreg.browser_pool import get_pool
+
+        return get_pool(cfg).submit(_job, timeout_s=int(timeout_s or 60) + 10, ctx=ctx)
+
+    # ── fresh 路径（每账号全新 Chrome）──
+    timeout_ms = max(10, int(timeout_s)) * 1000
+    t0 = time.time()
     launch_kwargs: dict[str, Any] = {
         "channel": "chrome",
         "headless": headless,
@@ -216,197 +476,18 @@ def harvest_browser_sentinel(
             f"--lang={browser_cfg.get('language') or 'en-US'}",
         ],
     }
-    if proxy:
-        # Playwright 不解析 server URL 里的 user:pass,必须拆成 username/password 字段
-        # (本地无认证代理 10808/7890 未暴露;辣椒靠 chain_via 隧道绕开;cliproxy 直连带认证则必须拆)
-        from urllib.parse import unquote, urlparse
-
-        _pp = urlparse(proxy if "://" in proxy else "http://" + proxy)
-        _pw: dict[str, Any] = {"server": f"{_pp.scheme or 'http'}://{_pp.hostname}:{_pp.port}"}
-        if _pp.username:
-            _pw["username"] = unquote(_pp.username)
-            _pw["password"] = unquote(_pp.password or "")
-        launch_kwargs["proxy"] = _pw
-
     logger.info("  [browser/so] 启动 Chrome (headless=%s proxy=%s)", headless, proxy or "direct")
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_kwargs)
         logger.info("  [browser/so] Chrome 已启动")
         try:
-            context = browser.new_context(
-                user_agent=browser_cfg.get("user_agent") or None,
-                locale=browser_cfg.get("language") or "en-US",
-                viewport={
-                    "width": int(browser_cfg.get("screen_width") or 1920),
-                    "height": int(browser_cfg.get("screen_height") or 1080),
-                },
+            context = _make_context(browser, cfg, proxy=proxy, headless=headless)
+            res = _harvest_context(
+                context, cfg, flow=flow, device_id=device_id,
+                page_url=page_url, timeout_s=timeout_s, proxy=proxy,
             )
-            for domain in (".openai.com", "auth.openai.com", ".chatgpt.com", "chatgpt.com"):
-                try:
-                    context.add_cookies(
-                        [
-                            {
-                                "name": "oai-did",
-                                "value": device_id,
-                                "domain": domain,
-                                "path": "/",
-                            }
-                        ]
-                    )
-                except Exception:
-                    pass
-
-            page = context.new_page()
-            page.set_default_timeout(timeout_ms)
-            try:
-                page.goto(page_url, wait_until="domcontentloaded", timeout=timeout_ms)
-            except Exception as exc:
-                out["nav_error"] = f"{type(exc).__name__}: {exc}"
-            out["nav_s"] = round(time.time() - t0, 2)
-            out["final_url"] = page.url
-            logger.info("  [browser/so] 导航完成 nav=%.1fs url=%s", out["nav_s"], str(page.url)[:80])
-
-            try:
-                page.mouse.move(120, 160)
-                page.mouse.move(420, 280, steps=8)
-                page.mouse.wheel(0, 200)
-                page.wait_for_timeout(400)
-            except Exception:
-                pass
-
-            from pathlib import Path
-
-            root = Path(cfg.get("_root") or Path(__file__).resolve().parent.parent)
-            sdk_local = root / "vendor" / "sentinel" / "sdk.js"
-            # 优先本地缓存(按 sv, 首次下载后省 ~15s 远程加载)
-            cached = _ensure_local_sdk(cfg, proxy=proxy)
-            try:
-                if cached:
-                    page.add_script_tag(path=cached)
-                    out["sdk_load_mode"] = "local_cache"
-                elif use_local_sdk and sdk_local.exists():
-                    page.add_script_tag(path=str(sdk_local))
-                    out["sdk_load_mode"] = "local_file"
-                else:
-                    page.add_script_tag(url=_sdk_url(cfg))
-                    out["sdk_load_mode"] = "remote_url"
-                page.wait_for_timeout(500)
-                out["sdk_s"] = round(time.time() - t0, 2)
-                logger.info("  [browser/so] SDK 加载完成 sdk=%.1fs mode=%s", out["sdk_s"], out.get("sdk_load_mode"))
-            except Exception as exc:
-                out["error"] = f"sdk_load: {type(exc).__name__}: {exc}"
-                out["elapsed_s"] = round(time.time() - t0, 3)
-                return out
-
-            has_sdk = page.evaluate(
-                "() => !!(window.SentinelSDK && typeof window.SentinelSDK.token === 'function')"
-            )
-            if not has_sdk:
-                try:
-                    page.add_script_tag(url=_sdk_url(cfg))
-                    page.wait_for_timeout(800)
-                    has_sdk = page.evaluate(
-                        "() => !!(window.SentinelSDK && typeof window.SentinelSDK.token === 'function')"
-                    )
-                    out["sdk_load_mode"] = "remote_url_retry"
-                except Exception as exc:
-                    out["sdk_retry_error"] = f"{type(exc).__name__}: {exc}"
-            out["has_sentinel_sdk"] = bool(has_sdk)
-            if not has_sdk:
-                out["error"] = "SentinelSDK.token 未暴露"
-                out["elapsed_s"] = round(time.time() - t0, 3)
-                return out
-
-            try:
-                page.evaluate(
-                    """async (flow) => {
-                        try {
-                          if (window.SentinelSDK && typeof window.SentinelSDK.init === 'function') {
-                            await window.SentinelSDK.init(flow);
-                          }
-                        } catch (e) { return String(e); }
-                        return null;
-                    }""",
-                    flow,
-                )
-                for i in range(3):
-                    page.mouse.move(100 + i * 80, 150 + i * 40, steps=5)
-                    page.wait_for_timeout(350)
-                page.mouse.wheel(0, 300)
-                page.wait_for_timeout(400)
-
-                bundle = page.evaluate(
-                    """async (flow) => {
-                        const out = {
-                          sdk_keys: window.SentinelSDK ? Object.keys(window.SentinelSDK) : [],
-                          token: null, so: null, token_err: null, so_err: null,
-                        };
-                        try {
-                          const t = await window.SentinelSDK.token(flow);
-                          out.token = (typeof t === 'string') ? t : JSON.stringify(t);
-                        } catch (e) { out.token_err = String(e && e.stack || e); }
-                        try {
-                          for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 400));
-                          if (typeof window.SentinelSDK.sessionObserverToken === 'function') {
-                            const s = await window.SentinelSDK.sessionObserverToken(flow);
-                            if (s != null) out.so = (typeof s === 'string') ? s : JSON.stringify(s);
-                          } else { out.so_err = 'no sessionObserverToken API'; }
-                        } catch (e) { out.so_err = String(e && e.stack || e); }
-                        return out;
-                    }""",
-                    flow,
-                )
-            except PwTimeout as exc:
-                out["error"] = f"token_timeout: {exc}"
-                out["elapsed_s"] = round(time.time() - t0, 3)
-                return out
-            except Exception as exc:
-                out["error"] = f"token_eval: {type(exc).__name__}: {exc}"
-                out["elapsed_s"] = round(time.time() - t0, 3)
-                return out
-
-            out["token_s"] = round(time.time() - t0, 2)
-            logger.info("  [browser/so] token 采集完成 token=%.1fs (含 SDK init + 交互)", out["token_s"])
-            token_text = (bundle or {}).get("token") or ""
-            so_raw = (bundle or {}).get("so")
-            out["sdk_keys"] = (bundle or {}).get("sdk_keys")
-            out["token_err"] = (bundle or {}).get("token_err")
-            out["so_api_err"] = (bundle or {}).get("so_err")
-            if not token_text:
-                out["error"] = out.get("token_err") or "empty token"
-                out["elapsed_s"] = round(time.time() - t0, 3)
-                return out
-
-            # 丢弃 token JSON 内假 so 字段（若有）
-            try:
-                parsed = json.loads(token_text)
-                so_val = parsed.get("so")
-                if isinstance(so_val, str) and _is_fake_so(so_val):
-                    parsed.pop("so", None)
-                    token_text = json.dumps(parsed, separators=(",", ":"))
-            except Exception:
-                pass
-
-            so_header, so_meta = _normalize_so_header(
-                so_raw if isinstance(so_raw, str) else None,
-                token_text=token_text,
-                device_id=device_id,
-                flow=flow,
-            )
-            out["token"] = token_text
-            out["so_header"] = so_header
-            out["has_so"] = bool(so_meta.get("has_so") and so_header)
-            out["so_len"] = int(so_meta.get("so_len") or 0)
-            out["so_header_len"] = len(so_header or "")
-            out["so_is_fake"] = bool(so_meta.get("so_is_fake"))
-            out["ok"] = True
+            out.update(res)
             out["elapsed_s"] = round(time.time() - t0, 3)
-            try:
-                tj = json.loads(token_text)
-                out["t_len"] = len(str(tj.get("t") or ""))
-                out["token_keys"] = list(tj.keys())
-            except Exception:
-                pass
             return out
         finally:
             try:
