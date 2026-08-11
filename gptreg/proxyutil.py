@@ -330,16 +330,74 @@ def _parse_hop(url: str) -> tuple[str, int, str]:
     return info["host"], info["port"], info["auth_header"]
 
 
+def _socks5_recv_exact(sock: socket.socket, n: int) -> bytes:
+    """从 sock 精确读 n 字节（socks5 协议固定长度帧）。"""
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionError("socks5 握手连接被断")
+        buf += chunk
+    return buf
+
+
+def _socks5_connect(hop1_sock: socket.socket, host: str, port: int, username: str, password: str) -> None:
+    """对已 CONNECT 到 hop2(socks5) 的连接做握手 + CONNECT 目标。失败抛异常。
+
+    步骤: 方法协商 → 用户密码认证 → CONNECT host:port。
+    """
+    # 1) 方法协商: 支持 noauth + userpass
+    hop1_sock.sendall(b"\x05\x02\x00\x02")
+    method = _socks5_recv_exact(hop1_sock, 2)
+    if method[0] != 0x05:
+        raise ConnectionError(f"socks5 版本错误: {method[0]}")
+    if method[1] == 0x02:
+        # 用户密码认证
+        u = username.encode() or b""
+        p = password.encode() or b""
+        if len(u) > 255 or len(p) > 255:
+            raise ConnectionError("socks5 用户名/密码过长")
+        hop1_sock.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(p)]) + p)
+        au = _socks5_recv_exact(hop1_sock, 2)
+        if au[0] != 0x01 or au[1] != 0x00:
+            raise ConnectionError(f"socks5 认证失败: {au.hex()}")
+    elif method[1] != 0x00:
+        raise ConnectionError(f"socks5 无可接受认证方法: {method[1]}")
+    # 2) CONNECT host:port
+    host_b = host.encode()
+    if len(host_b) > 255:
+        raise ConnectionError("socks5 目标主机名过长")
+    hop1_sock.sendall(b"\x05\x01\x00\x03" + bytes([len(host_b)]) + host_b + port.to_bytes(2, "big"))
+    # 读 CONNECT 响应(可变长: ATYP 1 字节 + 地址)
+    rep = _socks5_recv_exact(hop1_sock, 4)
+    if rep[1] != 0x00:
+        raise ConnectionError(f"socks5 CONNECT 失败 code={rep[1]}")
+    atyp = rep[3]
+    if atyp == 0x01:  # IPv4
+        _socks5_recv_exact(hop1_sock, 4 + 2)
+    elif atyp == 0x04:  # IPv6
+        _socks5_recv_exact(hop1_sock, 16 + 2)
+    elif atyp == 0x03:  # 域名
+        ln = _socks5_recv_exact(hop1_sock, 1)[0]
+        _socks5_recv_exact(hop1_sock, ln + 2)
+    else:
+        raise ConnectionError(f"socks5 未知 ATYP: {atyp}")
+
+
 class StickyChainTunnel:
-    """本地 HTTP 代理：client → hop1(10808) → CONNECT hop2(lajiao) → 目标。
+    """本地 HTTP 代理：client → hop1(10808) → CONNECT/socks5 hop2 → 目标。
 
     同一 tunnel 实例固定 hop2（含 sid），保证单次注册出口 IP 粘性。
+    hop2 为 socks5 时走 _socks5_connect 握手(1024proxy 是 socks5 服务)。
     """
 
     def __init__(self, hop1: str, hop2: str, bind_host: str = "127.0.0.1"):
         self.hop1_url = ensure_http_proxy_url(hop1)
         self.hop2_url = ensure_http_proxy_url(hop2)
         self.bind_host = bind_host
+        # hop2 协议: socks5 走握手, http/https 走 CONNECT(1024proxy 是 socks5 服务,
+        # 若用 HTTP CONNECT 转发会目标连不上——实测 socks5 握手+CONNECT+数据全通)
+        self.hop2_scheme = "socks5" if self.hop2_url.startswith("socks") else "http"
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -439,28 +497,45 @@ class StickyChainTunnel:
                 return
 
             if method == "CONNECT":
-                # 2) 对 hop2 再 CONNECT 到真实目标，注入 hop2 认证
-                connect_target = "CONNECT " + target + " HTTP/1.1\r\n" + "Host: " + target + "\r\n"
-                if hop2_auth:
-                    connect_target += _pa + ": " + _basic + hop2_auth + "\r\n"
-                connect_target += "\r\n"
-                hop1_sock.sendall(connect_target.encode())
-                hop2_resp, extra2 = _read_until_headers(hop1_sock)
-                hop2_status = hop2_resp.split(b"\r\n", 1)[0]
-                if b" 200 " not in hop2_status:
-                    _st = hop2_status.decode(errors="replace").strip() or "(无响应/连接被断)"
-                    logger.warning("[Proxy] hop2 CONNECT %s 失败: %s", target, _st)
-                    client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
-                    return
-                # 3) 告诉客户端隧道已建立，随后双向透传 TLS
-                client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
-                # 目标在 CONNECT 200 后立即发的早期数据(SSH banner/IMAP greeting)必须补发,
-                # 否则 relay 从 hop1_sock recv 永远等不到这包 → 连接中止
-                if extra2:
+                # 2) 对 hop2 再 CONNECT 到真实目标
+                if self.hop2_scheme == "socks5":
+                    # hop2 是 socks5(如 1024proxy): 握手 + 认证 + CONNECT(HTTP CONNECT 到它不认)
                     try:
-                        client.sendall(extra2)
-                    except OSError:
-                        pass
+                        _hop2_info = parse_proxy_auth(self.hop2_url)
+                        _socks5_connect(
+                            hop1_sock,
+                            host=target.rsplit(":", 1)[0],
+                            port=int(target.rsplit(":", 1)[1]),
+                            username=_hop2_info.get("username") or "",
+                            password=_hop2_info.get("password") or "",
+                        )
+                    except Exception as exc:
+                        logger.warning("[Proxy] hop2 socks5 %s 失败: %s", target, exc)
+                        client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+                        return
+                    client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                else:
+                    connect_target = "CONNECT " + target + " HTTP/1.1\r\n" + "Host: " + target + "\r\n"
+                    if hop2_auth:
+                        connect_target += _pa + ": " + _basic + hop2_auth + "\r\n"
+                    connect_target += "\r\n"
+                    hop1_sock.sendall(connect_target.encode())
+                    hop2_resp, extra2 = _read_until_headers(hop1_sock)
+                    hop2_status = hop2_resp.split(b"\r\n", 1)[0]
+                    if b" 200 " not in hop2_status:
+                        _st = hop2_status.decode(errors="replace").strip() or "(无响应/连接被断)"
+                        logger.warning("[Proxy] hop2 CONNECT %s 失败: %s", target, _st)
+                        client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+                        return
+                    # 3) 告诉客户端隧道已建立，随后双向透传 TLS
+                    client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                    # 目标在 CONNECT 200 后立即发的早期数据(SSH banner/IMAP greeting)必须补发,
+                    # 否则 relay 从 hop1_sock recv 永远等不到这包 → 连接中止
+                    if extra2:
+                        try:
+                            client.sendall(extra2)
+                        except OSError:
+                            pass
             else:
                 # 明文代理请求：注入 hop2 认证后原样转发
                 marker = (_pa + ":").encode()
