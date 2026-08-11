@@ -98,22 +98,16 @@ def check_account_health(
     """账号健康检查（注册后秒封检测 / 测活共用）。
 
     返回 status: ok / deactivated / invalidated / token_expired / error。
-    prefer_me=True：先走 /backend-api/me 快判（轻量、不风控），me 判定为
-    error（网络/意外）或 invalidated（需区分死因）时，fallback accounts/check
-    兜底查原因。prefer_me=False：直接用 accounts/check（旧行为，秒封检测精度高）。
+    默认走 /backend-api/me 快判（轻量、不风控，同 IP 并发安全）。
+    me 的 401 响应体带 `code` 字段，能区分封号(account_deactivated) vs
+    吊销(token_invalidated) vs 过期(token_expired)——无需 accounts/check 兜底。
+    prefer_me=False：用 accounts/check（秒封检测精度更高，但同 IP 连续请求会 WAF 403）。
     timeout=None 用 session 默认(60s)；测活场景建议传 ~10s。
     """
     if not access_token:
         return {"status": "error", "detail": "empty token"}
     if prefer_me:
-        r = check_account_health_me(session, access_token, timeout=timeout)
-        # me 已明确 ok/deactivated/token_expired → 直接返回；invalidated/error → accounts/check 兜底查死因
-        if r.get("status") in ("ok", "deactivated", "token_expired"):
-            return r
-        # 兜底：用 accounts/check 区分 invalidated(可续期) vs deactivated(封号)
-        r2 = _check_accounts_check(session, access_token, timeout=timeout)
-        r2["me_precheck"] = r
-        return r2
+        return check_account_health_me(session, access_token, timeout=timeout)
     return _check_accounts_check(session, access_token, timeout=timeout)
 
 
