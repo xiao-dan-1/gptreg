@@ -85,7 +85,11 @@ python main.py export       # 导出 email----password----2fa 交付
 
 ```bash
 # ① 注册：批量注册，--workers 并发线程（建议 ≤ 可用代理数）
+#   主路线(batch_totp)：browser 真 so + 密码 + TOTP，账号长活（推荐生产）
 python capture/tools/batch_totp.py --pool icloud --limit N --workers M
+#   纯协议路线(main.py register)：quickjs vm so，无浏览器，最快建号
+#   （账号 ~30min 短活；配 enable_totp/enable_password 可产出 password+2fa）
+python main.py register -n N --sentinel-source quickjs --pool icloud
 
 # ② 测活：批量测活，回写 health_status，每 8 个换出口 IP
 python main.py survival --source icloud
@@ -122,6 +126,8 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 | `proxy.dynamic.chain_via` | 本地代理第一跳（如 127.0.0.1:7890） |
 | `mail.use_alias` | 用 plus 别名注册（解决主号已注册的 400），默认 true |
 | `register.default_password` | **统一密码**（推荐填）：所有账号同一密码，半注册邮箱可找回；不填则随机（密码会随进程丢失） |
+| `register.enable_totp` | **纯协议路线**：注册后自动开 TOTP（无密码 + TOTP 交付），默认 false |
+| `register.enable_password` | **纯协议路线**：注册后 reauth 补设密码，产出 `email----password----2fa` 全凭据，默认 false |
 | `mail.otp_wait` | 收码超时（秒），需覆盖发码延迟 |
 
 完整配置示例见 `config.yaml.example`。
@@ -203,6 +209,11 @@ python main.py export --source icloud --filter alive --with-at --out deliver_icl
 - 被 MS 拒 IMAP 的 Outlook 账号自动降级 Graph（较慢 ~161s）
 - 共享收码源（CloudMail admin）并发 ≤2，独立收码（iCloud URL/Outlook IMAP）可高并发
 
+**Q6. ⚡ 为什么有两个注册入口（batch_totp / main.py register）？**
+- `batch_totp.py`（主路线）：browser 真 so + 密码 + TOTP，账号**长活**（实测 8h+），推荐生产
+- `main.py register --sentinel-source quickjs`（纯协议路线）：**无浏览器**，单账号 ~26s，但 vm so（行为字段空）账号 **~30min 被吊销**——只够"短窗建号/实验"；配 `enable_totp`/`enable_password` 可产出 `email----password----2fa` 全凭据（研究已端到端验证）
+- 补充：纯协议补密码走 `auth.openai.com/api/accounts/password/add`，signin 须带 `post_login_add_password=true`
+
 ---
 
 ## 🧠 进阶：架构与协议（可跳读）
@@ -218,6 +229,23 @@ python main.py export --source icloud --filter alive --with-at --out deliver_icl
   ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活
   └─ save_account → accounts.jsonl
 ```
+
+### 纯协议路线（main.py register，无浏览器）
+
+> 研究验证（2026-08）：OTP-only 注册 → 补密码 → TOTP，全程纯 HTTP 无浏览器。
+
+```
+signin → authorize → 邮箱 OTP → create_account(quickjs vm so)
+→ callback → session → 健康检查
+→ mfa/enroll → activate_enrollment        [enable_totp=true]
+→ reauth 补密码(post_login_add_password=true → 邮箱 OTP → password/add)  [enable_password=true]
+→ save_account → accounts.jsonl  (产出 email----password----2fa)
+```
+
+- **优势**：无 Chrome/无 so 采集，单账号 ~26s，省内存可高并发
+- **短板**：vm so（行为字段空）账号 **~30min 被吊销**，只够"短窗建号/实验"；长活需主路线 browser so
+- **关键参数**：补密码走 `auth.openai.com/api/accounts/password/add`，signin 必须带 `post_login_add_password=true`（否则 invalid_auth_step）
+- **用途**：快速批量建号（短活实验/无密码+TOTP 交付）；生产长活用主路线
 
 ### Sentinel 策略（产真 t + 真 so）
 
@@ -280,6 +308,7 @@ output/                        成功账号(accounts.jsonl)
 - **已推进邮箱不可重跑**：register/OTP 之后的失败（so/create/session/enroll）= 已推进，批量下弃用
 - **邮箱级风控**：同一邮箱多次失败会被 OpenAI 记住，换 IP 无效（勿反复试）
 - **so 失败中止**：无 so 账号必死（实测 2/2 吊销），so 采集失败重试 3 次仍无则中止，不白建号
+- **两条路线存活差异**：主路线 browser so 账号长活（实测 8h+）；纯协议路线 vm so 账号 ~30min 吊销（只够短窗建号/实验，不产长活号）
 - **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
 - **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才注册成功
