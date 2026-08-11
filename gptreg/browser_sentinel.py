@@ -195,14 +195,23 @@ def _harvest_context(
     page_url: str,
     timeout_s: int,
     proxy: str | None = None,
+    fast: bool = False,
 ) -> dict[str, Any]:
     """在已建 context 上采 token + so（导航/SDK/交互/token+so），返回 out dict。
 
     不负责建/关 context。fresh 与 pooled 路径共用，返回结构完全一致。
+    fast=True 时精简固定 sleep（研究用，需验证 so 行为字段不退化——见 survey）。
     """
     from playwright.sync_api import TimeoutError as PwTimeout
 
     timeout_ms = max(10, int(timeout_s)) * 1000
+    # 行为采集窗口(sessionObserver 环境指纹)——fast 精简, 默认保留
+    _nav_wait = 60 if fast else 400      # 导航后初始交互
+    _sdk_wait = 150 if fast else 500     # SDK 加载后等脚本执行
+    _interact_n = 1 if fast else 3       # init 后交互轮数
+    _interact_wait = 120 if fast else 350  # 每轮交互等待
+    _tail_wait = 120 if fast else 400    # 交互尾部等待
+    _so_rounds = 2 if fast else 5        # so 前行为采集轮数(每轮 400ms)
     t0 = time.time()
     out: dict[str, Any] = {
         "ok": False,
@@ -249,7 +258,7 @@ def _harvest_context(
         page.mouse.move(120, 160)
         page.mouse.move(420, 280, steps=8)
         page.mouse.wheel(0, 200)
-        page.wait_for_timeout(400)
+        page.wait_for_timeout(_nav_wait)
     except Exception:
         pass
 
@@ -269,7 +278,7 @@ def _harvest_context(
         else:
             page.add_script_tag(url=_sdk_url(cfg))
             out["sdk_load_mode"] = "remote_url"
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(_sdk_wait)
         out["sdk_s"] = round(time.time() - t0, 2)
         logger.info("  [browser/so] SDK 加载完成 sdk=%.1fs mode=%s", out["sdk_s"], out.get("sdk_load_mode"))
     except Exception as exc:
@@ -308,11 +317,11 @@ def _harvest_context(
             }""",
             flow,
         )
-        for i in range(3):
+        for i in range(_interact_n):
             page.mouse.move(100 + i * 80, 150 + i * 40, steps=5)
-            page.wait_for_timeout(350)
+            page.wait_for_timeout(_interact_wait)
         page.mouse.wheel(0, 300)
-        page.wait_for_timeout(400)
+        page.wait_for_timeout(_tail_wait)
 
         bundle = page.evaluate(
             """async (flow) => {
@@ -325,14 +334,14 @@ def _harvest_context(
                   out.token = (typeof t === 'string') ? t : JSON.stringify(t);
                 } catch (e) { out.token_err = String(e && e.stack || e); }
                 try {
-                  for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 400));
+                  for (let i = 0; i < SO_ROUNDS; i++) await new Promise(r => setTimeout(r, 400));
                   if (typeof window.SentinelSDK.sessionObserverToken === 'function') {
                     const s = await window.SentinelSDK.sessionObserverToken(flow);
                     if (s != null) out.so = (typeof s === 'string') ? s : JSON.stringify(s);
                   } else { out.so_err = 'no sessionObserverToken API'; }
                 } catch (e) { out.so_err = String(e && e.stack || e); }
                 return out;
-            }""",
+            }""".replace("SO_ROUNDS", str(_so_rounds)),
             flow,
         )
     except PwTimeout as exc:
@@ -400,17 +409,21 @@ def harvest_browser_sentinel(
     timeout_s: int | None = None,
     use_local_sdk: bool | None = None,
     reuse: bool | None = None,
+    fast: bool | None = None,
 ) -> dict[str, Any]:
     """真 Chrome 采 token + so。device_id 应与协议 session.oai-did 一致。
 
     reuse=None 时读 config `protocol.sentinel_browser_reuse`：
       false=fresh 每账号全新 Chrome（默认，行为同旧版）
       true=pooled 常驻浏览器池（klsf：省 launch ~8s + 300MB/账号）
+    fast=None 时读 config `protocol.sentinel_browser_fast`（false=默认全等待）。
     """
     from playwright.sync_api import sync_playwright
 
     protocol = cfg.get("protocol") or {}
     browser_cfg = cfg.get("browser") or {}
+    if fast is None:
+        fast = bool(protocol.get("sentinel_browser_fast", False))
     if headless is None:
         headless = bool(protocol.get("sentinel_browser_headless", True))
     if timeout_s is None:
@@ -453,7 +466,7 @@ def harvest_browser_sentinel(
             try:
                 return _harvest_context(
                     c, cfg, flow=flow, device_id=device_id,
-                    page_url=page_url, timeout_s=timeout_s, proxy=proxy,
+                    page_url=page_url, timeout_s=timeout_s, proxy=proxy, fast=fast,
                 )
             finally:
                 try:
@@ -484,7 +497,7 @@ def harvest_browser_sentinel(
             context = _make_context(browser, cfg, proxy=proxy, headless=headless)
             res = _harvest_context(
                 context, cfg, flow=flow, device_id=device_id,
-                page_url=page_url, timeout_s=timeout_s, proxy=proxy,
+                page_url=page_url, timeout_s=timeout_s, proxy=proxy, fast=fast,
             )
             out.update(res)
             out["elapsed_s"] = round(time.time() - t0, 3)

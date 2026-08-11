@@ -616,6 +616,12 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - 批量 4 号 2 线程 127.9s，串行预估 213s，加速比 1.67x；内存 2×300MB 常驻（fresh 4 账号峰值 1.2GB）。
 - 瓶颈：create 段 13-14s = so 采集 8.9-10.3s（含固定 sleep ~3.5s + 导航/SDK ~2.7-3.9s）+ create HTTP ~4.2s。
 
+**fast 精简等待实验（2026-08-11，零耗号）**：
+- `harvest_browser_sentinel` 加 `fast` 参数（默认读 `protocol.sentinel_browser_fast`，默认 False）：fast 时精简固定 sleep（导航后 400→60ms、SDK 后 500→150ms、交互 3×350→1×120ms、so 前 5×400→2×400ms）。
+- **实测（reuse，10808）**：fast=False 8.0-8.1s；fast=True **4.2-4.3s（省 3.8s）**。
+- **so_len：fast 484-492 vs 默认 460-484——精简未伤害字段量级，反而更稳定**。
+- 结论：默认固定 sleep 冗余（sessionObserver 行为采集不需要强制长等）。fast 默认关（存活未实证，需真注册对比存活后再定默认）；保留 config 开关。
+
 **测活效率（2026-08-11）**：
 - 4 账号全部存活(accounts/check 200,稳定代理 10808 验证)。
 - **测活本身快**(每号 1 个 HTTP 请求 ~0.5-2s),瓶颈在**动态代理隧道可靠性**。
