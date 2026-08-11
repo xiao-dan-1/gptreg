@@ -650,6 +650,35 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 
 **脚本**：`test_login_2fa.py`（密码+TOTP 验证）、`login_2fa_pkce.py`（完整 PKCE OAuth 登录，consent 待修）、`login_otp_only.py`（无密码 OTP 登录，validate 403）
 
+### 社区调研（2026-08 在线，开源项目 + 论坛）
+
+**1. 纯协议 so(sessionObserverToken) 无公开方案——印证我们的结论**：
+- `realasfngl/ChatGPT`（deepwiki）逆向 Turnstile 三层(字节码解密/VM 重构指纹)，但产的是 **turnstile token**(聊天/backend-anon 用)，**不是注册/会话的 so**。
+- 社区所有注册机(oumiFree/turb-gpt-free-register/freeAgentIdentity)so 都走**真浏览器**(Playwright/stealth)，无一纯协议绕过 so。→ 我们的 survey 结论"so=字节码 VM 解释 snapshot_dx,无真浏览器字段全空"被社区实锤。
+
+**2. 可借鉴的技术**：
+- VM 重构指纹思路：`html_object`(getBoundingClientRect)/`localStorage` 15+ 键/vendor/ipinfo——若未来做真 so 伪造可行域,参考 `realasfngl/ChatGPT` 的 decompiler+parser+vm。
+- PoW 用 FNV-1a 与我们一致;ipinfo 外部服务取地理(我们 proxy 思路不同)。
+- `turb-gpt-free-register`(icedeng) = 我们 get-rt.js 参考的源头,Codex OAuth 登录链。
+
+**3. 存活/保号社区经验**：
+- **"古法"人工注册 2 个月 58 号只掉 9**(LINUX DO)——真实浏览器行为 so 是长活核心,与我们实证一致。
+- **RT 保活**：refresh_token 刷过即失效,10 天不 OAuth 登录会 401——需定期 CPA 链接重登续期(对应 HANDOFF 待办"登录 token 链")。
+- **厚号池 + 自动补号**是主流策略(我们已用);"秒封"普遍,靠号池厚度对冲。
+- 服务器干净 IP(自建海外)最稳;住宅代理波动是测活/注册抖动主因(我们实测 1024proxy 波动)。
+
+**4. 对我们研究的方向**：
+- 纯协议 so 是**结构性墙**(社区无解),长活=真浏览器行为=已落地的 browser_pool。
+- 有价值的后续：RT 保活自动续期(降 401)、IP 稳定性(干净出口)、号池补号自动化。
+
+**5. turb-gpt-free-register 的 Codex OAuth 登录链(与 HANDOFF 待办2 直接相关)**：
+- **Codex OAuth client_id 固定值：`app_EMoamEEZ73f0CkXaXp7hrann`**(参数参考 CLIProxyAPI `internal/auth/codex/openai_auth.go`+`pkce.go`)。
+- 登录链：授权 URL(CPA 生成或本地 PKCE)→ 邮箱登录+OTP → 手机验证(接码,GrizzlySMS 等)→ consent/workspace → callback → 换 refresh_token。
+- **关键差异**：turb-gpt 走**外部 CPA 管理服务**(`CPA_MANAGEMENT_URL/KEY`)下载 OAuth JSON(refresh-token 文件)，非纯本地。
+- 我们之前 survey 结论"chatgpt 客户端卡 consent 硬边"被佐证；**Codex 客户端(不同 client_id)有完整可参考流程**。
+- 分支：myfanhua/Web3XiaoAn 同基线，Web3XiaoAn 加了自动 2FA/TOTP + 多邮箱源(与我们补密码+TOTP 同思路)。
+- 参考价值：若做登录 token 链闭环，用 Codex 客户端 + PKCE 本地实现(不依赖外部 CPA)是方向。
+
 ### 待验证
 
 - 2FA 登录 token 获取链（consent 端点逆向）
