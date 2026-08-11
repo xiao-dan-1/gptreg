@@ -25,6 +25,84 @@ _ENROLL_URL = "https://chatgpt.com/backend-api/accounts/mfa/enroll"
 _ACTIVATE_URL = "https://chatgpt.com/backend-api/accounts/mfa/user/activate_enrollment"
 
 
+def _set_password_via_reauth(cfg, session, email: str, account: dict, new_pw: str) -> str:
+    """注册后 reauth 补设密码（auth.openai.com/api/accounts/password/add）。
+
+    关键：signin 带 post_login_add_password=true 建立设密码事务（chatgpt 前端逆向参数）。
+    流程: reauth signin → authorize(邮箱验证) → 收 OTP → validate → password/add。
+    返回设置的密码(成功)或 ""(失败)。
+    """
+    from urllib.parse import urlencode
+
+    from gptreg.mail.providers import build_mail_client
+
+    try:
+        mail_main = account["email"]
+        auth.get_providers(session)
+        csrf = auth.get_csrf_token(session)
+        query = {
+            "prompt": "login",
+            "ext-oai-did": session.device_id,
+            "reauth": "password",
+            "max_age": "0",
+            "login_hint": email,
+            "screen_hint": "login_or_signup",
+            "post_login_add_password": "true",
+        }
+        url = "https://chatgpt.com/api/auth/signin/openai?" + urlencode(query)
+        h = session.chatgpt_headers()
+        h["content-type"] = "application/x-www-form-urlencoded"
+        h["origin"] = "https://chatgpt.com"
+        body = urlencode({"callbackUrl": "https://chatgpt.com/", "csrfToken": csrf, "json": "true"})
+        resp = session.post(url, headers=h, data=body, timeout=30)
+        if resp.status_code != 200:
+            logger.warning("[Password] reauth signin HTTP %s", resp.status_code)
+            return ""
+        auth_url = resp.json().get("url", "")
+        if not auth_url:
+            logger.warning("[Password] reauth 无 authorize url")
+            return ""
+        final = auth.follow_authorize(session, auth_url, attempts=2)
+        if "email-verification" not in final:
+            logger.warning("[Password] reauth 未落到邮箱验证: %s", final[:80])
+            return ""
+        # 收 reauth OTP（同一号池邮箱）
+        mail_cfg = cfg.get("mail", {})
+        client = build_mail_client(
+            account,
+            proxy=None,
+            impersonate=cfg.get("browser", {}).get("impersonate", "chrome142"),
+            cfg=cfg,
+        )
+        otp = client.wait_for_otp(
+            after_ts=time.time() - 3,
+            timeout=int(mail_cfg.get("max_wait", 200)),
+            interval=int(mail_cfg.get("poll_interval", 3)),
+            settle_seconds=5,
+        )
+        sentinel_otp, _ = auth.make_sentinel_headers(session, None, "authorize_continue", source="pow")
+        hdr = session.auth_api_headers(referer="https://auth.openai.com/email-verification")
+        hdr["openai-sentinel-token"] = sentinel_otp
+        sess_otp = session.post("https://auth.openai.com/api/accounts/email-otp/validate",
+                                headers=hdr, data=json.dumps({"code": otp}), allow_redirects=False, timeout=30)
+        if sess_otp.status_code != 200:
+            logger.warning("[Password] reauth OTP validate HTTP %s", sess_otp.status_code)
+            return ""
+        # 设密码
+        h4 = session.auth_api_headers(referer="https://auth.openai.com/")
+        h4["content-type"] = "application/json"
+        resp4 = session.post("https://auth.openai.com/api/accounts/password/add",
+                             headers=h4, data=json.dumps({"password": new_pw}), timeout=30)
+        if resp4.status_code == 200:
+            logger.info("[Password] ✅ 补密码成功 (%s)", mail_main)
+            return new_pw
+        logger.warning("[Password] password/add HTTP %s: %s", resp4.status_code, (resp4.text or "")[:120])
+        return ""
+    except Exception as exc:
+        logger.warning("[Password] reauth 补密码异常: %s", str(exc)[:120])
+        return ""
+
+
 def _enroll_totp_now(session, at: str, device_id: str, timeout: int = 30) -> dict:
     """注册后立即开 TOTP（用新鲜会话 token，对齐 gpt-free-register）。
 
@@ -459,6 +537,20 @@ def register_one(
             else:
                 logger.warning("[TOTP] 未激活（token 可能不够新鲜，可后续 reauth 补开）")
 
+        # Step B3：注册后 reauth 补设密码（config register.enable_password=true 开启）
+        # 纯协议补密码：signin 带 post_login_add_password=true → 邮箱 OTP → password/add。
+        # 直接产出 email----password----2fa 全凭据（无需浏览器）。
+        set_password = ""
+        if bool((cfg.get("register") or {}).get("enable_password", False)):
+            from gptreg.config import pick_password
+
+            pw = pick_password(cfg)  # 统一密码(config)或随机
+            set_password = _set_password_via_reauth(cfg, session, email, account, pw)
+            if set_password:
+                logger.info("[Password] ✅ OTP-only 账号补密码成功, 交付 password+2fa")
+            else:
+                logger.warning("[Password] 补密码失败（账号仍可交付无密码+TOTP）")
+
         # Step B：post-login 最小集（默认关；config register.post_login=true 开启）
         # so 策略不变；不造假 finalize/pow/turnstile
         post_login_enabled = bool((cfg.get("register") or {}).get("post_login", False))
@@ -517,7 +609,8 @@ def register_one(
             birthdate=bday,
             extra={"sentinel_obs": sentinel_obs, "health": health_status,
                    "totp_secret": totp.get("totp_secret") or "",
-                   "totp_enrolled": bool(totp.get("totp_enrolled"))},
+                   "totp_enrolled": bool(totp.get("totp_enrolled")),
+                   "password": set_password},
             session_cookies=sess_cookies,
         )
         used_cache.remember(mail_identity_key(account), otp, email=email, status="ok")

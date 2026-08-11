@@ -113,6 +113,11 @@ register:
   # 统一密码: 填了则所有注册用同一密码——半注册邮箱(register 成功设密码但 create/so 失败)
   # 可用同一密码手动登录找回(每次 register 都设它, 不会丢)。空 = 每次随机(密码随进程丢失)。
   default_password: ""
+  # OTP-only 注册后立即开 TOTP 2FA（无密码 + TOTP 交付形态）
+  enable_totp: false
+  # 注册后 reauth 补设密码（产出 email----password----2fa 全凭据）
+  # 纯协议：signin post_login_add_password=true → 邮箱 OTP → auth.openai.com password/add
+  enable_password: false
   birthday_year_min: 1995
   birthday_year_max: 2005
   # 回调后拉 session 的重试
