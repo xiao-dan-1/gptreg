@@ -584,7 +584,12 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - **`mfa/verify`（TOTP code, `{"type":"totp","id":factor_id,"code"}`）→ 200**（2FA 挑战通过）
 - **凭据完全有效**——纯协议账号是真实可登录的
 
-**未闭环**：token 获取走 OAuth 授权链（oauth2/auth → consent），consent 提交端点 405（旧 `/api/accounts/consent` POST 失效）；signin/openai 入口 password/verify 403、email-otp/validate 403（与 raw OAuth 200 不同）。**属登录链实现细节，待后续**。
+**登录链进展（2026-08-11 下午）**：
+- ✅ **OAuth consent 已解**：`/api/accounts/consent` POST 405 是正常（GET 跳转 hop）；正确 = GET-follow 重定向链（oauth2/auth → consent → oauth2/auth → callback?code=）提取 code
+- ✅ **signin/openai 403 根因**：它带 `ext-passkey-client-capabilities=1111` → 会话导向 passkey 分支 → 验证 403；**raw OAuth authorize 才对**（password/verify + mfa/verify 均 200）
+- ⚠️ **token 交换未闭环**：OAuth 链拿到 `ac_` 前缀 code，但 `/oauth/token` 401（token_exchange_user_error）、chatgpt callback OAuthCallback error——code 类型/绑定问题，参考 get-rt.js（form-urlencoded 换 refresh_token）
+- ⚠️ **vm-so/CloudMail 账号最终被 deactivate**（reg_9fbb16 报"deleted or deactivated"）——不只是 token 吊销，账号停用
+- 参考实现：`get-rt.js`（432539/gpt）、`protocol_keygen.py`（Ttungx/codex_auto_register）——完整 login→consent→token 流程
 
 **续期**：无 refresh_token（OTP-only 流程没存）；session cookies 有效（/api/auth/session 200 返回 token）但**返回的是同一个被吊销的 token**（health invalidated）——需完整重登才能换新 token。
 

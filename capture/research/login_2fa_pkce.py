@@ -53,6 +53,42 @@ def _pkce():
     return verifier, challenge
 
 
+def _follow_oauth_for_code(sess, url, max_hops: int = 15):
+    """GET 手动跟随 OAuth 重定向链，提取 ?code=。全程带 cookie jar。
+
+    oauth2/auth → consent(302) → oauth2/auth(consent_verifier) → callback?code=
+    /api/accounts/consent 是 GET 跳转 hop（不是 POST API，POST 405 正常）。
+    """
+    from urllib.parse import urljoin as _uj, urlparse, parse_qs
+
+    cur = url
+    for _ in range(max_hops):
+        if "code=" in cur:
+            return parse_qs(urlparse(cur).query).get("code", [None])[0]
+        try:
+            r = sess.get(cur, headers=sess.auth_navigate_headers(referer="https://auth.openai.com/log-in/password"),
+                         allow_redirects=False, timeout=30)
+        except Exception as e:
+            print(f"  [oauth] hop 异常: {str(e)[:50]}")
+            return None
+        loc = r.headers.get("location", "")
+        if "code=" in loc:
+            return parse_qs(urlparse(_uj(cur, loc)).query).get("code", [None])[0]
+        if r.status_code in (301, 302, 303, 307, 308) and loc:
+            cur = loc if loc.startswith("http") else _uj(cur, loc)
+            continue
+        if r.status_code == 200:
+            fu = str(getattr(r, "url", cur))
+            m = re.search(r"[?&]code=([^&]+)", fu)
+            if m:
+                return m.group(1)
+            print(f"  [oauth] 停在 200: {fu[:60]}（可能需要 consent workspace/select 兜底）")
+            return None
+        print(f"  [oauth] hop 非重定向 status={r.status_code}")
+        return None
+    return None
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     sub = args[0] if args else "9fbb16"
@@ -139,69 +175,57 @@ def main() -> int:
         page_type = (c4.get("page") or {}).get("type", "") or page_type
         print(f"  -> TOTP 通过, page_type={page_type}")
 
-    # 5. OAuth 授权链 → code
+    # 5. OAuth 授权链 → code（GET 手动跟随，consent 是 GET 跳转 hop 不是 POST）
     print(f"[5] OAuth 授权: {continue_url[:60]}")
-    code = None
-    nav = sess.auth_navigate_headers(referer=f"{ISSUER}/log-in/password")
-    url = continue_url
-    for hop in range(8):
-        resp = sess.get(url, headers=nav, allow_redirects=False, timeout=30)
-        loc = resp.headers.get("location", "")
-        m = re.search(r"[?&]code=([^&]+)", loc or "")
-        if m:
-            code = m.group(1)
-            print(f"  hop{hop} 拿到 code")
-            break
-        if "consent" in (loc or ""):
-            print(f"  hop{hop} consent 页, 提交 consent")
-            m_cc = re.search(r"consent_challenge=([^&]+)", loc)
-            if m_cc:
-                resp_cc = sess.post(f"{ISSUER}/api/accounts/consent",
-                                    headers=_api_headers(loc[:80]),
-                                    data=json.dumps({"consent_challenge": m_cc.group(1),
-                                                      "scopes": "openid profile email offline_access"}),
-                                    allow_redirects=False, timeout=30)
-                loc3 = resp_cc.headers.get("location", "")
-                print(f"    consent POST -> {resp_cc.status_code} loc={loc3[:70]}")
-                m3 = re.search(r"[?&]code=([^&]+)", loc3 or "")
-                if m3:
-                    code = m3.group(1)
-                    print(f"    consent -> code")
-                    break
-                if loc3:
-                    url = loc3 if loc3.startswith("http") else _uj(url, loc3)
-                    continue
-            resp_cc = sess.get(loc, headers=nav, allow_redirects=True, timeout=30)
-            m2 = re.search(r"[?&]code=([^&]+)", str(getattr(resp_cc, "url", "")))
-            if m2:
-                code = m2.group(1)
-                print(f"  consent -> code")
-                break
-        if not loc:
-            m3 = re.search(r"[?&]code=([^&]+)", str(getattr(resp, "url", "")))
-            if m3:
-                code = m3.group(1)
-                print(f"  hop{hop} 最终 URL code")
-            break
-        url = loc if loc.startswith("http") else _uj(url, loc)
+    code = _follow_oauth_for_code(sess, continue_url)
     if not code:
         print("  [x] 未拿到 code")
         return 4
+    print(f"  code: {code[:25]}...")
 
-    # 6. /oauth/token 换 access_token
-    print("[6] POST /oauth/token")
-    h6 = _api_headers(f"{ISSUER}/")
+    # 6. /oauth/token 换 access_token（参考实现用 form-urlencoded body）
+    from urllib.parse import urlencode as _ue
+
+    print("[6] POST /oauth/token (form-urlencoded)")
+    h6 = sess.auth_api_headers(referer=f"{ISSUER}/")
+    h6.pop("content-type", None)
+    h6["content-type"] = "application/x-www-form-urlencoded"
     resp_tok = sess.post(f"{ISSUER}/oauth/token",
-                         headers=h6, data=json.dumps({
+                         headers=h6, data=_ue({
                              "grant_type": "authorization_code", "code": code,
                              "redirect_uri": REDIRECT_URI, "client_id": CLIENT_ID,
                              "code_verifier": code_verifier}), allow_redirects=False, timeout=30)
     print(f"  -> {resp_tok.status_code}")
     if resp_tok.status_code != 200:
-        print(f"  [x] token 交换失败: {(resp_tok.text or '')[:150]}")
-        return 5
-    at = resp_tok.json().get("access_token", "")
-    print(f"  access_token: {at[:30]}...")
+        print(f"  [x] /oauth/token 失败: {(resp_tok.text or '')[:150]}")
+        # 兜底：走 chatgpt callback（code 可能是 session code）
+        print("  兜底: 走 chatgpt callback + /api/auth/session")
+        cb_url = f"https://chatgpt.com/api/auth/callback/openai?code={code}"
+        try:
+            cb = sess.get(cb_url, headers=sess.chatgpt_headers(), allow_redirects=True, timeout=30)
+            print(f"  callback -> {cb.status_code} final={str(getattr(cb, 'url', ''))[:50]}")
+        except Exception as e:
+            print(f"  callback 异常: {str(e)[:50]}")
+        at = ""
+        for attempt in range(5):
+            try:
+                sr = sess.get("https://chatgpt.com/api/auth/session", headers=sess.chatgpt_headers(), timeout=20)
+                if sr.status_code == 200:
+                    sj = sr.json()
+                    if sj and sj.get("accessToken"):
+                        at = sj["accessToken"]
+                        print(f"  session -> access_token: {at[:30]}...")
+                        break
+                    print(f"  session 无 token: {str(sj)[:60]}")
+            except Exception as e:
+                print(f"  session 异常: {str(e)[:40]}")
+            time.sleep(2)
+        if not at:
+            print("  [x] 兜底也未拿到 token")
+            return 5
+    else:
+        at = resp_tok.json().get("access_token", "")
+        print(f"  access_token: {at[:30]}...")
 
     # 7. 健康检查
     if at:
