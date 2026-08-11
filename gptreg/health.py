@@ -45,17 +45,85 @@ def _backend_api_headers(
     return h
 
 
-def check_account_health(
+def check_account_health_me(
     session: BrowserSession,
     access_token: str,
     *,
     timeout: float | None = None,
 ) -> dict[str, Any]:
-    """注册后即时健康检查。返回 status: ok / deactivated / invalidated / error。
+    """用 /backend-api/me 做存活主判定（轻量 1.2KB，同 IP 并发不触发 WAF）。
 
-    timeout=None 用 session 默认(60s)；测活场景建议传 ~10s——动态代理隧道坏时
-    (出口连不上 chatgpt.com)连接超时无需等满 60s，快速失败便于换 IP 重试。
+    实测：accounts/check 同 IP 连续请求会被 WAF 403（需每 8 换 IP）；
+    me 同 IP 连续测 5+ 账号全 200 无风控（社区 CLIProxyAPI 也用它批量管理）。
+    返回 status: ok / deactivated / invalidated / token_expired / error。
     """
+    if not access_token:
+        return {"status": "error", "detail": "empty token", "endpoint": "me"}
+
+    headers = session.chatgpt_headers(referer="https://chatgpt.com/")
+    headers["authorization"] = f"Bearer {access_token}"
+    headers["oai-device-id"] = session.device_id
+    headers["oai-language"] = (session.cfg.get("browser", {}) or {}).get("language", "en-US")
+    headers.pop("content-type", None)
+
+    try:
+        url = "https://chatgpt.com/backend-api/me"
+        resp = session.get(url, headers=headers, timeout=timeout)
+        text = (resp.text or "")[:500]
+        low = text.lower()
+        if resp.status_code == 200:
+            return {"status": "ok", "http": 200, "endpoint": "me", "body": resp.text}
+        if resp.status_code in (401, 403) and (
+            "account_deactivated" in low or "deactivated" in low or "deleted" in low
+        ):
+            return {"status": "deactivated", "http": resp.status_code, "endpoint": "me", "body": text}
+        if resp.status_code == 401 and "token_expired" in low:
+            return {"status": "token_expired", "http": resp.status_code, "endpoint": "me", "body": text}
+        if resp.status_code in (401, 403) and (
+            "token_invalidated" in low or "token_revoked" in low or "unauthorized" in low or "invalid" in low
+        ):
+            return {"status": "invalidated", "http": resp.status_code, "endpoint": "me", "body": text}
+        return {"status": "error", "http": resp.status_code, "endpoint": "me", "body": text}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc), "endpoint": "me"}
+
+
+def check_account_health(
+    session: BrowserSession,
+    access_token: str,
+    *,
+    timeout: float | None = None,
+    prefer_me: bool = True,
+) -> dict[str, Any]:
+    """账号健康检查（注册后秒封检测 / 测活共用）。
+
+    返回 status: ok / deactivated / invalidated / token_expired / error。
+    prefer_me=True：先走 /backend-api/me 快判（轻量、不风控），me 判定为
+    error（网络/意外）或 invalidated（需区分死因）时，fallback accounts/check
+    兜底查原因。prefer_me=False：直接用 accounts/check（旧行为，秒封检测精度高）。
+    timeout=None 用 session 默认(60s)；测活场景建议传 ~10s。
+    """
+    if not access_token:
+        return {"status": "error", "detail": "empty token"}
+    if prefer_me:
+        r = check_account_health_me(session, access_token, timeout=timeout)
+        # me 已明确 ok/deactivated/token_expired → 直接返回；invalidated/error → accounts/check 兜底查死因
+        if r.get("status") in ("ok", "deactivated", "token_expired"):
+            return r
+        # 兜底：用 accounts/check 区分 invalidated(可续期) vs deactivated(封号)
+        r2 = _check_accounts_check(session, access_token, timeout=timeout)
+        r2["me_precheck"] = r
+        return r2
+    return _check_accounts_check(session, access_token, timeout=timeout)
+
+
+def _check_accounts_check(
+    session: BrowserSession,
+    access_token: str,
+    *,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """accounts/check 兜底：区分 deactivated(封号) vs invalidated(可续期)。"""
     if not access_token:
         return {"status": "error", "detail": "empty token"}
 
