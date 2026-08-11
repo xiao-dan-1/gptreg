@@ -13,7 +13,7 @@ from typing import Any
 
 from gptreg.account_store import load_accounts, mail_type_of, update_account_health
 from gptreg.commands.common import RotatingSession, age_h, age_h_float, apply_region
-from gptreg.health import check_account_health
+from gptreg.health import check_account_health, check_plan_usage
 from gptreg.session import BrowserSession
 
 
@@ -257,6 +257,20 @@ def _run_parallel_fixed(cfg: dict[str, Any], accounts: list[dict], proxy: str, *
                 st = r.get("status")
                 http = r.get("http")
                 promo_str, has_promo = _promo_info(r)
+            # me ok 时补 wham/usage：plan_type + rate_limit(CPA 参考, 限流是风控前兆)。
+            # 须在 sess.close() 之前调用(session 已关会静默失败)。
+            plan_tag = ""
+            if st == "ok":
+                try:
+                    _pu = check_plan_usage(sess, d.get("access_token"), timeout=10)
+                    if _pu.get("status") == "ok":
+                        pt = _pu.get("plan_type") or "?"
+                        if _pu.get("rate_limited"):
+                            plan_tag = f"plan={pt} [限流!]"
+                        else:
+                            plan_tag = f"plan={pt}"
+                except Exception:
+                    plan_tag = ""
             try:
                 sess.close()
             except Exception:
@@ -272,24 +286,25 @@ def _run_parallel_fixed(cfg: dict[str, Any], accounts: list[dict], proxy: str, *
                 update_account_health(cfg, email=email, health_status=st, http=http, note=note)
             except Exception as exc:
                 print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
-            return (email, mtype, st, http, age, promo_str, r, dt)
+            return (email, mtype, st, http, age, promo_str, r, dt, plan_tag)
         except Exception as exc:
-            return (email, mtype, "error", None, age, "", {}, 0.0)
+            return (email, mtype, "error", None, age, "", {}, 0.0, "")
 
     done = 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
         futs = {ex.submit(_one, d): d for d in accounts}
         for fut in as_completed(futs):
-            email, mtype, st, http, age, promo_str, r, dt = fut.result()
+            email, mtype, st, http, age, promo_str, r, dt, plan_tag = fut.result()
             results.append((email, mtype, st, http, age))
             done += 1
             age_s = age_h(age)
+            extra = plan_tag or promo_str
             if st == "error":
                 det = str(r.get("detail") or r.get("body") or "")[:70]
                 http_s = "None" if http is None else http
                 print(f"  [{done}/{n}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http={http_s} ({dt:.1f}s) [{det}]")
-            elif promo_str:
-                print(f"  [{done}/{n}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)  [{promo_str}]")
+            elif extra:
+                print(f"  [{done}/{n}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)  [{extra}]")
             else:
                 print(f"  [{done}/{n}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)")
 
