@@ -643,6 +643,12 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - **wham/usage 可查 plan_type + 限流**：`plan_type=free` + `rate_limit.limit_reached`(风控前兆)。**已记录待用**(用户要求仅记录不集成)；实现方案(health.py `check_plan_usage` + survival plan 显示)已试通, 将来需要时可直接加。实现坑: 须在 sess.close() 前调用。
 - 已集成部分：`check_account_health_me`(me 优先) + survival `--proxy`+`--workers` 并发。
 
+**accounts/check 定位 + 测活纯 me 化(2026-08-11)**：
+- **accounts/check 主用途 = subscription 命令**(查 promo/优惠资格：eligible_promo_campaigns/offers/yearly_plus/paid)，非测活兜底。
+- **测活已纯 me**：me 的 401 响应体带 `code` 字段，区分封号(account_deactivated)/吊销(token_invalidated)/过期(token_expired)——无需 accounts/check 兜底(commit 235fbdc)。
+- `prefer_me=False` 保留 accounts/check(秒封检测精度高，但同 IP 连续会 WAF 403)。
+- 详见 memory `accounts-check-api`。
+
 ### 纯协议账号登录验证（2026-08-11）
 
 **纯协议产出的 password+2fa 账号凭据有效**（reg_9fbb16 实测）：

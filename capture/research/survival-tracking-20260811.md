@@ -31,3 +31,38 @@
 | AdamAdams2659 | 0.8h | ok | 200 | 对照 |
 | **KirstenScott5455** | **0.1h** | **ok** | **200** | **[FAST+FRAME]** |
 
+### 2026-08-11 ~20:35(定时 1)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 1.47h | ok | 200 | 对照 |
+| JoseWhitney3017 | 1.46h | ok | 200 | 对照 |
+| RickyTaylor4773 | 1.46h | ok | 200 | 对照 |
+| AdamAdams2659 | 1.45h | ok | 200 | 对照 |
+| **KirstenScott5455** | **0.77h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> 观察：对照 4 号 1.5h 仍全活；KirstenScott 0.77h ok。未到 3h 判定点。
+
+### 2026-08-11 ~21:15(定时 2)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 1.89h | ok | 200 | 对照 |
+| JoseWhitney3017 | 1.88h | ok | 200 | 对照 |
+| RickyTaylor4773 | 1.88h | ok | 200 | 对照 |
+| AdamAdams2659 | 1.87h | ok | 200 | 对照 |
+| **KirstenScott5455** | **1.18h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> 观察：对照 4 号 1.9h 全活；KirstenScott 1.18h ok。未到 3h 判定点。
+
+### 2026-08-11 ~21:40(定时 3)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 1.93h | ok | 200 | 对照 |
+| JoseWhitney3017 | 1.92h | ok | 200 | 对照 |
+| RickyTaylor4773 | 1.92h | ok | 200 | 对照 |
+| AdamAdams2659 | 1.91h | ok | 200 | 对照 |
+| **KirstenScott5455** | **1.23h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> 观察：对照 4 号 ~1.9h 全活；KirstenScott 1.23h ok。未到 3h 判定点。
