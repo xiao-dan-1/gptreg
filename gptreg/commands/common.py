@@ -61,13 +61,24 @@ class RotatingSession:
         self.is_first = self.resolved is None
         self.rotated = self.is_first or (index - 1) % self.rotate == 0
         if self.rotated:
-            if self.resolved is not None:
-                self.resolved.close()
-            new_url = build_dynamic_proxy(self.cfg)  # 新随机 sid
-            self.resolved = resolve_proxy(self.cfg, override=new_url)
-            self.sess = BrowserSession(self.cfg, proxy=self.resolved.session_url)
-            self.sid = self.resolved.sid or "?"
+            self.force_rotate()
         assert self.sess is not None
+        return self.sess
+
+    def force_rotate(self) -> BrowserSession:
+        """强制换出口 IP(新随机 sid)并重建会话——坏隧道快速重试用。"""
+        if self.resolved is not None:
+            try:
+                self.resolved.close()
+            except Exception:
+                pass
+            self.resolved = None
+        new_url = build_dynamic_proxy(self.cfg)  # 新随机 sid
+        self.resolved = resolve_proxy(self.cfg, override=new_url)
+        self.sess = BrowserSession(self.cfg, proxy=self.resolved.session_url)
+        self.sid = self.resolved.sid or "?"
+        self.rotated = True
+        self.is_first = False
         return self.sess
 
     def close(self) -> None:

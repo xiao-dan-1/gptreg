@@ -45,8 +45,17 @@ def _backend_api_headers(
     return h
 
 
-def check_account_health(session: BrowserSession, access_token: str) -> dict[str, Any]:
-    """注册后即时健康检查。返回 status: ok / deactivated / invalidated / error。"""
+def check_account_health(
+    session: BrowserSession,
+    access_token: str,
+    *,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    """注册后即时健康检查。返回 status: ok / deactivated / invalidated / error。
+
+    timeout=None 用 session 默认(60s)；测活场景建议传 ~10s——动态代理隧道坏时
+    (出口连不上 chatgpt.com)连接超时无需等满 60s，快速失败便于换 IP 重试。
+    """
     if not access_token:
         return {"status": "error", "detail": "empty token"}
 
@@ -58,7 +67,7 @@ def check_account_health(session: BrowserSession, access_token: str) -> dict[str
 
     try:
         url = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27"
-        resp = session.get(url, headers=headers)
+        resp = session.get(url, headers=headers, timeout=timeout)
         resp_text = resp.text or ""
         text = resp_text[:500]  # 截断仅用于关键词匹配(account_deactivated 等在响应开头)
         low = text.lower()

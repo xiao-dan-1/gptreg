@@ -112,12 +112,26 @@ def run(cfg: dict[str, Any], args) -> int:
             mtype = mail_type_of(d)
             age = age_h_float(d.get("saved_at") or d.get("updated_at") or "")
             age_s = age_h(age)
+            _retried = False  # 每账号坏隧道重试标记
             try:
                 _t0 = time.time()
-                r = check_account_health(sess, d.get("access_token"))
+                # 测活用短超时(10s)：隧道坏时(连接超时/出口不可达)快速失败, 不等满 session 60s
+                r = check_account_health(sess, d.get("access_token"), timeout=10)
                 dt = time.time() - _t0
                 st = r.get("status")
                 http = r.get("http")
+                # 坏隧道(http=None, 连接类 error)换出口重试一次——动态代理随机 sid 有的出口不可达
+                if st == "error" and http is None and not _retried:
+                    _retried = True
+                    try:
+                        print(f"      [换 IP 重试] 隧道连接异常, force_rotate ...")
+                        sess = rot.force_rotate()
+                        r = check_account_health(sess, d.get("access_token"), timeout=10)
+                        dt = time.time() - _t0
+                        st = r.get("status")
+                        http = r.get("http")
+                    except Exception as exc:
+                        print(f"      [重试异常] {type(exc).__name__}: {str(exc)[:50]}")
                 promo_str, has_promo = _promo_info(r)
                 results.append((email, mtype, st, http, age))
                 if st == "error":
