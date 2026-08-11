@@ -174,3 +174,100 @@
 > 与 BarbaraNolan(08-10, 21-31min)一致 → **vm so 账号无论是否补密码最终必死**。
 > 补密码+TOTP 让死亡提前(秒死 vs 26min)；OTP-only 只是延缓。
 > **最终结论**：协议注册(vm so)最长活 ~26min 必死；browser 真 so 是唯一长活路径。
+
+### 2026-08-11 ~23:30(定时 7)——browser so 长活确认
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 4.39h | ok | 200 | 对照 |
+| JoseWhitney3017 | 4.38h | ok | 200 | 对照 |
+| RickyTaylor4773 | 4.38h | ok | 200 | 对照 |
+| AdamAdams2659 | 4.37h | ok | 200 | 对照 |
+| **KirstenScott5455** | **3.68h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号 4.4h 全活, fast+frame 样本 3.68h ok——长活确认。
+> (对照 vm so 账号: 秒死~26min 必死)
+
+### 2026-08-11 ~23:50(定时 8)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 4.89h | ok | 200 | 对照 |
+| JoseWhitney3017 | 4.88h | ok | 200 | 对照 |
+| RickyTaylor4773 | 4.88h | ok | 200 | 对照 |
+| AdamAdams2659 | 4.87h | ok | 200 | 对照 |
+| **KirstenScott5455** | **4.18h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号近 5h 全活;fast+frame 样本 4.18h ok——长活持续确认。
+
+### 2026-08-12 ~00:10(定时 9)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 5.38h | ok | 200 | 对照 |
+| JoseWhitney3017 | 5.37h | ok | 200 | 对照 |
+| RickyTaylor4773 | 5.37h | ok | 200 | 对照 |
+| AdamAdams2659 | 5.36h | ok | 200 | 对照 |
+| **KirstenScott5455** | **4.68h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号 5.4h 全活; fast+frame 样本 4.68h ok——长活持续确认。
+
+### 2026-08-12 ~00:45(定时 10)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 5.89h | ok | 200 | 对照 |
+| JoseWhitney3017 | 5.88h | ok | 200 | 对照 |
+| RickyTaylor4773 | 5.88h | ok | 200 | 对照 |
+| AdamAdams2659 | 5.87h | ok | 200 | 对照 |
+| **KirstenScott5455** | **5.18h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号近 6h 全活; fast+frame 样本 5.18h ok——长活持续确认。
+
+### 2026-08-12 ~01:15(定时 11)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 6.38h | ok | 200 | 对照 |
+| JoseWhitney3017 | 6.37h | ok | 200 | 对照 |
+| RickyTaylor4773 | 6.37h | ok | 200 | 对照 |
+| AdamAdams2659 | 6.36h | ok | 200 | 对照 |
+| **KirstenScott5455** | **5.68h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号 6.4h 全活; fast+frame 样本 5.68h ok——长活持续确认(已跨 6h)。
+
+### 2026-08-12 ~01:50(定时 12)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 6.89h | ok | 200 | 对照 |
+| JoseWhitney3017 | 6.88h | ok | 200 | 对照 |
+| RickyTaylor4773 | 6.88h | ok | 200 | 对照 |
+| AdamAdams2659 | 6.87h | ok | 200 | 对照 |
+| **KirstenScott5455** | **6.18h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号近 7h 全活; fast+frame 样本 6.18h ok——长活持续确认。
+
+### 2026-08-12 ~02:25(定时 13)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 7.38h | ok | 200 | 对照 |
+| JoseWhitney3017 | 7.37h | ok | 200 | 对照 |
+| RickyTaylor4773 | 7.37h | ok | 200 | 对照 |
+| AdamAdams2659 | 7.36h | ok | 200 | 对照 |
+| **KirstenScott5455** | **6.68h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号 7.4h 全活; fast+frame 样本 6.68h ok——长活持续确认。
+
+### 2026-08-12 ~03:00(定时 14)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 7.91h | ok | 200 | 对照 |
+| JoseWhitney3017 | 7.90h | ok | 200 | 对照 |
+| RickyTaylor4773 | 7.90h | ok | 200 | 对照 |
+| AdamAdams2659 | 7.89h | ok | 200 | 对照 |
+| **KirstenScott5455** | **7.20h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> browser so 账号 7.9h 全活; fast+frame 样本 7.20h ok——长活持续确认。

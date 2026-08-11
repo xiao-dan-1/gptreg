@@ -27,6 +27,7 @@ COMMANDS: dict[str, str] = {
     "imap": "gptreg.commands.check_imap",
     "raw-check": "gptreg.commands.raw_check",
     "subscription": "gptreg.commands.subscription",
+    "relogin": "gptreg.commands.relogin",
 }
 
 

@@ -821,3 +821,53 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - 这印证: vm so 的"行为字段空"不是字段缺失,而是**vm 里 collector 无法真实采集浏览器行为**(结构墙)。
 
 **任务 26 结论**: SNAP_INJECT 方案不可行,已证伪。vm so 纯协议模拟行为字段是结构墙(社区共识再验证)。
+
+### Codex OAuth 登录链移植研究(2026-08-12, browser so 长活号)
+
+> 动机: HANDOFF 待办 2「登录 token 链闭环」。长活号只有 access_token, 10 天过期无 refresh_token。
+> 目标: 拿 refresh_token 让账号长期可用。参考 get-rt.js(Codex 客户端 `app_EMoamEEZ73f0CkXaXp7hrann` + `localhost:1455`)。
+> 脚本: `capture/research/codex_login_rt.py`(双模式 codex/chatgpt)。
+
+**实测结论(用 JasonCopeland 等 password+TOTP 长活号, 10808 + 1024proxy 双代理验证)**:
+
+1. **Codex 客户端 → 强制手机验证(结构性墙)**:
+   - password+TOTP 全通(password/verify → mfa_challenge → mfa/verify 200), 但 mfa/verify 后 **page.type=add_phone**
+   - add_phone 页标题 **"Phone number required - OpenAI"**, 无 skip 选项
+   - 10808 固定 / 1024proxy 动态都触发 → **账号级风控, 非 IP 因素**
+   - 与社区一致: Codex OAuth 拿 RT 普遍需接码(get-rt.js 用 smscode/smsbower/herosms 接码)
+
+2. **chatgpt 客户端 raw OAuth → 卡 code 交换**:
+   - **不强制手机!** mfa/verify 后 page.type=external_url → oauth2/auth
+   - 完整 consent 链(workspace/select → oauth2/auth → login_verifier → consent_challenge → code)成功拿到 ac_ code
+   - 但 `/oauth/token` → **302 token_exchange_user_error**(chatgpt 后端持 client_secret, 纯 HTTP 无法冒充); chatgpt callback → OAuthCallback error
+
+3. **chatgpt access_token 不能直接调 codex/responses**:
+   - JWT 有 model.read/request + offline_access scope, `https://api.openai.com/auth.chatgpt_account_id` 可解
+   - `POST chatgpt.com/backend-api/codex/responses` → **401 Unauthorized**(需 Codex OAuth 专门 token, 社区 Plus 订阅 token 才行)
+
+4. **chatgpt 原生 signin 链(去 passkey)→ 全通, 续命闭环待确认**:
+   - 关键修复: `signin/openai` **去掉 `ext-passkey-client-capabilities=1111`**(它导向 passkey 分支 → 403; survey 记录过 403 根因)
+   - 走 `chatgpt.com/api/auth/signin/openai` → authorize → password+TOTP → **continue_url 直接是 `chatgpt.com/api/auth/callback/openai?code=ac_...`**(state 由 chatgpt 管理)
+   - GET 该 callback 完成 NextAuth 授权 → fetch_session(待确认是否成功)
+   - **价值: 账号续命(换新 access_token), 非 Codex RT**
+
+**结论**: 注册机无手机账号**无法纯 HTTP 拿 refresh_token**(Codex 强制手机 / chatgpt 客户端 code 交换在服务端)。
+但 chatgpt 原生 signin 链可能打通"纯 HTTP 续命"(换新 access_token)——比 login_2fa_pkce.py 更完整。
+
+### ⭐ 纯 HTTP 账号续命闭环落地(2026-08-12)——relogin 命令
+
+**chatgpt 原生 signin 链(去 passkey)全通, 拿新 access_token 实证成功**:
+
+```
+providers + csrf → signin/openai(去 ext-passkey-client-capabilities) → follow authorize
+→ authorize/continue(邮箱, pow) → password/verify(quickjs) → mfa/verify(TOTP)
+→ continue_url 直接是 chatgpt.com/api/auth/callback/openai?code=ac_... (state 由 chatgpt 管理)
+→ GET callback 完成 NextAuth 授权(200 → chatgpt.com/) → fetch_session → 新 access_token + 43 cookies
+```
+
+- **实证**: AdamAdams(等 90s 避 429) + KirstenScott 均重登成功, 新 token me=200 有效
+- **关键修复只有一处**: `signin/openai` **去掉 `ext-passkey-client-capabilities=1111`**(该 flag 导向 passkey 分支 → 403, 之前 survey 记的 403 根因)
+- **价值**: 账号续命不依赖存量 cookie(refresh 命令依赖 session_cookies, 会失效); relogin 用 password+TOTP 完整重登, 是根本途径
+- **落地**: `gptreg/commands/relogin.py` 正式命令(已注册), `python main.py relogin --email 完整邮箱`
+- **429 注意**: 连续登录触发 rate limit(Too many requests), 间隔 90s+ 换账号跑
+- **对比结论**: Codex OAuth 拿 RT(强制手机)≠ chatgpt 续命(不强制手机) —— 续命走 chatgpt 原生 signin, Codex 需要接码

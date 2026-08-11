@@ -50,7 +50,10 @@ register:
    - 常驻浏览器复用（klsf 模式，按代理分池 + 换 oai-did cookie + reload frame_url）
    - 需验证 frame_url 直连 vs about-you 的 so 行为字段一致性
    - 方案见 survey 的"browser so 采集优化调研"节
-2. **登录 token 链闭环**（可选，低优先级）：参考 `get-rt.js`（432539/gpt，Codex 客户端）+ consent workspace/select；vm-so 短活账号价值低
+2. **登录 token 链闭环**（✅ 已研究完，2026-08-12）：
+   - **Codex OAuth 拿 refresh_token = 强制手机验证**（页面 "Phone number required"，无 skip；10808/1024proxy 都触发）→ 注册机无手机账号**不可行**（除非接码，get-rt.js 用 smscode 等）
+   - **chatgpt 客户端 raw OAuth**：不强制手机，能拿 code 但 /oauth/token 302 token_exchange_user_error（chatgpt 服务端持 client_secret）→ 也不可闭环
+   - ✅ **续命已解决**：chatgpt 原生 signin 链（**去 `ext-passkey-client-capabilities=1111`**）→ password+TOTP 重登 → 新 access_token。已落地 `python main.py relogin --email <完整邮箱>`（gptreg/commands/relogin.py，实证 me=200）
 3. **"1 Outlook = 5 别名"容量实测**：号池补充后测别名数量上限
 4. **主工作树同步**：工作树 config.yaml 改了 `max_wait 200 / use_xdauv true / enable_totp true / enable_password true`，记得同步主工作树
 
