@@ -636,6 +636,14 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - **改进方向**：check_account_health 超时 60s→10s(连接失败无需等 60s)；坏隧道快速换 sid 重试；或测活用稳定出口(固定代理/10808)。
 - 注：`curl: (28) Connection timed out` = 隧道出口连不上 chatgpt.com,非账号死亡。
 
+**测活优化落地(2026-08-11, 参考 CPA/FrciblyK12)**：
+- **三端点实测**：`me`(1.2KB, 0.9s, 仅存活) < `accounts/check`(8KB, 0.67s, 存活+promo) < `wham/usage`(存活+plan_type+rate_limit, 1.4s)。
+- **me 不触发同 IP 风控**(30 号固定 IP 连续测无 403)——accounts/check 会 403。CPA 用它批量管理。
+- **固定代理 + 并发最优**：动态串行 9.8s → 固定串行 4.4s → 固定+并发5 **1.5s**(5 号)。
+- **wham/usage 补 plan + 限流**：`plan_type=free` + `rate_limit.limit_reached`(风控前兆)。
+- 实现：`check_account_health_me`/`check_plan_usage`/`_check_accounts_check`(health.py)；survival `--proxy`+`--workers` 并发 + plan 显示。
+- **实现坑**：wham/usage 须在 sess.close() 前调用(session 已关静默失败)。
+
 ### 纯协议账号登录验证（2026-08-11）
 
 **纯协议产出的 password+2fa 账号凭据有效**（reg_9fbb16 实测）：
