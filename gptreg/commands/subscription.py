@@ -77,9 +77,11 @@ def _print_card(email: str, r: dict[str, Any]) -> None:
     if promos and isinstance(promos, dict):
         for k, v in promos.items():
             m = (v or {}).get("metadata") or {}
-            print(f"  [优惠活动] {m.get('plan_name') or k}  {m.get('title') or ''}  discount={m.get('discount')}")
+            # plus 键 = Plus 试用资格(社区 openai-promo-bypass: 查 eligible_promo_campaigns.plus.id)
+            tag = "  ⭐试用Plus" if k == "plus" else "  [优惠活动]"
+            print(f"{tag} {m.get('plan_name') or k}  {m.get('title') or ''}  id={str((v or {}).get('id'))[:40]}  discount={m.get('discount')}")
     else:
-        print("  [优惠活动] 无")
+        print("  [优惠活动] 无 (无 Plus 试用资格)")
     offers = acct.get("eligible_offers")
     if offers:
         print(f"  [可购offer] {json.dumps(offers, ensure_ascii=False)[:120]}")
