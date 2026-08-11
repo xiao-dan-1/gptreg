@@ -146,6 +146,8 @@ def main() -> int:
     ap.add_argument("--region", default="US", help="accounts/check 用代理区域(默认 US)")
     ap.add_argument("--probe", action="store_true",
                     help="第二层: checkout 探测(JP 出口 + plus-1-month-free, 看 one_click_trial_eligible; 不付款)")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="并发线程数(默认 1=串行；>1 时第一层并发筛选, JP probe 也并发, 大批量快)")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -161,34 +163,50 @@ def main() -> int:
     print(f"扫描 {len(accounts)} 个账号的试用资格:")
 
     results = []
+    workers = max(1, int(args.workers or 1))
     proxy = args.proxy or None
     rp = resolve_proxy(cfg, override=proxy) if not proxy else None
-    sess = BrowserSession(cfg, proxy=proxy or rp.session_url)
-    try:
-        for i, d in enumerate(accounts, 1):
+    shared_proxy = proxy or rp.session_url
+
+    def _process_one(d: dict) -> dict:
+        """单账号检测: 第一层(独立 session 共享代理) + 可选 JP probe。"""
+        sess = BrowserSession(cfg, proxy=shared_proxy)
+        try:
             r = _scan_account(sess, d, region=args.region)
-            if args.probe and r.get("ok"):
-                # 探测须走 JP 出口(试用资格由出口 IP 决定; US 出口 promo 被拒)。
-                # _jp_probe 多 sid 循环直到出口确认 JP, 确保检测稳定。
-                r.update(_jp_probe(cfg, d.get("access_token"), d.get("device_id") or ""))
-            results.append(r)
-            plus = "⭐试用Plus!" if r.get("plus_promo") else ""
-            trial = str(r.get("trial"))[:20] if r.get("trial") else "-"
-            st = "ok" if r.get("ok") else f"http={r.get('http')}"
-            checkout_tag = ""
-            if r.get("checkout_ok"):
-                if r.get("promo_accepted"):
-                    checkout_tag = " | checkout:⭐促销被接受(有资格)"
-                elif r.get("one_click_trial_eligible"):
-                    checkout_tag = " | checkout:⭐一键可试用!"
-                else:
-                    checkout_tag = " | checkout:promo被拒"
-            print(f"  [{i}/{len(accounts)}] {str(r.get('email'))[:34]:36} plan={str(r.get('plan_type'))[:8]:8} trial={trial:16} {st} {plus}{checkout_tag}")
-            time.sleep(0.4)
-    finally:
-        sess.close()
-        if rp:
-            rp.close()
+        finally:
+            sess.close()
+        if args.probe and r.get("ok"):
+            # 探测须走 JP 出口(试用资格由出口 IP 决定; US 出口 promo 被拒)。
+            # _jp_probe 多 sid 循环直到出口确认 JP, 确保检测稳定。
+            r.update(_jp_probe(cfg, d.get("access_token"), d.get("device_id") or ""))
+        return r
+
+    if workers > 1 and len(accounts) > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(_process_one, d): d for d in accounts}
+            for fut in as_completed(futs):
+                results.append(fut.result())
+        results.sort(key=lambda r: str(r.get("email", "")))
+    else:
+        for d in accounts:
+            results.append(_process_one(d))
+    if rp:
+        rp.close()
+
+    for i, r in enumerate(results, 1):
+        plus = "⭐试用Plus!" if r.get("plus_promo") else ""
+        trial = str(r.get("trial"))[:20] if r.get("trial") else "-"
+        st = "ok" if r.get("ok") else f"http={r.get('http')}"
+        checkout_tag = ""
+        if r.get("checkout_ok"):
+            if r.get("promo_accepted"):
+                checkout_tag = " | checkout:⭐促销被接受(有资格)"
+            elif r.get("one_click_trial_eligible"):
+                checkout_tag = " | checkout:⭐一键可试用!"
+            else:
+                checkout_tag = " | checkout:promo被拒"
+        print(f"  [{i}/{len(results)}] {str(r.get('email'))[:34]:36} plan={str(r.get('plan_type'))[:8]:8} trial={trial:16} {st} {plus}{checkout_tag}")
 
     n_plus = sum(1 for r in results if r.get("plus_promo"))
     n_trial = sum(1 for r in results if r.get("trial"))
