@@ -136,6 +136,42 @@ def _enroll_totp_now(session, at: str, device_id: str, timeout: int = 30) -> dic
     except Exception as exc:
         logger.warning("[TOTP] enroll 异常: %s", str(exc)[:100])
         return {"totp_secret": "", "totp_enrolled": False}
+
+
+def _enroll_recovery_now(session, at: str, device_id: str, timeout: int = 30) -> dict:
+    """开 recovery key(防 TOTP 锁死): enroll recovery_code → activate(提交整个 key)。
+
+    2026-08-12 研究确认的纯协议流程:
+      POST mfa/enroll {"factor_type": "recovery_code"} → {secret: <30字符key>, session_id, factor}
+      POST mfa/user/activate_enrollment {code: <整个key>, ...} → success(必须提交整个 key,
+      不是 TOTP 码/前6位——那都会 Invalid code)。
+    返回 {"recovery_key": str, "recovery_enrolled": bool}。
+    """
+    try:
+        h = session.chatgpt_headers(referer="https://chatgpt.com/settings/security")
+        h["authorization"] = f"Bearer {at}"
+        h["oai-device-id"] = device_id
+        h["content-type"] = "application/json"
+        resp = session.post(_ENROLL_URL, headers=h, data=json.dumps({"factor_type": "recovery_code"}), timeout=timeout)
+        if resp.status_code != 200:
+            logger.warning("[TOTP/recovery] enroll HTTP %s: %s", resp.status_code, (resp.text or "")[:150])
+            return {"recovery_key": "", "recovery_enrolled": False}
+        ej = resp.json()
+        key = str(ej.get("secret") or "")
+        session_id = ej.get("session_id")
+        factor_id = (ej.get("factor") or {}).get("id")
+        if not (key and session_id and factor_id):
+            logger.warning("[TOTP/recovery] enroll 缺 key/session/factor")
+            return {"recovery_key": "", "recovery_enrolled": False}
+        resp2 = session.post(_ACTIVATE_URL, headers=h, data=json.dumps({
+            "code": key, "session_id": session_id,
+            "factor_id": factor_id, "factor_type": "recovery_code"}), timeout=timeout)
+        ok = resp2.status_code == 200 and '"success":true' in (resp2.text or "")
+        logger.info("[TOTP/recovery] activate HTTP %s ok=%s", resp2.status_code, ok)
+        return {"recovery_key": key if ok else "", "recovery_enrolled": ok}
+    except Exception as exc:
+        logger.warning("[TOTP/recovery] enroll 异常: %s", str(exc)[:100])
+        return {"recovery_key": "", "recovery_enrolled": False}
 from gptreg.postlogin import post_login_warmup
 from gptreg.proxyutil import resolve_proxy
 from gptreg.session import BrowserSession
@@ -534,6 +570,13 @@ def register_one(
             totp = _enroll_totp_now(session, access_token, session.device_id)
             if totp.get("totp_enrolled"):
                 logger.info("[TOTP] ✅ OTP-only 账号 TOTP 已激活 (secret_len=%s)", len(str(totp.get("totp_secret") or "")))
+                # 同步开 recovery key(防 TOTP 锁死; 需 fresh token, 刚激活 TOTP 满足)
+                recovery = _enroll_recovery_now(session, access_token, session.device_id)
+                if recovery.get("recovery_enrolled"):
+                    totp["recovery_key"] = recovery["recovery_key"]
+                    logger.info("[TOTP/recovery] ✅ recovery key 已激活")
+                else:
+                    logger.warning("[TOTP/recovery] recovery 未激活(不影响 TOTP 交付)")
             else:
                 logger.warning("[TOTP] 未激活（token 可能不够新鲜，可后续 reauth 补开）")
 
@@ -610,6 +653,8 @@ def register_one(
             extra={"sentinel_obs": sentinel_obs, "health": health_status,
                    "totp_secret": totp.get("totp_secret") or "",
                    "totp_enrolled": bool(totp.get("totp_enrolled")),
+                   "recovery_key": totp.get("recovery_key") or "",
+                   "recovery_enrolled": bool(totp.get("recovery_enrolled")),
                    "password": set_password},
             session_cookies=sess_cookies,
         )

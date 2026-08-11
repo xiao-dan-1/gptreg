@@ -54,9 +54,10 @@
 
 | 端点 | 用途 | 注意 |
 |---|---|---|
-| `/backend-api/accounts/mfa/enroll` | 开启 TOTP | 注册后立即 enroll(新鲜 token 满足 recent_auth) |
-| `/backend-api/accounts/mfa/user/activate_enrollment` | 激活 2FA | 返回 activated |
-| `/backend-api/accounts/mfa_info` | 2FA 状态 | mfa_enabled |
+| `/backend-api/accounts/mfa/enroll` | 开启 TOTP / recovery | body `{"factor_type":"totp"}` 或 `{"factor_type":"recovery_code"}`；需 fresh token(recent_auth)。factor_type 全集：`totp/recovery_code/email/sms/push_auth/passkey` |
+| `/backend-api/accounts/mfa/user/activate_enrollment` | 激活因子 | TOTP：提交 6 位码；**recovery_code：提交整个 30 字符 recovery key** |
+| `/backend-api/accounts/mfa_info` | 2FA 状态 | `factors.totp[].is_recovery`；**不显示 recovery 因子**(登录 MFA 挑战 page.payload.factors 才显示) |
+| `/api/accounts/mfa/verify` | 登录 MFA 挑战 | `{"type":"totp"\|"recovery_code","id":<因子id>,"code":...}`；recovery 须用 recovery 因子自己的 id |
 
 ## 五、Sentinel(防机器人)
 

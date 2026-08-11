@@ -871,3 +871,26 @@ providers + csrf → signin/openai(去 ext-passkey-client-capabilities) → foll
 - **落地**: `gptreg/commands/relogin.py` 正式命令(已注册), `python main.py relogin --email 完整邮箱`
 - **429 注意**: 连续登录触发 rate limit(Too many requests), 间隔 90s+ 换账号跑
 - **对比结论**: Codex OAuth 拿 RT(强制手机)≠ chatgpt 续命(不强制手机) —— 续命走 chatgpt 原生 signin, Codex 需要接码
+
+### ⭐ 纯协议 2FA recovery key 突破(2026-08-12)——TOTP 防锁死闭环
+
+> OpenAI 恢复机制 = **单一 30 字符 recovery key**(非社区流传的"10 个一次性恢复码")。
+> 纯协议完整流程端到端验证(AdamAdams)。
+
+**纯协议 recovery 流程**:
+```
+POST /backend-api/accounts/mfa/enroll {"factor_type":"recovery_code"}
+  → 200 {secret: <30字符key>, session_id, factor:{factor_type:"recovery_code", is_recovery:true}}
+POST /backend-api/accounts/mfa/user/activate_enrollment
+  {"code": <整个30字符key>, session_id, factor_id, factor_type:"recovery_code"}
+  → 200 {"success":true}   # 必须提交整个 key; TOTP码/前6位/空 → Invalid code
+```
+
+**关键细节**:
+- enroll 错误信息泄露 factor_type 全集: `'totp','recovery_code','email','sms','push_auth','passkey'`
+- recovery_code 的 secret 是 30 字符(含 8/9, 非 Base32, pyotp 解码报错)——就是 recovery key 本身
+- `mfa_info` 的 factors.totp **不显示** recovery 因子;但**登录 MFA 挑战显示**(page.payload.factors 含 recovery_code is_recovery:true + email is_recovery:true 双恢复因子)
+- **登录验证**: `mfa/verify {"type":"recovery_code","id":<recovery因子id>,"code":<recovery key>}` → **200 通过**(须用 recovery 因子自己的 id, 不是 TOTP 的)
+
+**落地**: register_otp.py 新增 `_enroll_recovery_now`(TOTP 激活后同步开 recovery), `recovery_key` 落盘账号记录。
+**价值**: 注册机账号开 TOTP 后**不再锁死**——丢失验证器可用 recovery key 登录(社区 2023 起的 TOTP 锁死痛点)。
