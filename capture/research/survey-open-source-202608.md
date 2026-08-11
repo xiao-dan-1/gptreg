@@ -714,3 +714,21 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - cloudmail 投递：a8f2 域正常；test.xdauv.xyz 等域收不到 OTP；max_wait 已从 90→200
 
 ---
+
+### 试用资格检测研究(2026-08-11)
+
+**原理**: 试用资格 = `accounts/check` 的 `eligible_promo_campaigns.plus`(有 plus 键=可试用)。
+- 参考: openai-promo-bypass(查 plus.id → 生成 Stripe checkout 试用 Plus)。
+- subscription 命令已强化标 ⭐试用Plus(commit a2b46a7)。
+
+**发放机制(OpenAI 官方 + 社区)**:
+- **邀请制/促销制, 非所有账号有**——OpenAI 按活动分批发放, 新账号不保证。
+- `eligible_promo_campaigns` 由后台判定; 登录升级页可能"刷出"(非静态)。
+- 社区: 老 Free 号登录有几率刷 1 个月 Plus $0; Pro 号刷 3 个月; 域名邮箱可开 Business $0。
+- **随机/按账号批次**, 无法制造, 只能批量筛选。
+
+**相关字段**(accounts/check): `plan_type` / `entitlement.subscription_plan`(chatgptfreeplan) /
+`entitlement.trial` / `promo_data` / `eligible_for_reactivation` / `is_eligible_for_cp`。
+- 我们 free 号实测: trial=None, promo_data={}, eligible_promo_campaigns 空。
+
+**可落地**: 批量筛选有试用资格的号(需号源); 检测 = 遍历账号查 eligible_promo_campaigns.plus + entitlement.trial。
