@@ -96,6 +96,47 @@ def _probe_checkout(sess: BrowserSession, token: str, region: str = "JP") -> dic
     return out
 
 
+def _jp_probe(cfg: dict, token: str, device_id: str, max_sid: int = 6) -> dict:
+    """JP 出口探测(多 sid 循环找日本 IP 再 checkout, 确保出口是 JP)。
+
+    试用资格由出口 IP 决定: US 出口 promo 被拒, JP 出口才被接受。
+    1024proxy 出口随机(约 83% JP), 换 sid 直到确认出口 JP 再探测。
+    返回 _probe_checkout 结果 + probe_exit (出口 country_code)。
+    """
+    from gptreg.proxyutil import StickyChainTunnel
+
+    for n in range(max_sid):
+        sid = f"jps{n}"
+        t = StickyChainTunnel(
+            hop1="http://127.0.0.1:10808",
+            hop2=f"socks5://ptyr38760-region-JP-sid-{sid}-t-5:xvc9mi68@us.1024proxy.io:3000",
+        )
+        t.start()
+        try:
+            sess = BrowserSession(cfg, proxy=t.local_url)
+            sess.device_id = device_id or "probe-device"
+            # 确认出口地区
+            try:
+                r = sess.get("https://ipwho.is/", timeout=10)
+                d = r.json()
+                exit_cc = d.get("country_code", "?")
+            except Exception:
+                exit_cc = "?"
+            # 非 JP 出口: 换 sid 重试
+            if exit_cc != "JP":
+                sess.close()
+                continue
+            try:
+                out = _probe_checkout(sess, token, region="JP")
+                out["probe_exit"] = f"{exit_cc}:{str(d.get('ip'))[:15]}"
+                return out
+            finally:
+                sess.close()
+        finally:
+            t.close()
+    return {"checkout_ok": False, "probe_exit": "no_JP_exit"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="检测账号试用资格(只读, 不创建账单)")
     ap.add_argument("--limit", type=int, default=0, help="只扫最近 N 个(0=全部)")
@@ -127,19 +168,9 @@ def main() -> int:
         for i, d in enumerate(accounts, 1):
             r = _scan_account(sess, d, region=args.region)
             if args.probe and r.get("ok"):
-                # 探测须走 JP 出口(试用资格由出口 IP 决定; US 出口 promo 被拒)
-                from gptreg.proxyutil import StickyChainTunnel
-                probe_t = StickyChainTunnel(
-                    hop1="http://127.0.0.1:10808",
-                    hop2="socks5://ptyr38760-region-JP-sid-test-t-5:xvc9mi68@us.1024proxy.io:3000",
-                )
-                probe_t.start()
-                probe_sess = BrowserSession(cfg, proxy=probe_t.local_url)
-                probe_sess.device_id = d.get("device_id") or "probe-device"
-                try:
-                    r.update(_probe_checkout(probe_sess, d.get("access_token"), region="JP"))
-                finally:
-                    probe_sess.close(); probe_t.close()
+                # 探测须走 JP 出口(试用资格由出口 IP 决定; US 出口 promo 被拒)。
+                # _jp_probe 多 sid 循环直到出口确认 JP, 确保检测稳定。
+                r.update(_jp_probe(cfg, d.get("access_token"), d.get("device_id") or ""))
             results.append(r)
             plus = "⭐试用Plus!" if r.get("plus_promo") else ""
             trial = str(r.get("trial"))[:20] if r.get("trial") else "-"
