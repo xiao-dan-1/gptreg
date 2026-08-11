@@ -576,11 +576,23 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 
 **关键**："最快 so"（vm 1-3.5s）≠ "长活 so"（真浏览器）。长活必须真浏览器行为，最快形态 = 常驻浏览器复用。
 
+### 纯协议账号登录验证（2026-08-11）
+
+**纯协议产出的 password+2fa 账号凭据有效**（reg_9fbb16 实测）：
+- `authorize/continue` → page_type=`login_password`（确认账号有密码）
+- **`password/verify` → 200**（纯协议设的密码可登录验证）
+- **`mfa/verify`（TOTP code, `{"type":"totp","id":factor_id,"code"}`）→ 200**（2FA 挑战通过）
+- **凭据完全有效**——纯协议账号是真实可登录的
+
+**未闭环**：token 获取走 OAuth 授权链（oauth2/auth → consent），consent 提交端点 405（旧 `/api/accounts/consent` POST 失效）；signin/openai 入口 password/verify 403（与 raw OAuth 200 不同）。**属登录链实现细节，待后续**。
+
+**脚本**：`test_login_2fa.py`（密码+TOTP 验证）、`login_2fa_pkce.py`（完整 PKCE OAuth 登录，consent 待修）
+
 ### 待验证
 
+- 2FA 登录 token 获取链（consent 端点逆向）
 - **"1 Outlook = 5 别名"容量实测**（别名数量上限）
 - browser so 采集优化落地（常驻浏览器复用 + frame_url 直连）
-- frame_url 直连 vs about-you 的 so 行为字段一致性
 - cloudmail 投递：a8f2 域正常；test.xdauv.xyz 等域收不到 OTP；max_wait 已从 90→200
 
 ---
