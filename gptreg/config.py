@@ -97,6 +97,9 @@ _DEFAULTS: dict[str, Any] = {
         # 空=自动 chain_via → default；也可写 http://127.0.0.1:7890
         "sentinel_browser_proxy": "",
         "sentinel_browser_page": "https://auth.openai.com/about-you",
+        # so-only 采集页面(仅 _stage_create 用; 需完整 token 的 harvest_for_session 仍用上面 page)。
+        # frame.html 直连实证产真 so(121B 空壳页只加载 sdk, 省 React 渲染), 空=用 sentinel_browser_page。
+        "sentinel_so_page": "",
         "sentinel_browser_local_sdk": False,
         # 常驻浏览器复用(klsf): false=每账号全新 Chrome(现状); true=池化复用(browser_pool)
         "sentinel_browser_reuse": False,

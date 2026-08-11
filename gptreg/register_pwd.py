@@ -332,12 +332,19 @@ def _stage_create(
         _ct = time.time()
         so = None
         # 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
+        # so-only 采集: 若配置 sentinel_so_page(frame.html 直连) 则用之省渲染;
+        # 空则用 sentinel_browser_page(about-you, 默认)。
+        _proto = cfg.get("protocol") or {}
+        so_page = str(_proto.get("sentinel_so_page") or "").strip()
         so_attempts = 0
         for _try in range(3):
             so_attempts = _try + 1
             try:
-                br = harvest_browser_sentinel(cfg, flow=FLOW_OAUTH, device_id=session.device_id,
-                                              proxy=proxy_url, headless=True, timeout_s=90)
+                br = harvest_browser_sentinel(
+                    cfg, flow=FLOW_OAUTH, device_id=session.device_id,
+                    proxy=proxy_url, headless=True, timeout_s=90,
+                    page_url=so_page or None,
+                )
                 if br.get("ok") and br.get("so_header"):
                     so = br["so_header"]
                     # so 内部细分(nav/SDK加载/token采集), 定位慢点
