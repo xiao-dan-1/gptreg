@@ -29,6 +29,11 @@ def add_parser(subparsers) -> None:
         help="固定代理测活(推荐, 如 http://127.0.0.1:10808)。me 端点不触发同 IP 风控, "
              "固定代理比动态快 6 倍(实测 15 号: 16s vs 101s)。空=走动态代理换 IP(旧行为)。",
     )
+    p.add_argument(
+        "--workers", type=int, default=5,
+        help="固定代理模式并发测活线程数(默认 5, 实测 15 号 16s→3s)。仅 --proxy 时生效; "
+             "动态代理模式忽略(隧道单 socket 并发排队)。",
+    )
     p.set_defaults(func=run)
 
 
@@ -100,6 +105,11 @@ def run(cfg: dict[str, Any], args) -> int:
     if args.limit:
         accounts = accounts[: args.limit]
     fixed_proxy = (args.proxy or "").strip()
+    t_start = time.time()
+    # 固定代理 + 并发：me 端点同 IP 并发不触发 WAF，实测 workers=5 提速 ~5x
+    # (15 号 16s→3s)。动态代理模式保持串行(隧道单 socket 并发会排队)。
+    if fixed_proxy and int(getattr(args, "workers", 0) or 0) > 0:
+        return _run_parallel_fixed(cfg, accounts, fixed_proxy, workers=int(args.workers), t_start=t_start)
     if fixed_proxy:
         # 固定代理测活(me 不触发同 IP 风控, 比动态快 ~6 倍): 每账号独立 BrowserSession, 共享固定代理
         print(f"测活 {len(accounts)} 个 2FA 账号(固定代理 {fixed_proxy}):")
@@ -108,7 +118,6 @@ def run(cfg: dict[str, Any], args) -> int:
 
     results: list[tuple[str, str, str, int | None, float]] = []  # (email, type, status, http, age_h)
     rot = RotatingSession(cfg, rotate=args.rotate)
-    t_start = time.time()
     try:
         for i, d in enumerate(accounts, 1):
             if fixed_proxy:
@@ -191,6 +200,98 @@ def run(cfg: dict[str, Any], args) -> int:
                         pass
     finally:
         rot.close()
+
+    _summarize(results)
+    tok_exp = sum(1 for _, _, s, _, _ in results if s == "token_expired")
+    if tok_exp:
+        print(f"提示: {tok_exp} 个 access_token 过期(非吊销, 有 session_token 可续期), 可运行 `main.py refresh` 续期")
+    print(f"\n[总耗时] {(time.time()-t_start):.1f}s")
+    return 0
+
+
+def _run_parallel_fixed(cfg: dict[str, Any], accounts: list[dict], proxy: str, *, workers: int, t_start: float) -> int:
+    """固定代理 + 并发测活：me 端点同 IP 并发不触发 WAF，实测 workers=5 提速 ~5x。
+
+    vs 动态代理：固定代理连接复用(每账号独立 BrowserSession 共享 proxy URL)，
+    无隧道建立开销；并发进一步加速。每个 job 独立 session + 独立 me 请求。
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    n = len(accounts)
+    print(f"测活 {n} 个 2FA 账号(固定代理 {proxy}, 并发 {workers}):")
+    results: list[tuple[str, str, str, int | None, float]] = []
+
+    def _one(d: dict) -> tuple:
+        email = d.get("email", "?")
+        mtype = mail_type_of(d)
+        age = age_h_float(d.get("saved_at") or d.get("updated_at") or "")
+        _t0 = time.time()
+        try:
+            sess = BrowserSession(cfg, proxy=proxy)
+            sess.device_id = d.get("device_id") or ""
+            for c in (d.get("session_cookies") or []):
+                try:
+                    sess.session.cookies.set(c.get("name"), c.get("value"), domain=c.get("domain", ""))
+                except Exception:
+                    pass
+            r = check_account_health(sess, d.get("access_token"), timeout=10)
+            dt = time.time() - _t0
+            st = r.get("status")
+            http = r.get("http")
+            promo_str, has_promo = _promo_info(r)
+            # 坏隧道(http=None, 连接类 error)同代理重试一次(网络抖动自愈)
+            if st == "error" and http is None:
+                try:
+                    sess.close()
+                except Exception:
+                    pass
+                sess = BrowserSession(cfg, proxy=proxy)
+                sess.device_id = d.get("device_id") or ""
+                for c in (d.get("session_cookies") or []):
+                    try:
+                        sess.session.cookies.set(c.get("name"), c.get("value"), domain=c.get("domain", ""))
+                    except Exception:
+                        pass
+                r = check_account_health(sess, d.get("access_token"), timeout=10)
+                dt = time.time() - _t0
+                st = r.get("status")
+                http = r.get("http")
+                promo_str, has_promo = _promo_info(r)
+            try:
+                sess.close()
+            except Exception:
+                pass
+            try:
+                note = promo_str if has_promo else ""
+                if st == "error":
+                    det_full = str(r.get("detail") or r.get("body") or "")[:200]
+                    if det_full:
+                        note = f"{note} | {det_full}" if note else det_full
+                elif st == "token_expired":
+                    note = (f"{note} | " if note else "") + "access_token 过期, 可续期"
+                update_account_health(cfg, email=email, health_status=st, http=http, note=note)
+            except Exception as exc:
+                print(f"      [回写失败] {type(exc).__name__}: {str(exc)[:60]}")
+            return (email, mtype, st, http, age, promo_str, r, dt)
+        except Exception as exc:
+            return (email, mtype, "error", None, age, "", {}, 0.0)
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        futs = {ex.submit(_one, d): d for d in accounts}
+        for fut in as_completed(futs):
+            email, mtype, st, http, age, promo_str, r, dt = fut.result()
+            results.append((email, mtype, st, http, age))
+            done += 1
+            age_s = age_h(age)
+            if st == "error":
+                det = str(r.get("detail") or r.get("body") or "")[:70]
+                http_s = "None" if http is None else http
+                print(f"  [{done}/{n}] {mtype:9s} {email:42s} age={age_s:>6s} -> error http={http_s} ({dt:.1f}s) [{det}]")
+            elif promo_str:
+                print(f"  [{done}/{n}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)  [{promo_str}]")
+            else:
+                print(f"  [{done}/{n}] {mtype:9s} {email:42s} age={age_s:>6s} -> {st} http={http} ({dt:.1f}s)")
 
     _summarize(results)
     tok_exp = sum(1 for _, _, s, _, _ in results if s == "token_expired")
