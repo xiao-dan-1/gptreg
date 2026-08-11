@@ -576,6 +576,53 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 
 **关键**："最快 so"（vm 1-3.5s）≠ "长活 so"（真浏览器）。长活必须真浏览器行为，最快形态 = 常驻浏览器复用。
 
+**frame.html 直连验证通过（2026-08-11）**：
+- 实验：`browser_so_harvest.py --page sentinel.openai.com/backend-api/sentinel/frame.html?sv= --proxy 127.0.0.1:10808 --local-sdk` ×3
+- frame.html 是 121B 空壳页，只 `<script src=sdk.js>`——无 React 渲染，顶层直连时 `window.top===window`（sdk 的 `token()/init()/timing()/sessionObserverToken()` 均**拒绝 iframe 内调用**，`le` 标志 = top!==window）
+- 结果：**3/3 产真 so**。so_len 472-480 / so_header 2754-2846，与 about-you 历史（464-508 / 2654-2802）**完全同量级** ✅
+- t_len 1032-1076 比 about-you 短 ~200（空壳页无 React 环境指纹）——但生产 `quickjs_t_browser_so` t 走 quickjs，so 才走 browser，**不受影响**
+- **前置条件**：本机代理端口已漂移，7890 死、**10808 活**（v2rayN/sing-box），见 memory `proxy-port-drift-7890-to-10808`
+- 输出：`capture/research/browser-so-harvest-20260811-175927/`
+
+**常驻浏览器池落地（klsf，2026-08-11）**：
+- 新增 `gptreg/browser_pool.py`：全局单例池 + 每采集线程一个常驻 Chrome。playwright sync 线程绑定 vs ThreadPoolExecutor 无线程亲和 → 浏览器只归采集线程，账号线程只投递 job+等结果。
+- 重构 `gptreg/browser_sentinel.py`：抽 `_make_context`（new_context 绑账号隧道口）+ `_harvest_context`（导航/SDK/token+so）；`harvest_browser_sentinel` 加 `reuse` 参数（默认读 `protocol.sentinel_browser_reuse`，默认 False 行为零变化）。
+- 新 config 键：`sentinel_browser_reuse`(false) / `_pool_size`(2) / `_pool_timeout`(120) / `_max_accounts`(50)。
+- Chrome 进程标记：`--pw-browser-col-{index}` 自定义 flag（playwright 不允许 --user-data-dir 走 launch args），psutil 按 cmdline 定位杀。
+- 验证：池 3 次 submit 复用同一 Chrome（0.37s→0.30s→0.00s）；`browser_so_harvest.py --reuse` 见下。
+- 待做（第二步）：`register_otp.run_batch` / `batch_totp._run_batch` 池生命周期接线 + frame_url 直连 so 页（`sentinel_so_page`）。
+
+**pilot 真注册验证（2026-08-11，JenniferMitchell9500）**：
+- 整条链走通：signin→register→XDAuv 收码(OTP 26.2s)→OTP 通过→池化 so 采集→create 请求发出。
+- **池化 so 采集在真实注册链工作**：`[browser-pool] col-0 已启动常驻 Chrome`；nav 3.3s / sdk 4.3s(local_cache) / token 10.5s；so 头带上(否则会 SO_FAILED)。
+- **失败因号源**：create 400 `account already exists`——该 Outlook 根邮箱早前已被 OpenAI 记住（HANDOFF 已记录"Outlook 根邮箱被记住"）。pilot 消耗该号(OTP 已消费，mark_used)。
+- 池生命周期干净：pilot 退出无残留 chrome.exe。
+- 注：pilot 前发现 XDAuv 对号池部分 Outlook 号报 `AADSTS70000 service abuse`（MS 标记滥用），如 KaitlynMendez1926/BrandonNichols1400；JenniferMitchell9500/JohnOwens2952 等 FETCH OK。
+
+**批量真注册 4/4 成功（2026-08-11，reuse 池化，n=4 w=2）**：
+- 号：JasonCopeland6778 / JoseWhitney3017 / RickyTaylor4773 / AdamAdams2659（预检 XDAuv FETCH OK，未用主号）
+- **4/4 全成功，各产出 password+TOTP**。批量耗时 127.9s，串行预估 213s，加速比 1.67x。
+- create 段 13.1-14.4s：so 采集 8.9-10.3s（含固有等待）+ create HTTP ~4.2s；**launch 8s 已消除**。
+- 池 2 常驻 Chrome 服务 4 账号，so 非瓶颈（被 OTP 收码 3-20s 掩盖），池干净退出。
+- 关键：真实并发批量下池化 so 完全工作，无 pool_timeout、无 so 失败。
+- **待优化**：so 采集 ~9s 里 token_s 含固定 sleep（SDK 交互 3×350ms + so 前 5×400ms ≈ 3.5s），可精简到 ~1s；frame.html 直连可省导航。
+
+**测活（2026-08-11，注册后即时）**：4/4 全部存活（accounts/check 200）——JasonCopeland6778 / JoseWhitney3017 / RickyTaylor4773 / AdamAdams2659，均含 password+TOTP。AdamAdams 首次 TLS 瞬断（代理隧道），重试即通，非账号问题。
+
+**性能对照（零耗号，fresh vs pooled）**：
+- fresh 每账号全新 Chrome：total 6.4-6.5s（计时不含 launch 8s）
+- pooled 常驻：total 5.6-5.9s
+- 单次采集合计差异 ~0.6s；**pooled 真正的收益在批量**：launch 仅建池 1 次，而非每账号 1 次（4 账号省 4×8s=32s）。
+- 批量 4 号 2 线程 127.9s，串行预估 213s，加速比 1.67x；内存 2×300MB 常驻（fresh 4 账号峰值 1.2GB）。
+- 瓶颈：create 段 13-14s = so 采集 8.9-10.3s（含固定 sleep ~3.5s + 导航/SDK ~2.7-3.9s）+ create HTTP ~4.2s。
+
+**测活效率（2026-08-11）**：
+- 4 账号全部存活(accounts/check 200,稳定代理 10808 验证)。
+- **测活本身快**(每号 1 个 HTTP 请求 ~0.5-2s),瓶颈在**动态代理隧道可靠性**。
+- survival 用 RotatingSession 动态代理时：1024proxy 服务波动 → 隧道 3 次探活失败 + 每号卡 60s 超时(curl:28),4 号最坏 4 分钟,误判 error。
+- **改进方向**：check_account_health 超时 60s→10s(连接失败无需等 60s)；坏隧道快速换 sid 重试；或测活用稳定出口(固定代理/10808)。
+- 注：`curl: (28) Connection timed out` = 隧道出口连不上 chatgpt.com,非账号死亡。
+
 ### 纯协议账号登录验证（2026-08-11）
 
 **纯协议产出的 password+2fa 账号凭据有效**（reg_9fbb16 实测）：

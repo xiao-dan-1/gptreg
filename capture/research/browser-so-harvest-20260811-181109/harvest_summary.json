@@ -1,0 +1,170 @@
+{
+  "created_at": "2026-08-11T18:11:31",
+  "flow": "oauth_create_account",
+  "proxy": "http://127.0.0.1:10808",
+  "headless": true,
+  "times": 3,
+  "results": [
+    {
+      "device_id": "3005c87a-abd1-41cf-a0a4-b95fbb32d7a6",
+      "flow": "oauth_create_account",
+      "page_url": "https://auth.openai.com/about-you",
+      "proxy": "http://127.0.0.1:10808",
+      "headless": true,
+      "final_url": "https://auth.openai.com/about-you",
+      "nav_error": null,
+      "sdk_load_mode": "local_file",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "timing",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2826,
+      "so_raw_head": "{\"so\":\"TBAXAxkKDAwVcG9jUnB8XXV6SW9/c0YCcHBZf21zSX8KEAIUAQMABAUQFBR1RRMLFR4MBAEcHgAVCAx0QA8TFBsQHAcZCxcUDRBsQQoPDBoVBBcYB",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 484,
+      "so_is_fake": false,
+      "so_header_len": 2826,
+      "so_header_present": true,
+      "p_len": 593,
+      "c_len": 2252,
+      "error": null,
+      "t_len": 1240,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "N\u0017\u0019\u0007\u001f\f\u0003\f\f\u0013wg]lsRphtc\u0001rogds}Ioswd{P\u0013\u0019\u0017\u001d\u000e\u001f\u0007\u0007\f\f\u0013a]Jf`swMaiYSxcwQqoApqtMSv]{{g\u0001\fSvn\u0000dg\u001fpkdgMcsBp`t`|`{s`g\u001fF\b`s`WwtFhq`Mm|\u0007cVdC|TggMcs]\u0005v`ZsTv]UMf\u001elwmgMcst`tp\u0001oayp{",
+      "elapsed_s": 6.892,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    },
+    {
+      "device_id": "235762e0-e2b8-409a-ba2d-d1bbd23890f2",
+      "flow": "oauth_create_account",
+      "page_url": "https://auth.openai.com/about-you",
+      "proxy": "http://127.0.0.1:10808",
+      "headless": true,
+      "final_url": "https://auth.openai.com/about-you",
+      "nav_error": null,
+      "sdk_load_mode": "local_file",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "timing",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2806,
+      "so_raw_head": "{\"so\":\"QxMZARYHHBcCE21CW2hsZ2F5ZlJteG9nDHdtdHlQanQFDAwZGgcABgoTFBd7cBMIGh0MDAEfGwIaCwx2eQwTFxQTHAYWBRwXAhNtdAUMDBkaABobC",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 484,
+      "so_is_fake": false,
+      "so_header_len": 2806,
+      "so_header_present": true,
+      "p_len": 549,
+      "c_len": 2232,
+      "error": null,
+      "t_len": 1328,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "L\u0017\u001b\u0003\u0017\u0001\u0006\f\f\u001byqMCtsR\u0013\u0014\u0015\u0015\r\u001f\u0018\u000f\u0003\u0017\u0014\u0014{OFwt^\\}ld\rpvURw|{@`H\u0014\u0015\u0015\r\u0017\u0018\u000b\u0001\u0017\u0014\u0014c[]}bU}@xb\t\n\u0017\u0002\u0014\r\u000e\u001b\u0018\u0001\u001b\r\u0017haogBN@e\u0004Vlj@\u0005xToSmy`IVsEBjapAajbcOnUyy\u0007A{g|Z`bB\u001bro\u0006{e\u000em{Z|x}EBjap^Po",
+      "elapsed_s": 6.904,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    },
+    {
+      "device_id": "8e2ff329-397f-4f67-89b0-5786234fb3c9",
+      "flow": "oauth_create_account",
+      "page_url": "https://auth.openai.com/about-you",
+      "proxy": "http://127.0.0.1:10808",
+      "headless": true,
+      "final_url": "https://auth.openai.com/about-you",
+      "nav_error": null,
+      "sdk_load_mode": "local_file",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "timing",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2786,
+      "so_raw_head": "{\"so\":\"QgwBFxgBGxQQekZVfG1VeGpze01+eGxRdW9wWm92e10PGwIQARccChcQAwxxaBMPGwIQARkcCBwQAwxxaBMPGwIQDhgcDh8QAwxxaBMPGwIQDhYcC",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 484,
+      "so_is_fake": false,
+      "so_header_len": 2786,
+      "so_header_present": true,
+      "p_len": 625,
+      "c_len": 2212,
+      "error": null,
+      "t_len": 1272,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "M\u0010\u001a\n\u0018\u0004\u0016\u001b\f\u0010lQAS\f\u0015\u0014\u0001\u001e\u0017\u0005\u0010\u0014\u001bg\u0003hSgghWUH\u001e\u0004\u0014\u001e\f\u0001\u0002\u001c\u0016\u000e\u0014\b\fqhvj`|\u001dasFthtct]`|oo\u0007^i}]Fzl\u0006]tk]plj`|onZpzhg\u0007yltxLo\u0007xvjppwo\u0006]tq]pbnpxLhp\u0006yc\u0003xa\u0007Vomn`Jhc\u0003hkZJwk^gfmpZyj\u0007\u000bHasFJh",
+      "elapsed_s": 6.76,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    }
+  ],
+  "summary": {
+    "ok_n": 3,
+    "has_so_n": 3,
+    "syntax_t_n": 0
+  },
+  "pass_criteria": {
+    "has_so_stable": ">=1 and preferably all times",
+    "t_not_syntaxerror": true,
+    "so_header_len_near_jennifer": "~2900"
+  },
+  "note": "P0 目标：真页稳定 has_so=true 且 t 非 SyntaxError。成功后再接协议 create opt-in；禁止伪造 so。"
+}

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import json
 import sys
 import time
@@ -413,6 +414,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--timeout", type=int, default=45, help="单次导航/脚本超时秒")
     ap.add_argument("--local-sdk", action="store_true", help="优先注入本地 vendor/sentinel/sdk.js")
     ap.add_argument("--try-pages", action="store_true", help="失败时轮换 PAGE_CANDIDATES")
+    ap.add_argument("--reuse", action="store_true",
+                    help="常驻浏览器池复用(klsf)模式：harvest_browser_sentinel(reuse=True)，省 launch")
     args = ap.parse_args(argv)
 
     cfg = load_config()
@@ -444,36 +447,42 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[harvest] pages={pages}")
 
     results: list[dict[str, Any]] = []
-    with sync_playwright() as p:
+    # reuse 模式：常驻浏览器池（省 launch），fresh 模式：每轮全新 Chrome
+    if args.reuse:
+        from gptreg.browser_pool import shutdown_all
+        from gptreg.browser_sentinel import harvest_browser_sentinel as _reuse_harvest
+
+    def _harvest(page_url: str) -> dict[str, Any]:
+        if args.reuse:
+            return _reuse_harvest(
+                cfg, flow=args.flow, device_id=str(uuid.uuid4()),
+                proxy=proxy, page_url=page_url,
+                timeout_s=int(args.timeout), reuse=True,
+            )
+        return harvest_once(
+            playwright=p,
+            cfg=cfg,
+            flow=args.flow,
+            proxy=proxy,
+            headless=not args.headed,
+            page_url=page_url,
+            timeout_ms=int(args.timeout) * 1000,
+            use_local_sdk=bool(args.local_sdk),
+        )
+
+    _pw_ctx = contextlib.nullcontext() if args.reuse else sync_playwright()
+    with _pw_ctx as p:
         for i in range(max(1, args.times)):
             page_url = pages[i % len(pages)]
-            print(f"[harvest] #{i+1}/{args.times} page={page_url} ...")
-            r = harvest_once(
-                playwright=p,
-                cfg=cfg,
-                flow=args.flow,
-                proxy=proxy,
-                headless=not args.headed,
-                page_url=page_url,
-                timeout_ms=int(args.timeout) * 1000,
-                use_local_sdk=bool(args.local_sdk),
-            )
+            print(f"[harvest] #{i+1}/{args.times} page={page_url} mode={'reuse' if args.reuse else 'fresh'} ...")
+            r = _harvest(page_url)
             # 若失败且允许轮换，同次再试其他 page（不额外计入 times 逻辑：只补一次）
             if not r.get("ok") and args.try_pages and not args.page:
                 for alt in PAGE_CANDIDATES:
                     if alt == page_url:
                         continue
                     print(f"  retry page={alt} ...")
-                    r2 = harvest_once(
-                        playwright=p,
-                        cfg=cfg,
-                        flow=args.flow,
-                        proxy=proxy,
-                        headless=not args.headed,
-                        page_url=alt,
-                        timeout_ms=int(args.timeout) * 1000,
-                        use_local_sdk=bool(args.local_sdk),
-                    )
+                    r2 = _harvest(alt)
                     if r2.get("ok"):
                         r = r2
                         break
@@ -484,8 +493,11 @@ def main(argv: list[str] | None = None) -> int:
                 f"  -> ok={r.get('ok')} has_sdk={r.get('has_sentinel_sdk')} "
                 f"has_so={r.get('has_so')} so_len={r.get('so_len')} "
                 f"t_len={r.get('t_len')} t_syntax={r.get('t_is_syntaxerror')} "
+                f"elapsed={r.get('elapsed_s')}s "
                 f"err={r.get('error')}"
             )
+    if args.reuse:
+        shutdown_all()  # 显式关池（atexit 兜底双重保险）
 
     # 落盘：完整 results 含 token；另写摘要
     payload = {

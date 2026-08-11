@@ -1,0 +1,170 @@
+{
+  "created_at": "2026-08-11T17:59:47",
+  "flow": "oauth_create_account",
+  "proxy": "http://127.0.0.1:10808",
+  "headless": true,
+  "times": 3,
+  "results": [
+    {
+      "device_id": "33d8fafd-6438-424a-bfb3-0ab973429776",
+      "flow": "oauth_create_account",
+      "page_url": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
+      "proxy": "http://127.0.0.1:10808",
+      "headless": true,
+      "final_url": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
+      "nav_error": null,
+      "sdk_load_mode": "local_file",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "timing",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2754,
+      "so_raw_head": "{\"so\":\"ShMbCBkHAAwDFXBWTW5zc1pvenVScGpeUHh3WXhxc3B/BBUdExoBGQAJDAMVcGATBBUdEx0LGQQFDAMVcGATBBUdExgAGQcTFBt2YAwTGxsTBBcXA",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 476,
+      "so_is_fake": false,
+      "so_header_len": 2754,
+      "so_header_present": true,
+      "p_len": 625,
+      "c_len": 2188,
+      "error": null,
+      "t_len": 1076,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "O\u0015\u001f\f\u001a\u000e\u001c\u0016\u000e\u0015lv_oluefSerlL\u0000rluWRluep\f\u0018\u0016\u000f\u0018\u001a\u0001\u0002\f\u000e\u0016zzaAzT}\t\u0015\u0002\u0016\u0000\u0001\u0000\r\u0003\u0015\u0014\u0016nrJwf[hAys\u001e\t\u0016\u001b\f\r\u0002\u0019\u0016\u0003\u0016\r\fy`\\[zN~\u0013\u0016\u0018\u0015\u001d\r\u001a\u0000\u001a\u0016\u000e\u0015zLbgXbRYzS{\u0005DThS\u0004Qjemo\\naa\rSy|\r{vbzQy\\mxl\\\u0000zlvGzxa",
+      "elapsed_s": 6.478,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    },
+    {
+      "device_id": "ec8f4c13-d9ff-4f65-82a0-397046a0030a",
+      "flow": "oauth_create_account",
+      "page_url": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
+      "proxy": "http://127.0.0.1:10808",
+      "headless": true,
+      "final_url": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
+      "nav_error": null,
+      "sdk_load_mode": "local_file",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "timing",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2846,
+      "so_raw_head": "{\"so\":\"SRIdDBYBBQwCGnNhd298cGlleXoGeW15cXN4SV9ocFd7BRoeEhoKFgQBDAIac1cTBRoeEhwBFgoIDAIac1cTBRoeEh8PFgYDDAIac1cTBRoeEhoWD",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 480,
+      "so_is_fake": false,
+      "so_header_len": 2846,
+      "so_header_present": true,
+      "p_len": 569,
+      "c_len": 2276,
+      "error": null,
+      "t_len": 1068,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "C\u001b\u0018\u0005\u001d\u000b\u0000\f\b\u0011{{Mk\u0011\u0014\u001b\u0017\u0006\u001d\f\b\f\b\u0011\u001a\u0015\f\u0003\u001d\b\u000b\f\b\u0011uz\u001aH~_\u0004\u0013\u0010\u001f\u001a\u000e\u0018\u001c\u0003\u0000\u001b\u0014\u0010j@M^je@_xg@k\\BhRy{oTtU\ffjryriEz|{|czpT\u0016\u000f\u0011\u0014\u001b\u0016\u000b\u001d\u000b\u001b\u0014\u0010ry\u0004\u0013\u0010\u001f\u001a\u0000\u001f\u001c\u0000\f\u001b\u0014\u0010ryxosryxosryxosryxosryxosr\u0005\u0004\f\u001e\u0011\u000f\u000b\u0000\n\u0000\u001a\u0003\u001e\u001c\u000b",
+      "elapsed_s": 6.536,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    },
+    {
+      "device_id": "494f7d93-3c5f-4d3e-94c5-c20d83b74e74",
+      "flow": "oauth_create_account",
+      "page_url": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
+      "proxy": "http://127.0.0.1:10808",
+      "headless": true,
+      "final_url": "https://sentinel.openai.com/backend-api/sentinel/frame.html?sv=20260219f9f6",
+      "nav_error": null,
+      "sdk_load_mode": "local_file",
+      "has_sentinel_sdk": true,
+      "sdk_keys": [
+        "init",
+        "sessionObserverToken",
+        "timing",
+        "token"
+      ],
+      "token_err": null,
+      "so_api_err": null,
+      "so_raw_type": "str",
+      "so_raw_len": 2814,
+      "so_raw_head": "{\"so\":\"ShYeGAgFFhQUeVZ5TXRqaH1sdAx2d29zfXlTd3p6Vm1MFBQTBRYYDRMODHdpDAkMGhoGBgABDRMODHdpDAkMGhoHDAAHARMODHdpDAkMGhoAGhcCG",
+      "ok": true,
+      "keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ],
+      "has_so": true,
+      "so_len": 472,
+      "so_is_fake": false,
+      "so_header_len": 2814,
+      "so_header_present": true,
+      "p_len": 661,
+      "c_len": 2252,
+      "error": null,
+      "t_len": 1032,
+      "t_empty": false,
+      "t_is_syntaxerror": false,
+      "t_decoded_head": "B\u001b\u0016\u0001\u001a\t\u0000\f\b\u0016zkMS\u0016\u0015\u001b\u0019\u0004\u001a\t\n\f\b\u0016xxosuxxosuxxosuxxosuxxosux\u0004\u0013\u0010\u0018\u001b\r\u0000\u0002\u0001\u001b\u0003\u001e\u001c\u0002\u000f\n\u001e\u0001\u0000\u0001\u0000\u001a\n\u0002\r\t\u001e\u0000\r\u0015\u001b\u001f\u0005\u001a\r\u0001\f\b\u0016`QZBloMKdaJjHdPXxlsm~\u000b\u001bzlxZbuCp}oZapqC\n\t\u001b\u0015\f\u0006\u0004\u0017\b\u001a\u0010\u000e\u001b\u001b\u0002\u0010\u0006\u0017\b\u001b\u0010\u000e\u001b~\u001c\u0003lhUh\ng",
+      "elapsed_s": 6.567,
+      "token_keys": [
+        "p",
+        "t",
+        "c",
+        "id",
+        "flow"
+      ]
+    }
+  ],
+  "summary": {
+    "ok_n": 3,
+    "has_so_n": 3,
+    "syntax_t_n": 0
+  },
+  "pass_criteria": {
+    "has_so_stable": ">=1 and preferably all times",
+    "t_not_syntaxerror": true,
+    "so_header_len_near_jennifer": "~2900"
+  },
+  "note": "P0 目标：真页稳定 has_so=true 且 t 非 SyntaxError。成功后再接协议 create opt-in；禁止伪造 so。"
+}
