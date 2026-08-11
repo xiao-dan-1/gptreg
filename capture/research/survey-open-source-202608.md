@@ -584,9 +584,11 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 - **`mfa/verify`（TOTP code, `{"type":"totp","id":factor_id,"code"}`）→ 200**（2FA 挑战通过）
 - **凭据完全有效**——纯协议账号是真实可登录的
 
-**未闭环**：token 获取走 OAuth 授权链（oauth2/auth → consent），consent 提交端点 405（旧 `/api/accounts/consent` POST 失效）；signin/openai 入口 password/verify 403（与 raw OAuth 200 不同）。**属登录链实现细节，待后续**。
+**未闭环**：token 获取走 OAuth 授权链（oauth2/auth → consent），consent 提交端点 405（旧 `/api/accounts/consent` POST 失效）；signin/openai 入口 password/verify 403、email-otp/validate 403（与 raw OAuth 200 不同）。**属登录链实现细节，待后续**。
 
-**脚本**：`test_login_2fa.py`（密码+TOTP 验证）、`login_2fa_pkce.py`（完整 PKCE OAuth 登录，consent 待修）
+**续期**：无 refresh_token（OTP-only 流程没存）；session cookies 有效（/api/auth/session 200 返回 token）但**返回的是同一个被吊销的 token**（health invalidated）——需完整重登才能换新 token。
+
+**脚本**：`test_login_2fa.py`（密码+TOTP 验证）、`login_2fa_pkce.py`（完整 PKCE OAuth 登录，consent 待修）、`login_otp_only.py`（无密码 OTP 登录，validate 403）
 
 ### 待验证
 
