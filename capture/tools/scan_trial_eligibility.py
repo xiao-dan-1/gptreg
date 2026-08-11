@@ -14,6 +14,10 @@ import sys
 import time
 from pathlib import Path
 
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -83,6 +87,9 @@ def _probe_checkout(sess: BrowserSession, token: str, region: str = "JP") -> dic
         out["checkout_ok"] = True
         out["one_click_trial_eligible"] = d.get("one_click_trial_eligible")
         out["promo_applied"] = bool((d.get("promo_campaign") or {}).get("promo_campaign_id"))
+        # 关键: promo 被接受 = 有资格(社区 openai-promo-bypass 判定)
+        # promo_campaign 非空 = OpenAI 接受了 plus-1-month-free(可走完整 checkout 绑卡用)
+        out["promo_accepted"] = bool((d.get("promo_campaign") or {}).get("promo_campaign_id"))
         out["checkout_id"] = str(d.get("checkout_session_id", ""))[:24]
     except Exception as exc:
         out["checkout_err"] = str(exc)[:80]
@@ -120,16 +127,32 @@ def main() -> int:
         for i, d in enumerate(accounts, 1):
             r = _scan_account(sess, d, region=args.region)
             if args.probe and r.get("ok"):
-                r.update(_probe_checkout(sess, d.get("access_token"), region="JP"))
+                # 探测须走 JP 出口(试用资格由出口 IP 决定; US 出口 promo 被拒)
+                from gptreg.proxyutil import StickyChainTunnel
+                probe_t = StickyChainTunnel(
+                    hop1="http://127.0.0.1:10808",
+                    hop2="socks5://ptyr38760-region-JP-sid-test-t-5:xvc9mi68@us.1024proxy.io:3000",
+                )
+                probe_t.start()
+                probe_sess = BrowserSession(cfg, proxy=probe_t.local_url)
+                probe_sess.device_id = d.get("device_id") or "probe-device"
+                try:
+                    r.update(_probe_checkout(probe_sess, d.get("access_token"), region="JP"))
+                finally:
+                    probe_sess.close(); probe_t.close()
             results.append(r)
             plus = "⭐试用Plus!" if r.get("plus_promo") else ""
             trial = str(r.get("trial"))[:20] if r.get("trial") else "-"
             st = "ok" if r.get("ok") else f"http={r.get('http')}"
-            one_click = ""
+            checkout_tag = ""
             if r.get("checkout_ok"):
-                oc = "一键可试用!" if r.get("one_click_trial_eligible") else "无一键试用"
-                one_click = f" | checkout:{oc}"
-            print(f"  [{i}/{len(accounts)}] {str(r.get('email'))[:36]:38} plan={str(r.get('plan_type'))[:8]:8} trial={trial:18} {st} {plus}{one_click}")
+                if r.get("promo_accepted"):
+                    checkout_tag = " | checkout:⭐促销被接受(有资格)"
+                elif r.get("one_click_trial_eligible"):
+                    checkout_tag = " | checkout:⭐一键可试用!"
+                else:
+                    checkout_tag = " | checkout:promo被拒"
+            print(f"  [{i}/{len(accounts)}] {str(r.get('email'))[:34]:36} plan={str(r.get('plan_type'))[:8]:8} trial={trial:16} {st} {plus}{checkout_tag}")
             time.sleep(0.4)
     finally:
         sess.close()
@@ -139,7 +162,8 @@ def main() -> int:
     n_plus = sum(1 for r in results if r.get("plus_promo"))
     n_trial = sum(1 for r in results if r.get("trial"))
     n_oc = sum(1 for r in results if r.get("one_click_trial_eligible"))
-    print(f"\n=== 有试用Plus资格: {n_plus} | 有trial: {n_trial} | 一键可试用: {n_oc} ===")
+    n_promo_acc = sum(1 for r in results if r.get("promo_accepted"))
+    print(f"\n=== 静态Plus资格: {n_plus} | 有trial: {n_trial} | 一键可试用: {n_oc} | 促销被接受: {n_promo_acc} ===")
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
     return 0
