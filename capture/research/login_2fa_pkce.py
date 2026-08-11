@@ -175,56 +175,49 @@ def main() -> int:
         page_type = (c4.get("page") or {}).get("type", "") or page_type
         print(f"  -> TOTP 通过, page_type={page_type}")
 
-    # 5. OAuth 授权链 → code（GET 手动跟随，consent 是 GET 跳转 hop 不是 POST）
-    print(f"[5] OAuth 授权: {continue_url[:60]}")
-    code = _follow_oauth_for_code(sess, continue_url)
-    if not code:
-        print("  [x] 未拿到 code")
-        return 4
-    print(f"  code: {code[:25]}...")
-
-    # 6. /oauth/token 换 access_token（参考实现用 form-urlencoded body）
-    from urllib.parse import urlencode as _ue
-
-    print("[6] POST /oauth/token (form-urlencoded)")
-    h6 = sess.auth_api_headers(referer=f"{ISSUER}/")
-    h6.pop("content-type", None)
-    h6["content-type"] = "application/x-www-form-urlencoded"
-    resp_tok = sess.post(f"{ISSUER}/oauth/token",
-                         headers=h6, data=_ue({
-                             "grant_type": "authorization_code", "code": code,
-                             "redirect_uri": REDIRECT_URI, "client_id": CLIENT_ID,
-                             "code_verifier": code_verifier}), allow_redirects=False, timeout=30)
-    print(f"  -> {resp_tok.status_code}")
-    if resp_tok.status_code != 200:
-        print(f"  [x] /oauth/token 失败: {(resp_tok.text or '')[:150]}")
-        # 兜底：走 chatgpt callback（code 可能是 session code）
-        print("  兜底: 走 chatgpt callback + /api/auth/session")
-        cb_url = f"https://chatgpt.com/api/auth/callback/openai?code={code}"
+    # 5. 完成回调链 → session；若停在 consent 200 HTML → workspace/select 提交 consent
+    print(f"[5] follow_oauth_callback: {continue_url[:60]}")
+    try:
+        auth.follow_oauth_callback(sess, continue_url)
+    except Exception as e:
+        print(f"  callback 异常: {str(e)[:50]}")
+    at = ""
+    info = {}
+    try:
+        info = auth.fetch_session(sess)
+        at = info.get("accessToken", "")
+    except Exception:
+        pass
+    if not at:
+        # consent 页未自动放行 → 手动 workspace/select
+        print("[5b] consent workspace/select 提交")
         try:
-            cb = sess.get(cb_url, headers=sess.chatgpt_headers(), allow_redirects=True, timeout=30)
-            print(f"  callback -> {cb.status_code} final={str(getattr(cb, 'url', ''))[:50]}")
+            d = sess.get(f"{ISSUER}/api/accounts/client_auth_session_dump",
+                         headers=sess.auth_api_headers(referer=f"{ISSUER}/email-verification"), timeout=20)
+            ws = ((d.json().get("workspaces") or [{}])[0]).get("id")
+            print(f"  workspace_id: {ws}")
+            hc = sess.auth_api_headers(referer=f"{ISSUER}/")
+            hc["content-type"] = "application/json"
+            rw = sess.post(f"{ISSUER}/api/accounts/workspace/select",
+                           headers=hc, data=json.dumps({"workspace_id": ws}), allow_redirects=False, timeout=30)
+            print(f"  workspace/select -> {rw.status_code}")
+            nxt = rw.json().get("continue_url", "") or rw.headers.get("location", "")
+            orgs = rw.json().get("data", {}).get("orgs", [])
+            if orgs and nxt:
+                ob = {"org_id": orgs[0]["id"]}
+                if orgs[0].get("projects"):
+                    ob["project_id"] = orgs[0]["projects"][0]["id"]
+                rorg = sess.post(f"{ISSUER}/api/accounts/organization/select",
+                                 headers=hc, data=json.dumps(ob), allow_redirects=False, timeout=30)
+                print(f"  organization/select -> {rorg.status_code}")
+                nxt = rorg.json().get("continue_url", "") or rorg.headers.get("location", "") or nxt
+            if nxt:
+                auth.follow_oauth_callback(sess, nxt)
+            info = auth.fetch_session(sess)
+            at = info.get("accessToken", "")
         except Exception as e:
-            print(f"  callback 异常: {str(e)[:50]}")
-        at = ""
-        for attempt in range(5):
-            try:
-                sr = sess.get("https://chatgpt.com/api/auth/session", headers=sess.chatgpt_headers(), timeout=20)
-                if sr.status_code == 200:
-                    sj = sr.json()
-                    if sj and sj.get("accessToken"):
-                        at = sj["accessToken"]
-                        print(f"  session -> access_token: {at[:30]}...")
-                        break
-                    print(f"  session 无 token: {str(sj)[:60]}")
-            except Exception as e:
-                print(f"  session 异常: {str(e)[:40]}")
-            time.sleep(2)
-        if not at:
-            print("  [x] 兜底也未拿到 token")
-            return 5
-    else:
-        at = resp_tok.json().get("access_token", "")
+            print(f"  workspace 提交异常: {str(e)[:60]}")
+    if at:
         print(f"  access_token: {at[:30]}...")
 
     # 7. 健康检查
