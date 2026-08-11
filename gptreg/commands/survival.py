@@ -14,6 +14,7 @@ from typing import Any
 from gptreg.account_store import load_accounts, mail_type_of, update_account_health
 from gptreg.commands.common import RotatingSession, age_h, age_h_float, apply_region
 from gptreg.health import check_account_health
+from gptreg.session import BrowserSession
 
 
 def add_parser(subparsers) -> None:
@@ -23,6 +24,11 @@ def add_parser(subparsers) -> None:
     p.add_argument("--email", default="", help="逗号分隔指定邮箱(覆盖默认全部)")
     p.add_argument("--source", default="", help="只测指定号源(ms_oauth/icloud/cloudmail), 与 --email 叠加")
     p.add_argument("--region", default=None, help="动态代理地区(覆盖 config), 如 TR/US/JP/NL")
+    p.add_argument(
+        "--proxy", default="",
+        help="固定代理测活(推荐, 如 http://127.0.0.1:10808)。me 端点不触发同 IP 风控, "
+             "固定代理比动态快 6 倍(实测 15 号: 16s vs 101s)。空=走动态代理换 IP(旧行为)。",
+    )
     p.set_defaults(func=run)
 
 
@@ -93,25 +99,42 @@ def run(cfg: dict[str, Any], args) -> int:
         accounts = [d for d in accounts if d.get("email") in emails]
     if args.limit:
         accounts = accounts[: args.limit]
-    print(f"测活 {len(accounts)} 个 2FA 账号(每 {args.rotate} 个换出口 IP):")
+    fixed_proxy = (args.proxy or "").strip()
+    if fixed_proxy:
+        # 固定代理测活(me 不触发同 IP 风控, 比动态快 ~6 倍): 每账号独立 BrowserSession, 共享固定代理
+        print(f"测活 {len(accounts)} 个 2FA 账号(固定代理 {fixed_proxy}):")
+    else:
+        print(f"测活 {len(accounts)} 个 2FA 账号(每 {args.rotate} 个换出口 IP):")
 
     results: list[tuple[str, str, str, int | None, float]] = []  # (email, type, status, http, age_h)
     rot = RotatingSession(cfg, rotate=args.rotate)
     t_start = time.time()
     try:
         for i, d in enumerate(accounts, 1):
-            sess = rot.get(i)  # 每 rotate 个重建(换出口 IP)
-            if rot.rotated:
-                # 首个会话(首次建) vs 真正轮换(达到 rotate 间隔)——措辞区分, 不再误报轮换
-                if rot.is_first:
-                    print(f"  [出口{i}] sid={rot.sid or '?'}")
-                else:
-                    print(f"  [轮换@{i}] 新出口 sid={rot.sid or '?'}")
+            if fixed_proxy:
+                # 固定代理: 每账号独立 session(共享 proxy URL), me 同 IP 并发/串行都不风控
+                sess = BrowserSession(cfg, proxy=fixed_proxy)
+            else:
+                sess = rot.get(i)  # 每 rotate 个重建(换出口 IP)
+                if rot.rotated:
+                    # 首个会话(首次建) vs 真正轮换(达到 rotate 间隔)——措辞区分, 不再误报轮换
+                    if rot.is_first:
+                        print(f"  [出口{i}] sid={rot.sid or '?'}")
+                    else:
+                        print(f"  [轮换@{i}] 新出口 sid={rot.sid or '?'}")
 
             email = d.get("email", "?")
             mtype = mail_type_of(d)
             age = age_h_float(d.get("saved_at") or d.get("updated_at") or "")
             age_s = age_h(age)
+            # 固定代理路径: 每账号 session 需设 device_id + cookies(rot.get 已设, 固定路径没有)
+            if fixed_proxy:
+                sess.device_id = d.get("device_id") or ""
+                for c in (d.get("session_cookies") or []):
+                    try:
+                        sess.session.cookies.set(c.get("name"), c.get("value"), domain=c.get("domain", ""))
+                    except Exception:
+                        pass
             _retried = False  # 每账号坏隧道重试标记
             try:
                 _t0 = time.time()
@@ -160,6 +183,12 @@ def run(cfg: dict[str, Any], args) -> int:
             except Exception as exc:
                 results.append((email, mtype, "error", None, age))
                 print(f"  [{i}/{len(accounts)}] {mtype:9s} {email:42s} -> 异常 {type(exc).__name__}: {str(exc)[:40]}")
+            finally:
+                if fixed_proxy:
+                    try:
+                        sess.close()
+                    except Exception:
+                        pass
     finally:
         rot.close()
 
