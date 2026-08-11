@@ -130,3 +130,47 @@
 > **结论：`sentinel_browser_fast` 可转默认**（so 采集 8s→4.5s, 存活不降）。
 
 > 纯协议(quickjs)路线账号不可存活——browser 真 so 是唯一长活路径(再次实证)。
+
+### AlbertHall 重登验证(2026-08-11 ~23:05)——确认封号
+
+用 `test_login_2fa.py`(password+TOTP 完整登录)验证:
+- 密码验证返回 **403: "You do not have an account because it has been deleted or deactivated"**
+- **= `account_deactivated`(账号被删除/停用), 非 token 失效**
+
+> **结论**: vm so 账号**建号即封**(账号被 OpenAI 停用, 密码验证 403)。
+> 不是社区说的"token_invalidated 可恢复"(那对 browser so 正常账号成立);
+> vm so 账号是账号级停用, 无法重登恢复。**纯协议(vm so)路线账号彻底不可用**。
+
+### 协议注册存活实验(2026-08-11 ~22:50)OTP-only vs 补密码+TOTP
+
+**受控实验**: SabrinaWells1452+3c10ec(vm so, OTP-only, 不补密码不开TOTP)
+- 注册: 22:47:26, 68.6s, vm so(2722), post_login 全 ok(me/conversation_init/prepare 200)
+- 注册 IP: 1024proxy sid-GMJzntL0
+- **立即同 IP 测活: ok(200)**
+- 对比 AlbertHall(补密码+TOTP): 注册后秒死(403 deactivated), 且当时 warmup me=401
+
+> **假设**: 补密码+TOTP 流程或跨 IP 测活是杀号主因; OTP-only + 同 IP 可能存活。
+> 需持续同 IP 追踪确认(目标 >20min)。
+- 22:48:18 同IP sid=GMJzntL0 -> ok http=200
+- 22:52:22 同IP sid=GMJzntL0 -> ok http=200
+- 22:53:16 同IP sid=GMJzntL0 -> ok http=200
+- 22:58:10 同IP sid=GMJzntL0 -> error http=None
+- 22:58:19 同IP sid=GMJzntL0 -> ok http=200
+- 23:01:34 同IP sid=GMJzntL0 -> ok http=200
+- 23:13:00 同IP sid=GMJzntL0 -> error http=None
+- 23:13:12 同IP sid=GMJzntL0 -> invalidated http=401
+
+### SabrinaWells 死亡(2026-08-11 ~23:13)——OTP-only 活 26min 仍死
+
+| 时间 | age | 状态 |
+|---|---|---|
+| 22:48 | 1min | ok |
+| 22:52 | 5min | ok |
+| 22:58 | 11min | ok |
+| 23:01 | 14min | ok |
+| 23:13 | 26min | **invalidated(401)** |
+
+> **结论修正**：OTP-only 账号活 ~26min 后死(比补密码+TOTP 秒死长, 但不长活)。
+> 与 BarbaraNolan(08-10, 21-31min)一致 → **vm so 账号无论是否补密码最终必死**。
+> 补密码+TOTP 让死亡提前(秒死 vs 26min)；OTP-only 只是延缓。
+> **最终结论**：协议注册(vm so)最长活 ~26min 必死；browser 真 so 是唯一长活路径。
