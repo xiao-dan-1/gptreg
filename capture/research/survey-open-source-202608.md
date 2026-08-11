@@ -680,6 +680,13 @@ security_settings/info              -> {aas_eligible: true, login_notification_m
 
 **5. turb-gpt-free-register 的 Codex OAuth 登录链(与 HANDOFF 待办2 直接相关)**：
 - **Codex OAuth client_id 固定值：`app_EMoamEEZ73f0CkXaXp7hrann`**(参数参考 CLIProxyAPI `internal/auth/codex/openai_auth.go`+`pkce.go`)。
+- **CPA(CLIProxyAPI) 源码级 OAuth 参数**(`internal/auth/codex/openai_auth.go`，实现登录链的核心参考)：
+  - `AuthURL = https://auth.openai.com/oauth/authorize`，`TokenURL = https://auth.openai.com/oauth/token`
+  - authorize：`client_id=app_EMoamEEZ73f0CkXaXp7hrann, response_type=code, redirect_uri=http://localhost:..., scope=openid email profile ...`
+  - token 交换(POST form-urlencoded)：`grant_type=authorization_code + client_id + code + redirect_uri + code_verifier`（PKCE）
+  - refresh：`codexRefreshTimeout 30s` + `singleflight.Group`（并发去重刷新）
+  - `NewCodexAuth(cfg)` 用 config 代理。
+  - **可作 HANDOFF 待办 2(登录 token 链)的直接实现参考**——之前 chatgpt 客户端卡 consent，Codex 客户端参数 + PKCE 本地换 token 已跑通。
 - 登录链：授权 URL(CPA 生成或本地 PKCE)→ 邮箱登录+OTP → 手机验证(接码,GrizzlySMS 等)→ consent/workspace → callback → 换 refresh_token。
 - **关键差异**：turb-gpt 走**外部 CPA 管理服务**(`CPA_MANAGEMENT_URL/KEY`)下载 OAuth JSON(refresh-token 文件)，非纯本地。
 - 我们之前 survey 结论"chatgpt 客户端卡 consent 硬边"被佐证；**Codex 客户端(不同 client_id)有完整可参考流程**。
