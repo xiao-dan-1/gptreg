@@ -66,3 +66,67 @@
 | **KirstenScott5455** | **1.23h** | **ok** | **200** | **[FAST+FRAME]** |
 
 > 观察：对照 4 号 ~1.9h 全活；KirstenScott 1.23h ok。未到 3h 判定点。
+
+### 2026-08-11 ~21:10(手动)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 2.32h | ok | 200 | 对照 |
+| JoseWhitney3017 | 2.31h | ok | 200 | 对照 |
+| RickyTaylor4773 | 2.30h | ok | 200 | 对照 |
+| AdamAdams2659 | 2.29h | ok | 200 | 对照 |
+| **KirstenScott5455** | **1.61h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> 观察：对照 4 号 2.3h 全活；KirstenScott 1.61h ok。接近 3h 判定点。
+
+### 2026-08-11 ~21:40(定时 4)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 2.46h | ok | 200 | 对照 |
+| JoseWhitney3017 | 2.45h | ok | 200 | 对照 |
+| RickyTaylor4773 | 2.45h | ok | 200 | 对照 |
+| AdamAdams2659 | 2.44h | ok | 200 | 对照 |
+| **KirstenScott5455** | **1.76h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> 观察：对照 4 号 2.45h 全活(接近 3h)；KirstenScott 1.76h ok。
+
+### 2026-08-11 ~22:10(定时 5)
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 2.91h | ok | 200 | 对照 |
+| JoseWhitney3017 | 2.90h | ok | 200 | 对照 |
+| RickyTaylor4773 | 2.90h | ok | 200 | 对照 |
+| AdamAdams2659 | 2.89h | ok | 200 | 对照 |
+| **KirstenScott5455** | **2.20h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> **关键**：对照 4 号 2.9h 全活(马上到 3h)；KirstenScott 2.20h ok(还需 ~0.8h)。
+> 下一轮(约 22:40)对照号预计过 3h——若仍 ok 即可初步确认标准 so 长活。
+
+### 纯协议(vm so)账号存活对比(2026-08-11 ~22:06)
+
+**AlbertHall3419+7f0d71**(纯协议注册,quickjs vm so,so_len=2682):
+- 注册: 2026-08-11 22:05:01,44.3s,产 password+2fa(TOTP 激活成功)
+- 注册后 health=ok(日志)
+- **立即测活: status=invalidated http=401(code=token_invalidated)**
+- 对比: browser so 账号 2.9h+ 仍 ok → **vm so 秒死(注册即吊销)**
+
+> **结论**: 当前环境 vm so 账号注册后立即吊销, 比 survey 旧记录(7-30min)更糟。
+
+### 2026-08-11 ~23:00(定时 6)——判定点达成
+
+| 账号 | age | status | http | 标记 |
+|---|---|---|---|---|
+| JasonCopeland6778 | 3.72h | ok | 200 | 对照 |
+| JoseWhitney3017 | 3.71h | ok | 200 | 对照 |
+| RickyTaylor4773 | 3.71h | ok | 200 | 对照 |
+| AdamAdams2659 | 3.70h | ok | 200 | 对照 |
+| **KirstenScott5455** | **3.02h** | **ok** | **200** | **[FAST+FRAME]** |
+
+> **🎯 判定点达成**：
+> 1. 对照 4 号(标准 so)3.7h 全活 → 标准 so 长活确认
+> 2. **KirstenScott(fast+frame)3.02h ok, 超过 3h 判定点** → fast+frame 提速不伤存活
+> **结论：`sentinel_browser_fast` 可转默认**（so 采集 8s→4.5s, 存活不降）。
+
+> 纯协议(quickjs)路线账号不可存活——browser 真 so 是唯一长活路径(再次实证)。
