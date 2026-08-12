@@ -957,3 +957,14 @@ register_pwd 加 `protocol.sentinel_so_source`(browser/quickjs/none)支持 so �
 - browser so 4/4 活, 无 so 2/2 活(保持)
 - **修正**: 密码模式下 browser so / 无 so 稳定; **vm so 仍有账号级删除风险**(样本小, 待扩)
 - 建议: 生产用密码模式 + browser so(或至少不用 vm so; vm so 的"假行为"仍可能被识别)
+
+**⚠️⚠️ 再修正(19:0x 复查): so 真实性才是关键, browser so 必须**:
+- browser so 4/4 **持续 token 活**(多轮, me=200)
+- vm so / 无 so: **账号被删(deactivated)** 或 token 吊销
+  - Distaffen(vm so) + BarbanoDiehm(no so): relogin 403 "deleted or deactivated" = **账号删**
+  - Patrone(vm so) + Cowboy(no so): token 吊销
+- **最终结论**: 密码模式是必要条件, 但 **so 真实性仍是决定因素**——
+  browser 真 so 的 token 不被吊销; vm so / 无 so 账号被删/吊销
+- "so 无关"是刚注册基线(1-2h)的假象, 观察拉长后 browser so 稳定性显现
+- **生产正解: 密码模式(register_pwd) + browser 真 so** —— 两个都必须
+  (这其实回到 08-11 实践: quickjs_pwd_v3 + browser so 长活)
