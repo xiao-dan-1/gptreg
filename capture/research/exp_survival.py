@@ -79,15 +79,25 @@ def main() -> int:
                 grouped[g].append(acc)
 
     def _round(round_no: int) -> None:
-        age_h = (time.time() - T0) / 3600
-        lines = [f"### Round {round_no} (age {age_h:.2f}h, {time.strftime('%H:%M')})", ""]
+        now = time.time()
+        lines = [f"### Round {round_no} ({time.strftime('%m-%d %H:%M')})", ""]
         for g, accs in grouped.items():
             sess = BrowserSession(cfg, proxy="http://127.0.0.1:10808")
             for acc in accs:
                 st, http = _check(sess, acc.get("access_token", ""), acc.get("device_id", ""))
-                em = str(acc.get("email", "")).split("@")[0][:28]
+                em = str(acc.get("email", "")).split("@")[0][:24]
                 tag = "⭐" if st == "ok" else ""
-                lines.append(f"| {g:10s} | {em:30s} | {st:12s} | http={http} | {tag}")
+                # 存活时长: 从注册(saved_at)起, 小时(不是实验开始)
+                age_s = ""
+                sa = acc.get("saved_at", "")
+                if sa:
+                    try:
+                        from datetime import datetime
+                        t0 = datetime.fromisoformat(sa).timestamp()
+                        age_s = f"{max(0.0, (now - t0) / 3600):.1f}h"
+                    except Exception:
+                        pass
+                lines.append(f"| {g:12s} | {em:24s} | {st:11s} | http={str(http):4s} | age={age_s:7s} | {tag}")
             sess.close()
         lines.append("")
         print("\n".join(lines))
