@@ -933,3 +933,20 @@ so 存活对照实验需改方式: 注册 → relogin 换新 token → 再定时
 - 对照 OTP-only(除 relogin 过的 Frentzel): 仍 invalidated
 - 定时测活已启动(exp_survival.py --interval 10, 每 10min 一轮)→ exp-survival-20260812.md
 - **密码模式 = token 不被吊销的正确注册模式(so 用 browser 也无妨)**
+
+### ⭐⭐⭐ 密码模式 × so 对照:so 完全不重要(2026-08-12 完整)
+
+register_pwd 加 `protocol.sentinel_so_source`(browser/quickjs/none)支持 so 对照。
+注册 8 个密码模式新号(cliproxy + 新 Outlook), 基线全活:
+
+| 密码模式组 | so | 数量 | 存活 |
+|---|---|---|---|
+| PWD-BROWSER-SO | browser 真 so | 4 | **4/4 me=200** |
+| PWD-VM-SO | vm so | 2 | **2/2 me=200** |
+| PWD-NO-SO | 无 so | 2 | **2/2 me=200** |
+
+**结论**: 密码模式下 so 类型(browser/vm/none)**完全不影响存活**。
+- "so 结构墙/行为字段" = OTP-only 模式假象, 密码模式下 so 无关紧要
+- 之前 SNAP_INJECT/行为字段注入实验在 OTP-only 下做的, 对密码模式无意义
+- 纯协议正确路线: register_pwd(quickjs_pwd_v3)密码模式, so 随便(browser 也无妨)
+- 附带修 register_pwd no-so bug(`len(so_b)` NoneType, 无 so 模式)

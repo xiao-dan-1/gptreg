@@ -331,10 +331,28 @@ def _stage_create(
     def _gen_so() -> None:
         _ct = time.time()
         so = None
-        # 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
+        _proto = cfg.get("protocol") or {}
+        # so 来源(browser/quickjs/none): 密码模式 so 对照实验(2026-08-12)。
+        # none=不发 so 头; quickjs=vm so; browser(默认)=真浏览器 so。
+        so_source = str(_proto.get("sentinel_so_source") or "browser").strip().lower()
+        holder["so_source"] = so_source
+        if so_source == "none":
+            holder["so_b"] = None
+            holder["so_s"] = time.time() - _ct
+            return
+        if so_source == "quickjs":
+            try:
+                _, so_vm = get_sentinel_token_via_quickjs(
+                    session, session.device_id, flow=FLOW_OAUTH, cfg=cfg, log=lambda m: None)
+                so = so_vm
+            except Exception as exc:
+                holder["so_warn"] = f"quickjs so: {type(exc).__name__}: {str(exc)[:80]}"
+            holder["so_b"] = so
+            holder["so_s"] = time.time() - _ct
+            return
+        # browser(默认): 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
         # so-only 采集: 若配置 sentinel_so_page(frame.html 直连) 则用之省渲染;
         # 空则用 sentinel_browser_page(about-you, 默认)。
-        _proto = cfg.get("protocol") or {}
         so_page = str(_proto.get("sentinel_so_page") or "").strip()
         so_attempts = 0
         for _try in range(3):
@@ -394,14 +412,15 @@ def _stage_create(
         # 归因精确: 网络瞬时错误(隧道断流, 如 SSLError) vs 本地 quickjs 问题
         kind = "网络瞬时错误(隧道断流)" if _is_transient(Exception(t_err)) else "本地 quickjs 问题"
         raise _SessionFailed(f"quickjs t 生成失败[{kind}]: {t_err[:120]}")
-    if not so_b:
+    if not so_b and holder.get("so_source") != "none":
         warn = holder.get("so_warn") or ""
         raise _SoFailed(f"browser so 采集失败(重试3次后仍无 so): {str(warn)[:120]}")
 
     _http_t0 = time.time()
     h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
     h2["openai-sentinel-token"] = tok2
-    h2["openai-sentinel-so-token"] = so_b
+    if so_b:
+        h2["openai-sentinel-so-token"] = so_b
     resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
     diag["create_http"] = resp2.status_code
     diag["create_http_s"] = round(time.time() - _http_t0, 1)  # create HTTP 请求本身耗时
@@ -476,8 +495,8 @@ def _register_chain(
             "session_token": session_token,
             "refresh_token": refresh_token,
             "t_len": len(tok2),
-            "so_len": len(so_b),
-            "has_so": True,
+            "so_len": len(so_b) if so_b else 0,
+            "has_so": bool(so_b),
             "proxy_used": resolved.upstream_url or resolved.session_url or "",
             "diag": diag,
         }, session, resolved
