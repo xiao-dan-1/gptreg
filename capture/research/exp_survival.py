@@ -82,7 +82,7 @@ def main() -> int:
         now = time.time()
         lines = [f"### Round {round_no} ({time.strftime('%m-%d %H:%M')})", ""]
         for g, accs in grouped.items():
-            sess = BrowserSession(cfg, proxy="http://127.0.0.1:10808")
+            sess = BrowserSession(cfg, proxy="http://127.0.0.1:7890")
             for acc in accs:
                 st, http = _check(sess, acc.get("access_token", ""), acc.get("device_id", ""))
                 em = str(acc.get("email", "")).split("@")[0][:24]
