@@ -913,3 +913,17 @@ POST /backend-api/accounts/mfa/user/activate_enrollment
 **确认**: browser so 号(FrentzelTigert02)relogin 也成功(此前 403 是 429 限流干扰)。
 → **三组(so 无关)全部"账号活, 注册 token 吊销可恢复"**。
 so 存活对照实验需改方式: 注册 → relogin 换新 token → 再定时测活(看 so 是否影响新 token 存活)。
+
+### ⭐⭐ 根因定位:注册模式(token 吊销只发生在 OTP-only create_account)(2026-08-12)
+
+**A/B + 模式对照验证**(cliproxy + 新买 Outlook 号, 同时段):
+- OTP-only create_account(quickjs / browser so / no so 三组 9 号): **注册后 ~1min token invalidated**
+- **密码模式 user/register(quickjs_pwd_v3, 无 so)**: 注册后 **5min+ me=200 活**
+
+→ **注册模式是 token 吊销的主因, 与 so 无关**:
+  - 密码模式(设密码创建 user/register)token 活
+  - OTP-only create_account(注册机主流)token 被吊销
+- 08-11 长活号(browser so 7.9h+ 实证)用的是 **quickjs_pwd_v3(密码模式)** —— 之前误以为是 browser so 的功劳, 实为密码模式
+- **之前所有 OTP-only 的"so 结构墙/存活"实验是模式错误导致的假象**——so 无关, 是 OTP 建号被 OpenAI 标记
+- **纯协议注册正确模式 = 密码模式(register_pwd / batch_totp / quickjs_pwd_v3)**
+- 待确认: 密码模式号的长期存活(当前只观察到 5min+), 及密码模式 × so 的对照
