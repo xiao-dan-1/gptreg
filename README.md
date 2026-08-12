@@ -2,6 +2,7 @@
 
 > **纯协议实现**的 ChatGPT / OpenAI 账号自动注册工具——产出带 `totp_secret` 的**真 2FA 账号**（`mfa_enabled: true`），可用密码 + TOTP 正常登录。
 > **纯协议最终正解**（2026-08-13 实证）：**密码模式(user/register 设密码) + vm so(模拟行为 simulate_behavior) + TOTP + recovery key + relogin 续命**——全程零浏览器、账号可长活，无需真浏览器采集 so。
+> **纯协议组存活验证中**：2/2 号持续活（>3.4h 观察中，目标跨 7.9h 长活判定点）；browser 真 so 对照已 9.1h+ 长活确认。
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue)
@@ -246,7 +247,8 @@ signin → register(user/register 设密码, username_password_create 无 SO) �
 ```
 
 - **⭐ 纯协议正解（2026-08-13 实证）**：密码模式 + vm so（**派发行为事件 simulate_behavior，默认开**）→ **账号可长活**（实测 2/2 活，无需真浏览器）。行为字段空的 vm so（不派发事件）才会被吊销——历史"~30min 短活"是行为字段空的真相
-- **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生（防批量雷同）；语言/时区随出口 IP（防设备指纹矛盾）→ 账号"更像真人"，**试用资格概率提升**（实测 0% → ~43%）
+- **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生（防批量雷同）；语言/时区随出口 IP（防设备指纹矛盾）→ 账号"更像真人"，**试用资格概率提升**（实测 0% → ~44%；Outlook 3/7、cloudmail 1/2，资格主要由账号画像决定、与邮箱域关系小）
+- **效率优化**：Geo 复用隧道探活 ipinfo（省单独查询 +2s/号）；cloudmail 收码快（~3s）→ 单号 ~38s、并发 w2 稳定 2/2；Outlook 收码是瓶颈（XDAuv 服务波动，并发建议 ≤2）
 - **recovery key**：`recovery_code` 因子，30 字符 key，激活时提交整个 key；防 TOTP 锁死
 - **relogin 续命**：password+TOTP 重登换新 token，不依赖存量 cookie（对比 refresh 依赖 session_cookies）
 - **关键参数**：补密码走 `auth.openai.com/api/accounts/password/add`，signin 必须带 `post_login_add_password=true`（否则 invalid_auth_step）
