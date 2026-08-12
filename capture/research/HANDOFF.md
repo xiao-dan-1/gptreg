@@ -26,23 +26,23 @@
 - **指纹差异化 + Geo 对齐**（register-kit 借鉴）：指纹按账号派生、语言时区随出口 IP → 账号更像真人，**试用资格 0%→44%**（Outlook 3/7、cloudmail 1/2）
 - **效率优化**：Geo 复用探活 ipinfo（省 2s/号）；cloudmail 单号 ~38s、w2 稳定；隧道建失败重试；收码重试提升
 
-## 三、存活追踪状态（压缩后优先续）
+## 三、存活追踪状态（2026-08-13 判定完成 ✅）
 
 | 组 | 账号 | 状态 |
 |---|---|---|
-| **PWD-VM-SIM(纯协议正解)** | DisbroNelly812 / LantelmePascall12 | **2/2 活 ~3.4h，观察中（目标跨 7.9h）** |
-| PWD-BROWSER-SO(对照) | ScaceSchlarb69 等 4 号 | 4/4 活 9.1h+（长活确认） |
+| **PWD-VM-SIM(纯协议正解)** | DisbroNelly812 / LantelmePascall12 | **2/2 活 7.9h+，已跨 7.9h 判定点 = 纯协议长活最终确认 ✅** |
+| PWD-BROWSER-SO(对照) | ScaceSchlarb69 等 4 号 | 4/4 活 13h+（长活确认） |
 | PWD-VM-SO / NO-SO | 各 2 号 | 死（行为空/无 so 吊销） |
-| OTP-ONLY(对照) | 3 号 | 死 |
+| OTP-ONLY(对照) | 3 号 | 死（FrentzelTigert02 存活观察中） |
 
 - **测活命令**：`python capture/research/exp_survival.py --once`（手动）或 cron 自动
-- 重点：**纯协议组跨 7.9h = 纯协议长活最终确认**
+- **结论：纯协议组 2/2 跨过 7.9h 判定点 → 纯协议长活最终确认**（"vm so 短活"实锤为行为字段空所致）
 
 ## 四、研究结论速览（更新）
 
 | 主题 | 结论 |
 |---|---|
-| 纯协议正解 | 密码模式 + vm so(模拟行为) → **可长活**（无浏览器） |
+| 纯协议正解 | 密码模式 + vm so(模拟行为) → **可长活**(2/2 跨 7.9h 判定点, 无浏览器) |
 | vm so | 必须派发行为事件；行为空则吊销 |
 | browser so | 长活 9h+（对照） |
 | 注册模式 | OTP-only create_account 全吊销；**密码模式才有活路** |
@@ -52,7 +52,7 @@
 
 ## 五、待办（下次可选）
 
-1. **纯协议组存活观察**（当前主线）：等跨 7.9h 判定点（≈08-13 07:45，cron 自动测）
+1. ~~纯协议组存活观察~~ ✅ 已完（08-13 07:45 跨 7.9h 判定点，纯协议长活确认）
 2. ~~register_pwd 集成 recovery_key~~ ✅ 已完（08-13 端到端验证，产出 4 段 `email----password----totp----recovery`）
 3. **收码优化**：Outlook XDAuv 服务波动（并发建议 ≤2），cloudmail 收码快可高并发
 4. **主工作树同步**：config 改了 `sentinel_source/so_source/pool_size/max_wait/chain_via=7890` 等，记得同步主工作树

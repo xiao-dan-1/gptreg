@@ -620,3 +620,323 @@
 | OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=10.1h   | ⭐
 | OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=10.0h   | 
 
+### Round 1 (08-13 03:48)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=9.6h    | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=9.4h    | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=9.4h    | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=9.4h    | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=9.3h    | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=9.3h    | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=9.2h    | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=9.2h    | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=4.0h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=3.9h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=10.4h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=10.4h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=10.3h   | 
+
+### Round 1 (08-13 03:59)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=9.8h    | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=9.6h    | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=9.6h    | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=9.6h    | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=9.5h    | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=9.5h    | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=9.4h    | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=9.4h    | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=4.2h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=4.1h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=10.6h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=10.5h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=10.4h   | 
+
+### Round 1 (08-13 04:14)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=10.1h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=9.8h    | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=9.8h    | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=9.8h    | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=9.8h    | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=9.8h    | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=9.6h    | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=9.7h    | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=4.4h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=4.4h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=10.8h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=10.8h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=10.7h   | 
+
+### Round 1 (08-13 04:29)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=10.3h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=10.1h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=10.1h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=10.1h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=10.0h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=10.0h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=9.9h    | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=9.9h    | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=4.7h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=4.6h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=11.1h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=11.0h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=10.9h   | 
+
+### Round 1 (08-13 04:44)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=10.6h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=10.3h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=10.3h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=10.3h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=10.3h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=10.3h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=10.1h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=10.2h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=4.9h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=4.9h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=11.3h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=11.3h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=11.2h   | 
+
+### Round 1 (08-13 04:59)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=10.8h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=10.6h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=10.6h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=10.6h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=10.5h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=10.5h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=10.4h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=10.4h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=5.2h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=5.1h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=11.6h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=11.5h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=11.4h   | 
+
+### Round 1 (08-13 05:14)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=11.1h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=10.8h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=10.8h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=10.8h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=10.8h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=10.8h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=10.6h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=10.7h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=5.4h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=5.4h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=11.8h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=11.8h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=11.7h   | 
+
+### Round 1 (08-13 05:29)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=11.3h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=11.1h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=11.1h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=11.1h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=11.0h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=11.0h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=10.9h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=10.9h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=5.7h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=5.6h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=12.1h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=12.0h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=11.9h   | 
+
+### Round 1 (08-13 05:44)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=11.6h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=11.3h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=11.3h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=11.3h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=11.3h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=11.3h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=11.1h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=11.2h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=5.9h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=5.9h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=12.3h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=12.3h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=12.2h   | 
+
+### Round 1 (08-13 05:59)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=11.8h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=11.6h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=11.6h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=11.6h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=11.5h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=11.5h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=11.4h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=11.4h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=6.2h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=6.1h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=12.6h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=12.5h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=12.4h   | 
+
+### Round 1 (08-13 06:14)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=12.1h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=11.8h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=11.8h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=11.8h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=11.8h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=11.8h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=11.6h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=11.7h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=6.4h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=6.4h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=12.8h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=12.8h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=12.7h   | 
+
+### Round 1 (08-13 06:29)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=12.3h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=12.1h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=12.1h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=12.1h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=12.0h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=12.0h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=11.9h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=11.9h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=6.7h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=6.6h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=13.1h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=13.0h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=12.9h   | 
+
+### Round 1 (08-13 06:44)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=12.6h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=12.3h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=12.3h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=12.3h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=12.3h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=12.3h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=12.1h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=12.2h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=6.9h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=6.9h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=13.3h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=13.3h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=13.2h   | 
+
+### Round 1 (08-13 06:59)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=12.8h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=12.6h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=12.6h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=12.6h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=12.5h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=12.5h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=12.4h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=12.4h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=7.2h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=7.1h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=13.6h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=13.5h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=13.4h   | 
+
+### Round 1 (08-13 07:14)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=13.1h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=12.8h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=12.8h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=12.8h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=12.8h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=12.8h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=12.6h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=12.7h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=7.4h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=7.4h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=13.8h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=13.8h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=13.7h   | 
+
+### Round 1 (08-13 07:29)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=13.3h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=13.1h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=13.1h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=13.1h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=13.0h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=13.0h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=12.9h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=12.9h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=7.7h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=7.6h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=14.1h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=14.0h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=13.9h   | 
+
+### Round 1 (08-13 07:33)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=13.4h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=13.1h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=13.1h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=13.1h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=13.1h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=13.1h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=12.9h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=13.0h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=7.7h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=7.7h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=14.1h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=14.1h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=14.0h   | 
+
+### Round 1 (08-13 07:33)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=13.4h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=13.1h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=13.1h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=13.1h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=13.1h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=13.1h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=13.0h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=13.0h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=7.7h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=7.7h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=14.2h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=14.1h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=14.0h   | 
+
+### Round 1 (08-13 07:36)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=13.4h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=13.2h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=13.2h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=13.2h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=13.1h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=13.1h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=13.0h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=13.0h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=7.8h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=7.7h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=14.2h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=14.2h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=14.1h   | 
+
+### Round 1 (08-13 07:45)
+
+| PWD-BROWSER-SO | ScaceSchlarb69+kzweon    | ok          | http=200  | age=13.6h   | ⭐
+| PWD-BROWSER-SO | BralleyWrynn548+k8lnfx   | ok          | http=200  | age=13.3h   | ⭐
+| PWD-BROWSER-SO | KeliaBaptist23+btvdj4    | ok          | http=200  | age=13.3h   | ⭐
+| PWD-BROWSER-SO | ThrelkeldBienvenu50+9g66 | ok          | http=200  | age=13.3h   | ⭐
+| PWD-VM-SO    | PatroneVixayack957+gmi2g | invalidated | http=401  | age=13.3h   | 
+| PWD-VM-SO    | DistaffenBarbor2401+sg8x | invalidated | http=401  | age=13.3h   | 
+| PWD-NO-SO    | BarbanoDiehm875+v45ikn   | invalidated | http=401  | age=13.1h   | 
+| PWD-NO-SO    | CowboySoderling10+adlmpl | invalidated | http=401  | age=13.2h   | 
+| PWD-VM-SIM(纯协议) | DisbroNelly812+chxvh4    | ok          | http=200  | age=7.9h    | ⭐
+| PWD-VM-SIM(纯协议) | LantelmePascall12+qdsbuu | ok          | http=200  | age=7.9h    | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0 | invalidated | http=401  | age=14.3h   | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c  | ok          | http=200  | age=14.3h   | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+96071 | invalidated | http=401  | age=14.2h   | 
+
