@@ -316,88 +316,91 @@ def _stage_create(
     """
     _t0 = time.time()
     holder: dict[str, Any] = {}
-
-    def _gen_t() -> None:
-        _ct = time.time()
-        try:
-            # 静默 quickjs 默认 log(so_len 是 vm so, 会被忽略); so 由 browser 采集
-            tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg,
-                                                    log=lambda m: None)
-            holder["tok2"] = tok
-            logger.info("  [quickjs/t] create 真 t 就绪 t_len=%s (%.1fs, so 由 browser 采集)", len(tok), time.time() - _ct)
-        except Exception as exc:
-            holder["t_err"] = f"{type(exc).__name__}: {exc}"
-        holder["t_s"] = time.time() - _ct
-
-    def _gen_so() -> None:
-        _ct = time.time()
-        so = None
-        _proto = cfg.get("protocol") or {}
-        # so 来源(browser/quickjs/none): 密码模式 so 对照实验(2026-08-12)。
-        # none=不发 so 头; quickjs=vm so; browser(默认)=真浏览器 so。
-        so_source = str(_proto.get("sentinel_so_source") or "browser").strip().lower()
-        holder["so_source"] = so_source
-        if so_source == "none":
-            holder["so_b"] = None
-            holder["so_s"] = time.time() - _ct
-            return
-        if so_source == "quickjs":
-            try:
-                _, so_vm = get_sentinel_token_via_quickjs(
-                    session, session.device_id, flow=FLOW_OAUTH, cfg=cfg, log=lambda m: None)
-                so = so_vm
-            except Exception as exc:
-                holder["so_warn"] = f"quickjs so: {type(exc).__name__}: {str(exc)[:80]}"
-            holder["so_b"] = so
-            holder["so_s"] = time.time() - _ct
-            return
-        # browser(默认): 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
-        # so-only 采集: 若配置 sentinel_so_page(frame.html 直连) 则用之省渲染;
-        # 空则用 sentinel_browser_page(about-you, 默认)。
-        so_page = str(_proto.get("sentinel_so_page") or "").strip()
-        so_attempts = 0
-        for _try in range(3):
-            so_attempts = _try + 1
-            try:
-                br = harvest_browser_sentinel(
-                    cfg, flow=FLOW_OAUTH, device_id=session.device_id,
-                    proxy=proxy_url, headless=True, timeout_s=90,
-                    page_url=so_page or None,
-                )
-                if br.get("ok") and br.get("so_header"):
-                    so = br["so_header"]
-                    # so 内部细分(nav/SDK加载/token采集), 定位慢点
-                    holder["so_timing"] = {
-                        "nav": br.get("nav_s"), "sdk": br.get("sdk_s"),
-                        "token": br.get("token_s"), "total": br.get("elapsed_s"),
-                    }
-                    break
-            except Exception as exc:
-                holder["so_warn"] = f"{type(exc).__name__}: {str(exc)[:80]}"
-            time.sleep(1)
-        holder["so_attempts"] = so_attempts  # 实际尝试次数(>1 说明重试过, so 稳定性)
-        holder["so_b"] = so
-        holder["so_s"] = time.time() - _ct
+    _proto = cfg.get("protocol") or {}
+    # so 来源(browser/quickjs/none): 密码模式 so 对照实验(2026-08-12)。
+    # none=不发 so 头; quickjs=vm so; browser(默认)=真浏览器 so。
+    so_source = str(_proto.get("sentinel_so_source") or "browser").strip().lower()
+    holder["so_source"] = so_source
 
     _ct0 = time.time()
-    # 子线程复制调用线程 context: 批量并发用 contextvars 存账号归属时, so/t 采集子线程
-    # 可继承(threading.local/threading.Thread 默认都不传播——否则 so 日志无账号前缀)。
-    # 两点关键(实测踩坑):
-    #  1) copy_context() 须在父线程求值(捕获含账号的 context 快照)——写在 lambda 里会在
-    #     子线程执行时才求值, 捕获空 context(无前缀);
-    #  2) 每个线程必须独立 context 对象——共享同一 Context 被多线程并发 run 会抛
-    #     "cannot enter context ... already entered"(Context.run 单线程独占, so/t 双线程全挂)。
-    _ctx_t = contextvars.copy_context()
-    _ctx_so = contextvars.copy_context()
-    _th_t = threading.Thread(target=lambda: _ctx_t.run(_gen_t))
-    _th_so = threading.Thread(target=lambda: _ctx_so.run(_gen_so))
-    _th_t.start()
-    _th_so.start()
-    # join 必须加超时: browser so 采集线程(playwright/Chrome) 偶发 hang(Chrome 无响应)时,
-    # 无超时 join 无限等待 → 整个批量卡死(实测 5 线程 20 账号卡在 so 采集 join, 主线程
-    # f.result 永久等待, 批量统计不打印、进程不退出)。超时后按 holder 无结果走失败分支。
-    _th_t.join(timeout=90)   # quickjs t 一般 <5s
-    _th_so.join(timeout=120)  # so 采集 ~10s + 重试 3 次
+    if so_source in ("quickjs", "none"):
+        # ⭐ 效率优化(2026-08-13): vm so 的 t 与 so 同一次 quickjs solve 产出
+        # (同一 fp/challenge), 单次调用同时拿到两者 —— 旧实现按 t/so 各调一次完整
+        # solve(重复计算 ~5s/号); 合并后 t/so 同源(同 c/device_id)反而更保真。
+        # none 模式同样单次(只要 t, so 丢弃)。
+        _ct = time.time()
+        try:
+            tok, so_vm = get_sentinel_token_via_quickjs(
+                session, session.device_id, flow=FLOW_OAUTH, cfg=cfg, log=lambda m: None)
+            holder["tok2"] = tok
+            holder["so_b"] = so_vm if so_source == "quickjs" else None
+            logger.info("  [quickjs] create 真 t+so 一次产出 t_len=%s so_len=%s (%.1fs)",
+                        len(tok), len(so_vm) if so_vm else 0, time.time() - _ct)
+        except Exception as exc:
+            holder["t_err"] = f"{type(exc).__name__}: {exc}"
+        holder["t_s"] = holder["so_s"] = time.time() - _ct
+    else:
+        def _gen_t() -> None:
+            _ct = time.time()
+            try:
+                # 静默 quickjs 默认 log(so_len 是 vm so, 会被忽略); so 由 browser 采集
+                tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg,
+                                                        log=lambda m: None)
+                holder["tok2"] = tok
+                logger.info("  [quickjs/t] create 真 t 就绪 t_len=%s (%.1fs, so 由 browser 采集)", len(tok), time.time() - _ct)
+            except Exception as exc:
+                holder["t_err"] = f"{type(exc).__name__}: {exc}"
+            holder["t_s"] = time.time() - _ct
+
+        def _gen_so() -> None:
+            _ct = time.time()
+            so = None
+            # browser(默认): 无 so 必死(测活实证), 采集失败重试 3 次, 仍失败主线程中止
+            # so-only 采集: 若配置 sentinel_so_page(frame.html 直连) 则用之省渲染;
+            # 空则用 sentinel_browser_page(about-you, 默认)。
+            so_page = str(_proto.get("sentinel_so_page") or "").strip()
+            so_attempts = 0
+            for _try in range(3):
+                so_attempts = _try + 1
+                try:
+                    br = harvest_browser_sentinel(
+                        cfg, flow=FLOW_OAUTH, device_id=session.device_id,
+                        proxy=proxy_url, headless=True, timeout_s=90,
+                        page_url=so_page or None,
+                    )
+                    if br.get("ok") and br.get("so_header"):
+                        so = br["so_header"]
+                        # so 内部细分(nav/SDK加载/token采集), 定位慢点
+                        holder["so_timing"] = {
+                            "nav": br.get("nav_s"), "sdk": br.get("sdk_s"),
+                            "token": br.get("token_s"), "total": br.get("elapsed_s"),
+                        }
+                        break
+                except Exception as exc:
+                    holder["so_warn"] = f"{type(exc).__name__}: {str(exc)[:80]}"
+                time.sleep(1)
+            holder["so_attempts"] = so_attempts  # 实际尝试次数(>1 说明重试过, so 稳定性)
+            holder["so_b"] = so
+            holder["so_s"] = time.time() - _ct
+
+        # 子线程复制调用线程 context: 批量并发用 contextvars 存账号归属时, so/t 采集子线程
+        # 可继承(threading.local/threading.Thread 默认都不传播——否则 so 日志无账号前缀)。
+        # 两点关键(实测踩坑):
+        #  1) copy_context() 须在父线程求值(捕获含账号的 context 快照)——写在 lambda 里会在
+        #     子线程执行时才求值, 捕获空 context(无前缀);
+        #  2) 每个线程必须独立 context 对象——共享同一 Context 被多线程并发 run 会抛
+        #     "cannot enter context ... already entered"(Context.run 单线程独占, so/t 双线程全挂)。
+        _ctx_t = contextvars.copy_context()
+        _ctx_so = contextvars.copy_context()
+        _th_t = threading.Thread(target=lambda: _ctx_t.run(_gen_t))
+        _th_so = threading.Thread(target=lambda: _ctx_so.run(_gen_so))
+        _th_t.start()
+        _th_so.start()
+        # join 必须加超时: browser so 采集线程(playwright/Chrome) 偶发 hang(Chrome 无响应)时,
+        # 无超时 join 无限等待 → 整个批量卡死(实测 5 线程 20 账号卡在 so 采集 join, 主线程
+        # f.result 永久等待, 批量统计不打印、进程不退出)。超时后按 holder 无结果走失败分支。
+        _th_t.join(timeout=90)   # quickjs t 一般 <5s
+        _th_so.join(timeout=120)  # so 采集 ~10s + 重试 3 次
     tok2 = str(holder.get("tok2") or "")
     so_b = holder.get("so_b")
     diag["t_s"] = round(float(holder.get("t_s", 0)), 1)
@@ -415,7 +418,7 @@ def _stage_create(
         raise _SessionFailed(f"quickjs t 生成失败[{kind}]: {t_err[:120]}")
     if not so_b and holder.get("so_source") != "none":
         warn = holder.get("so_warn") or ""
-        raise _SoFailed(f"browser so 采集失败(重试3次后仍无 so): {str(warn)[:120]}")
+        raise _SoFailed(f"so 采集失败({so_source}): {str(warn)[:120]}")
 
     _http_t0 = time.time()
     h2 = session.auth_api_headers(referer=ABOUT_YOU_REFERER)
@@ -486,17 +489,22 @@ def _register_chain(
     # 对不上"被风控当设备指纹矛盾。会话语言 + 临时 cfg 时区(指纹用), 注册完恢复。
     _geo_saved: tuple | None = None
     try:
-        from gptreg.proxyutil import geo_profile_for_proxy
+        # 隧道探活失败时跳过 Geo: 坏隧道查 ipwho.is 必失败(半开黑洞可等 ~150s),
+        # 直接回退默认画像; 注册链首请求会因隧道坏而失败换 sid 重试, 新隧道再正常 Geo。
+        if getattr(resolved, "probe_ok", True):
+            from gptreg.proxyutil import geo_profile_for_proxy
 
-        _geo = geo_profile_for_proxy(resolved.session_url or "", ipinfo=resolved.ipinfo)
-        if _geo:
-            session.accept_language = _geo["language"]
-            _b = cfg.setdefault("browser", {})
-            _geo_saved = (_b.get("timezone"), _b.get("language"), _b.get("languages"))
-            _b["timezone"] = _geo["timezone"]
-            _b["language"] = _geo["language"]
-            _b["languages"] = _geo["languages"]
-            diag["geo"] = f"{_geo['country']}/{_geo['timezone']}"
+            _geo = geo_profile_for_proxy(resolved.session_url or "", ipinfo=resolved.ipinfo)
+            if _geo:
+                session.accept_language = _geo["language"]
+                _b = cfg.setdefault("browser", {})
+                _geo_saved = (_b.get("timezone"), _b.get("language"), _b.get("languages"))
+                _b["timezone"] = _geo["timezone"]
+                _b["language"] = _geo["language"]
+                _b["languages"] = _geo["languages"]
+                diag["geo"] = f"{_geo['country']}/{_geo['timezone']}"
+        else:
+            diag["geo"] = "skip(probe_failed)"
     except Exception:
         pass
     try:
@@ -713,7 +721,7 @@ def register_account(
             new_sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
             proxy_url = re.sub(r"-sid-[^-]+-t-", f"-sid-{new_sid}-t-", proxy_url, count=1)
             last_diag["retry_sid"] = att + 1
-            logger.warning("  [retry] 换新 sid 重试 (1/2)", att + 2)
+            logger.warning("  [retry] 换新 sid 重试 (%d/2)", att + 1)
             time.sleep(1)
         except _SoFailed as exc:
             return RegistrationResult(RegisterOutcome.SO_FAILED, email, {"reason": str(exc)[:150]})

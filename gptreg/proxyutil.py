@@ -235,6 +235,10 @@ class ResolvedProxy:
     sid: str = ""
     # 探活时拿到的出口 ipinfo(country/timezone), Geo 对齐复用, 省单独 Geo 查询(+2s/号)
     ipinfo: dict = field(default_factory=dict)
+    # 隧道探活是否通过(默认 True)。3 次探活均失败时置 False: 调用方应跳过 Geo 查询
+    # (坏隧道查 ipwho.is 必失败, 半开黑洞可等 ~150s), 直接回退默认画像/靠注册链首请求
+    # 失败换 sid 重试, 新隧道再正常 Geo。
+    probe_ok: bool = True
 
     def label(self) -> str:
         base = proxy_label(self.upstream_url or self.session_url)
@@ -301,8 +305,10 @@ def resolve_proxy(cfg: dict[str, Any], override: str | None = None) -> ResolvedP
             except Exception:
                 pass
             logger.warning("[Proxy] 隧道探活失败 (attempt %s), 重建中", attempt + 1)
-        # 3 次都失败: 返回最后一个(注册链会按 outcome 失败重试)
+        # 3 次都失败: 返回最后一个(注册链会按 outcome 失败重试), 标记探活失败——
+        # 调用方据此跳过 Geo 查询(坏隧道查 ipwho.is 必失败, 黑洞白等 ~150s)
         logger.error("[Proxy] 隧道 3 次探活均失败, 返回最后隧道")
+        rp.probe_ok = False
         return rp
     return ResolvedProxy(session_url=upstream, upstream_url=upstream, region=region, sid=sid)
 
