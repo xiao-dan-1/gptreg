@@ -1,6 +1,7 @@
 # ✨ GPTReg
 
 > **纯协议实现**的 ChatGPT / OpenAI 账号自动注册工具——产出带 `totp_secret` 的**真 2FA 账号**（`mfa_enabled: true`），可用密码 + TOTP 正常登录。
+> **纯协议最终正解**（2026-08-13 实证）：**密码模式(user/register 设密码) + vm so(模拟行为 simulate_behavior) + TOTP + recovery key + relogin 续命**——全程零浏览器、账号可长活，无需真浏览器采集 so。
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue)
@@ -85,17 +86,17 @@ python main.py export       # 导出 email----password----2fa 交付
 
 ```bash
 # ① 注册：批量注册，--workers 并发线程（建议 ≤ 可用代理数）
-#   主路线(batch_totp)：browser 真 so + 密码 + TOTP，账号长活（推荐生产）
+#   主路线(batch_totp)：密码模式 + browser 真 so + TOTP，账号长活（推荐生产）
 python capture/tools/batch_totp.py --pool icloud --limit N --workers M
-#   纯协议路线(main.py register)：quickjs vm so，无浏览器，最快建号
-#   （账号 ~30min 短活；配 enable_totp/enable_password 可产出 password+2fa）
+#   纯协议路线(main.py register)：密码模式 + quickjs vm so(模拟行为)，零浏览器、可长活
 python main.py register -n N --sentinel-source quickjs --pool icloud
 
 # ② 测活：批量测活，回写 health_status，每 8 个换出口 IP
 python main.py survival --source icloud
 
-# ③ 续期：access_token 续期（实测 ~6h 过期，见 FAQ）
+# ③ 续期：access_token 续期；账号到期用 relogin 重登(password+TOTP 换新 token，不依赖存量 cookie)
 python main.py refresh
+python main.py relogin --email 完整邮箱      # password+TOTP 重登续命（更稳，见 FAQ）
 
 # ④ 导出：常用方式(完整参数见"📦 账号输出与交付")
 #   --filter alive = 只导存活的账号(测活 health_status=ok, 排除吊销/过期的)
@@ -210,8 +211,9 @@ python main.py export --source icloud --filter alive --with-at --out deliver_icl
 - 共享收码源（CloudMail admin）并发 ≤2，独立收码（iCloud URL/Outlook IMAP）可高并发
 
 **Q6. ⚡ 为什么有两个注册入口（batch_totp / main.py register）？**
-- `batch_totp.py`（主路线）：browser 真 so + 密码 + TOTP，账号**长活**（实测 8h+），推荐生产
-- `main.py register --sentinel-source quickjs`（纯协议路线）：**无浏览器**，单账号 ~26s，但 vm so（行为字段空）账号 **~30min 被吊销**——只够"短窗建号/实验"；配 `enable_totp`/`enable_password` 可产出 `email----password----2fa` 全凭据（研究已端到端验证）
+- `batch_totp.py`（主路线）：密码模式 + browser 真 so + TOTP，账号**长活**（实测 8h+），推荐生产
+- `main.py register --sentinel-source quickjs`（纯协议路线）：**零浏览器**，密码模式 + quickjs vm so（**默认派发模拟行为事件 simulate_behavior**，so 带行为字段 ≈ 浏览器）→ **账号可长活**（2026-08-13 实证 2/2 活，无需真浏览器）；配 `enable_totp`/`enable_password` 可产出 `email----password----2fa` 全凭据
+- **纯协议正解关键**：vm so 必须**派发行为事件**（`simulate_behavior`，默认开）才带行为字段；且**绝不派发 paste**（"合成输入"判别特征）。行为字段空的 vm so 账号会被吊销（历史"~30min 死"的真相）
 - 补充：纯协议补密码走 `auth.openai.com/api/accounts/password/add`，signin 须带 `post_login_add_password=true`
 
 ---
@@ -230,22 +232,25 @@ python main.py export --source icloud --filter alive --with-at --out deliver_icl
   └─ save_account → accounts.jsonl
 ```
 
-### 纯协议路线（main.py register，无浏览器）
+### 纯协议路线（main.py register / batch_totp，零浏览器）
 
-> 研究验证（2026-08）：OTP-only 注册 → 补密码 → TOTP，全程纯 HTTP 无浏览器。
+> 研究验证（2026-08）：**密码模式(user/register 设密码) + vm so(模拟行为) + TOTP + recovery + relogin**，全程纯 HTTP 零浏览器。
 
 ```
-signin → authorize → 邮箱 OTP → create_account(quickjs vm so)
+signin → register(user/register 设密码, username_password_create 无 SO) → 重发码
+→ 邮箱 OTP → create_account(quickjs 真 t + vm so[默认派发模拟行为 simulate_behavior])
 → callback → session → 健康检查
 → mfa/enroll → activate_enrollment        [enable_totp=true]
-→ reauth 补密码(post_login_add_password=true → 邮箱 OTP → password/add)  [enable_password=true]
-→ save_account → accounts.jsonl  (产出 email----password----2fa)
+→ recovery key(recovery_code 因子)        [纯协议 2FA 防锁死]
+→ save_account → accounts.jsonl  (产出 email----password----totp----recovery_key)
 ```
 
-- **优势**：无 Chrome/无 so 采集，单账号 ~26s，省内存可高并发
-- **短板**：vm so（行为字段空）账号 **~30min 被吊销**，只够"短窗建号/实验"；长活需主路线 browser so
+- **⭐ 纯协议正解（2026-08-13 实证）**：密码模式 + vm so（**派发行为事件 simulate_behavior，默认开**）→ **账号可长活**（实测 2/2 活，无需真浏览器）。行为字段空的 vm so（不派发事件）才会被吊销——历史"~30min 短活"是行为字段空的真相
+- **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生（防批量雷同）；语言/时区随出口 IP（防设备指纹矛盾）→ 账号"更像真人"，**试用资格概率提升**（实测 0% → ~43%）
+- **recovery key**：`recovery_code` 因子，30 字符 key，激活时提交整个 key；防 TOTP 锁死
+- **relogin 续命**：password+TOTP 重登换新 token，不依赖存量 cookie（对比 refresh 依赖 session_cookies）
 - **关键参数**：补密码走 `auth.openai.com/api/accounts/password/add`，signin 必须带 `post_login_add_password=true`（否则 invalid_auth_step）
-- **用途**：快速批量建号（短活实验/无密码+TOTP 交付）；生产长活用主路线
+- **用途**：零浏览器快速建号 + 可长活 + 完整 2FA（TOTP+recovery），配 relogin 续命
 
 ### Sentinel 策略（产真 t + 真 so）
 
@@ -307,8 +312,9 @@ output/                        成功账号(accounts.jsonl)
 - **邮箱状态冲突（不可重入）**：`invalid_auth_step`/`Invalid authorization` = 邮箱已推进注册（OTP 已消费/密码已设），重跑必 400，换 IP 无效——批量下自动弃用
 - **已推进邮箱不可重跑**：register/OTP 之后的失败（so/create/session/enroll）= 已推进，批量下弃用
 - **邮箱级风控**：同一邮箱多次失败会被 OpenAI 记住，换 IP 无效（勿反复试）
-- **so 失败中止**：无 so 账号必死（实测 2/2 吊销），so 采集失败重试 3 次仍无则中止，不白建号
-- **两条路线存活差异**：主路线 browser so 账号长活（实测 8h+）；纯协议路线 vm so 账号 ~30min 吊销（只够短窗建号/实验，不产长活号）
+- **so 真实性**：行为字段空的 so 账号被吊销；vm so 必须**派发行为事件（simulate_behavior，默认开）**才带行为字段 ≈ 浏览器；**绝不派发 paste**（"合成输入"判别特征，register-kit 踩坑）
+- **两条路线存活**：主路线（browser 真 so）长活（实测 8h+）；**纯协议路线（密码模式 + vm so 模拟行为）实证可长活**（2026-08-13 2/2 活），无需真浏览器
+- **指纹/Geo 画像**：账号指纹按账号差异化派生 + 语言/时区随出口 IP → 防批量雷同/设备指纹矛盾，试用资格概率提升（0% → ~43%）
 - **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
 - **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才注册成功
