@@ -118,24 +118,45 @@ def _run_action(
     return json.loads(out)
 
 
+# 确定性指纹池(register-kit FingerprintProfile 借鉴): 按账号派生, 异账号各异、防批量雷同
+_FP_SCREENS = [(1920, 1080), (1536, 864), (1366, 768), (1600, 900), (2560, 1440), (1440, 900)]
+_FP_CORES = [4, 6, 8, 12, 16]
+_FP_MEM = [8, 16]
+
+
 def _fingerprint_payload(cfg: dict[str, Any], device_id: str, sv: str) -> dict:
-    """真实浏览器指纹（与 config.browser 一致），供 installRuntime 用。
+    """真实浏览器指纹，供 installRuntime 用。
+
+    ⭐ register-kit 借鉴: screen/cores/memory 按 device_id 确定性派生(池内 seeded 选择),
+    同一账号稳定、不同账号各异 —— 避免批量注册指纹雷同被 OpenAI 聚类识别。
+    config.browser 显式指定的值优先(覆盖派生)。
 
     time_origin 由调用方按「一次注册」计算一次、两次动作（requirements/solve）
     复用同一值 —— 真浏览器 timeOrigin 是页面加载常数（A3 修复）。
     """
+    import hashlib
+
     b = cfg.get("browser", {}) or {}
     languages = str(b.get("languages", "en-US,en") or "en-US,en").split(",")
+    # 确定性派生(同 device_id → 同指纹; 不同 device_id → 各异)
+    _seed = int(hashlib.md5(str(device_id or "").lower().encode()).hexdigest()[:8], 16)
+    _rng = random.Random(_seed)
+    if b.get("screen_width") and b.get("screen_height"):
+        sw, sh = int(b["screen_width"]), int(b["screen_height"])
+    else:
+        sw, sh = _rng.choice(_FP_SCREENS)
+    cores = int(b.get("hardware_concurrency") or 0) or _rng.choice(_FP_CORES)
+    mem = int(b.get("device_memory") or 0) or _rng.choice(_FP_MEM)
     # 页面加载到产 token 的真实耗时（真浏览器实测 5-12s），性能时钟从该偏移起算。
     # 一次注册固定（requirements/solve 复用同一 fp）。
     elapsed = int(b.get("page_elapsed_ms", 0) or 0) or random.randint(3000, 15000)
     return {
         "device_id": device_id,
         "user_agent": b.get("user_agent", ""),
-        "screen_width": int(b.get("screen_width", 1920)),
-        "screen_height": int(b.get("screen_height", 1080)),
-        "hardware_concurrency": int(b.get("hardware_concurrency", 16)),
-        "device_memory": int(b.get("device_memory", 16) or 16),
+        "screen_width": sw,
+        "screen_height": sh,
+        "hardware_concurrency": cores,
+        "device_memory": mem,
         "max_touch_points": int(b.get("max_touch_points", 10) or 10),
         "language": b.get("language", "en-US"),
         "languages": [x.strip() for x in languages if x.strip()] or ["en-US"],

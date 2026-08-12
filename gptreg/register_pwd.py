@@ -481,6 +481,23 @@ def _register_chain(
     # setup_s: 隧道建立+会话初始化(在 st.start 之前, 故归入独立段, 不污染 signin 段)。
     # 隧道探活失败重建时偏大——IP 排查有价值(段外开销归因, 收窄"段和 vs 墙钟"差额)。
     diag: dict[str, Any] = {"setup_s": round(time.time() - _setup_t0, 1)}
+    # ⭐ Geo 对齐(register-kit 借鉴): 出口 IP → 语言/时区, 防"时区/语言与出口地理位置
+    # 对不上"被风控当设备指纹矛盾。会话语言 + 临时 cfg 时区(指纹用), 注册完恢复。
+    _geo_saved: tuple | None = None
+    try:
+        from gptreg.proxyutil import geo_profile_for_proxy
+
+        _geo = geo_profile_for_proxy(resolved.session_url or "")
+        if _geo:
+            session.accept_language = _geo["language"]
+            _b = cfg.setdefault("browser", {})
+            _geo_saved = (_b.get("timezone"), _b.get("language"), _b.get("languages"))
+            _b["timezone"] = _geo["timezone"]
+            _b["language"] = _geo["language"]
+            _b["languages"] = _geo["languages"]
+            diag["geo"] = f"{_geo['country']}/{_geo['timezone']}"
+    except Exception:
+        pass
     try:
         final = _stage_signin(session, email, diag)
         reg, send_url = _stage_register(session, cfg, email, password, final, st, diag)
@@ -510,6 +527,11 @@ def _register_chain(
                 pass
         resolved.close()
         raise
+    finally:
+        # 恢复 cfg.browser(geo 临时覆盖), 避免影响其他账号/worker
+        if _geo_saved is not None:
+            _b = cfg.get("browser") or {}
+            _b["timezone"], _b["language"], _b["languages"] = _geo_saved
 
 
 def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, Any]) -> dict[str, Any]:

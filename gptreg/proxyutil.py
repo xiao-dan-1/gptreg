@@ -586,6 +586,50 @@ class StickyChainTunnel:
 
 
 
+# 国家 → (语言, languages, 标准时区) —— Geo 对齐(register-kit GeoProfile 借鉴)
+_GEO_LOCALE: dict[str, tuple[str, str, str]] = {
+    "US": ("en-US", "en-US,en;q=0.9", "America/Los_Angeles"),
+    "JP": ("ja-JP", "ja-JP,ja;q=0.9,en-US;q=0.8", "Asia/Tokyo"),
+    "SG": ("en-SG", "en-SG,en;q=0.9", "Asia/Singapore"),
+    "HK": ("zh-HK", "zh-HK,zh;q=0.9,en-US;q=0.8", "Asia/Hong_Kong"),
+    "TW": ("zh-TW", "zh-TW,zh;q=0.9,en-US;q=0.8", "Asia/Taipei"),
+    "KR": ("ko-KR", "ko-KR,ko;q=0.9,en-US;q=0.8", "Asia/Seoul"),
+    "GB": ("en-GB", "en-GB,en;q=0.9", "Europe/London"),
+    "DE": ("de-DE", "de-DE,de;q=0.9,en-US;q=0.8", "Europe/Berlin"),
+    "FR": ("fr-FR", "fr-FR,fr;q=0.9,en-US;q=0.8", "Europe/Paris"),
+    "NL": ("nl-NL", "nl-NL,nl;q=0.9,en-US;q=0.8", "Europe/Amsterdam"),
+    "CA": ("en-CA", "en-CA,en;q=0.9,fr-CA;q=0.8", "America/Toronto"),
+}
+
+
+def geo_profile_for_proxy(proxy_url: str, timeout: int = 15) -> dict[str, str]:
+    """查代理出口 IP 的地理画像(国家/语言/时区), 失败回退 US。
+
+    register-kit GeoProfile 借鉴: 语言/时区随出口 IP, 避免"时区/语言与出口地理位置
+    对不上"被风控当设备指纹矛盾。调用方在注册时查一次, 贯穿整条注册链。
+    返回 {country, language, languages, timezone, ip}。
+    """
+    from curl_cffi.requests import Session
+
+    out = {"country": "US", "language": "en-US", "languages": "en-US,en;q=0.9",
+           "timezone": "America/Los_Angeles", "ip": ""}
+    s = Session(impersonate="chrome142", verify=False)
+    if proxy_url:
+        s.proxies = {"http": proxy_url, "https": proxy_url}
+    try:
+        r = s.get("https://ipwho.is/", timeout=timeout)
+        d = r.json() if r.status_code == 200 else {}
+        cc = str(d.get("country_code") or "US").upper()
+        out["country"] = cc
+        out["ip"] = str(d.get("ip") or "")
+        lang, langs, tz = _GEO_LOCALE.get(cc, ("en-US", "en-US,en;q=0.9", "America/Los_Angeles"))
+        out["language"], out["languages"], out["timezone"] = lang, langs, tz
+        logger.info("[Geo] 出口 %s → %s  lang=%s tz=%s", out["ip"], cc, lang, tz)
+    except Exception as exc:
+        logger.warning("[Geo] 查询失败(%s), 回退 US", str(exc)[:60])
+    return out
+
+
 def probe_proxy(session_url: str, timeout: int = 20) -> dict[str, Any]:
     """探测出口 IP。"""
     from curl_cffi.requests import Session
