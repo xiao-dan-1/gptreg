@@ -269,6 +269,9 @@ def get_sentinel_token_via_quickjs(
         "request_p": request_p,
         "challenge": challenge,
         "flow": flow,
+        # 2026-08-12 对齐 register-kit: 产 so 前派发行为事件(vm so 带行为字段,
+        # 否则行为空 → 服务端标记)。QJS_SIMULATE=0 可关。
+        "simulate_behavior": os.environ.get("QJS_SIMULATE") != "0",
     })
     # 种子注入（QJS_SEED=1 时）：浏览器采集的 rctx/localStorage/字体真值
     seed = _seed_extra()

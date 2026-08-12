@@ -968,3 +968,23 @@ register_pwd 加 `protocol.sentinel_so_source`(browser/quickjs/none)支持 so �
 - "so 无关"是刚注册基线(1-2h)的假象, 观察拉长后 browser so 稳定性显现
 - **生产正解: 密码模式(register_pwd) + browser 真 so** —— 两个都必须
   (这其实回到 08-11 实践: quickjs_pwd_v3 + browser so 长活)
+
+### ⭐⭐⭐⭐ 纯协议最终正解: vm so + 模拟行为 + 密码模式(2026-08-12)
+
+**register-kit 分析启发**(`资料/register-kit`, 同类型项目):
+- 它的 vm so 被接受无封号, 因为它产 so 前 **派发人类行为事件**
+  (init → 派发事件 → sessionObserverToken), so 带行为字段(2882-2906B vs 不派发 2774B)
+- 注释: **★绝不派发 paste★ —— 粘贴/一次性填充是"合成输入"判别特征**
+
+**我们 quickjs 适配器早有 simulateBehavior**(鼠标轨迹/滚轮/scroll/keydown/click),
+但 **默认没启用**(simulate_behavior 默认 false → 行为字段空 → 死); 且派发了 paste。
+
+**修复**:
+- `sentinel_quickjs.py`: solve_payload 默认 `simulate_behavior: true`(QJS_SIMULATE=0 可关)
+- 适配器 `openai_sentinel_quickjs.js`: 去掉 paste 事件(合成输入特征)
+
+**验证**:
+- vm so 解码: 369 bytes 非零 **364 ≈ 浏览器(365)**, 远超空行为(299)
+- **密码模式 + vm so(带行为)注册: DisbroNelly812 me=200 活!**
+- → **纯协议(无真浏览器)完整可行**: 密码模式(user/register) + vm so(模拟行为), 不需要 browser so!
+- 之前"vm so 必死/必须 browser so" = 行为字段空(没派发事件)的假象

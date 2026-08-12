@@ -805,7 +805,7 @@ async function simulateBehavior() {
   await wait(100);
   fire("click", { type: "click", clientX: 505, clientY: 400, button: 0, timeStamp: performance.now() });
   await wait(100);
-  fire("paste", { type: "paste", timeStamp: performance.now() });
+  // 2026-08-12 对齐 register-kit: ★绝不派发 paste★ —— 粘贴/一次性填充是"合成输入"判别特征
   fire("message", { type: "message", timeStamp: performance.now() });
 }
 
