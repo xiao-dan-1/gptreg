@@ -535,6 +535,42 @@ def _register_chain(
             _b["timezone"], _b["language"], _b["languages"] = _geo_saved
 
 
+def _enroll_recovery_now(session: BrowserSession, at: str, device_id: str, timeout: int = 30) -> dict:
+    """开 recovery key(防 TOTP 锁死): enroll recovery_code → activate(提交整个 key)。
+
+    2026-08-12 研究确认的纯协议流程(register_otp 已验证):
+      POST mfa/enroll {"factor_type": "recovery_code"} → {secret: <30字符key>, session_id, factor}
+      POST mfa/user/activate_enrollment {code: <整个key>, ...} → success(必须提交整个 key,
+      不是 TOTP 码/前6位——那都会 Invalid code)。
+    返回 {"recovery_key": str, "recovery_enrolled": bool}。
+    """
+    try:
+        h = session.chatgpt_headers(referer="https://chatgpt.com/settings/security")
+        h["authorization"] = f"Bearer {at}"
+        h["oai-device-id"] = device_id
+        h["content-type"] = "application/json"
+        resp = session.post(ENROLL_URL, headers=h, data=json.dumps({"factor_type": "recovery_code"}), timeout=timeout)
+        if resp.status_code != 200:
+            logger.warning("[TOTP/recovery] enroll HTTP %s: %s", resp.status_code, (resp.text or "")[:150])
+            return {"recovery_key": "", "recovery_enrolled": False}
+        ej = resp.json()
+        key = str(ej.get("secret") or "")
+        session_id = ej.get("session_id")
+        factor_id = (ej.get("factor") or {}).get("id")
+        if not (key and session_id and factor_id):
+            logger.warning("[TOTP/recovery] enroll 缺 key/session/factor")
+            return {"recovery_key": "", "recovery_enrolled": False}
+        resp2 = session.post(ACTIVATE_URL, headers=h, data=json.dumps({
+            "code": key, "session_id": session_id,
+            "factor_id": factor_id, "factor_type": "recovery_code"}), timeout=timeout)
+        ok = resp2.status_code == 200 and '"success":true' in (resp2.text or "")
+        logger.info("[TOTP/recovery] activate HTTP %s ok=%s", resp2.status_code, ok)
+        return {"recovery_key": key if ok else "", "recovery_enrolled": ok}
+    except Exception as exc:
+        logger.warning("[TOTP/recovery] enroll 异常: %s", str(exc)[:100])
+        return {"recovery_key": "", "recovery_enrolled": False}
+
+
 def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, Any]) -> dict[str, Any]:
     """用注册会话开 TOTP 2FA(enroll→activate), 复用注册隧道(不双重建 resolved)。"""
     try:
@@ -572,7 +608,14 @@ def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, An
                 logger.warning("  [enroll] mfa_info 查询失败: %s", str(exc)[:60])
         if not activated:
             raise _EnrollFailed("activate_enrollment 未确认 mfa_enabled=true")
-        return {"totp_secret": enroll_secret, "totp_enrolled": True}
+        # 同步开 recovery key(防 TOTP 锁死; 需 fresh token, 刚激活 TOTP 满足)
+        recovery = _enroll_recovery_now(session, reg["at"], reg["device_id"])
+        return {
+            "totp_secret": enroll_secret,
+            "totp_enrolled": True,
+            "recovery_key": recovery.get("recovery_key") or "",
+            "recovery_enrolled": bool(recovery.get("recovery_enrolled")),
+        }
     except _EnrollFailed:
         raise
     except Exception as exc:
@@ -741,6 +784,7 @@ def _partial_record(reg, email, password, name, bday, mail_main, status, mail_ty
 def _build_record(reg, email, password, name, bday, mail_main, totp, health_s=None, enroll_s=None, mail_type="") -> dict[str, Any]:
     rec = _partial_record(reg, email, password, name, bday, mail_main, "ok", mail_type=mail_type)
     rec["totp_secret"] = totp["totp_secret"]
+    rec["recovery_key"] = totp.get("recovery_key") or ""   # 30字符 key, 防 TOTP 锁死(恢复因子)
     rec["sentinel_obs"] = {
         "challenge_mode": "quickjs_pwd_v3",
         "create_has_so": reg["has_so"],
@@ -749,6 +793,7 @@ def _build_record(reg, email, password, name, bday, mail_main, totp, health_s=No
         "flow": FLOW_PWD,
         "create_flow": FLOW_OAUTH,
         "totp_enrolled": True,
+        "recovery_enrolled": bool(totp.get("recovery_enrolled")),
         "health_s": health_s,   # 秒封检测耗时(段增量), 便于 2FA 激活/存活耗时分析
         "enroll_s": enroll_s,   # 2FA enroll→activate 耗时(段增量)
     }

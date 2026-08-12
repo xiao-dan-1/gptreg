@@ -18,7 +18,7 @@
 - **vm so 必须派发行为事件**（`simulate_behavior`，sentinel_quickjs.py 默认开）才带行为字段 ≈ 浏览器；**绝不派发 paste**（合成输入判别特征）
 - 行为字段空的 vm so 账号被吊销——历史"~30min 短活"是行为字段空的真相
 - 注册命令：`python capture/tools/batch_totp.py --pool <号池> --limit N --workers M`（纯协议正解）
-- 产出：`email----password----totp_secret`（register_pwd 未集成 recovery_key，register_otp 有）
+- 产出：`email----password----totp_secret----recovery_key`（register_pwd 已集成 recovery_key，08-13 端到端验证 30字符 落盘）
 
 **其他关键能力（均已落地）**：
 - **relogin 续命**：`python main.py relogin --email <完整邮箱>`——password+TOTP 重登换新 token（signin 去 `ext-passkey-client-capabilities=1111`）
@@ -52,8 +52,8 @@
 
 ## 五、待办（下次可选）
 
-1. **纯协议组存活观察**（当前主线）：等跨 7.9h 判定点
-2. **register_pwd 集成 recovery_key**（对齐 register_otp，产出完整 4 段）
+1. **纯协议组存活观察**（当前主线）：等跨 7.9h 判定点（≈08-13 07:45，cron 自动测）
+2. ~~register_pwd 集成 recovery_key~~ ✅ 已完（08-13 端到端验证，产出 4 段 `email----password----totp----recovery`）
 3. **收码优化**：Outlook XDAuv 服务波动（并发建议 ≤2），cloudmail 收码快可高并发
 4. **主工作树同步**：config 改了 `sentinel_source/so_source/pool_size/max_wait/chain_via=7890` 等，记得同步主工作树
 5. **号池**：100 个新买 Outlook 号（部分已用），iCloud 号源待补充（资格概率更好）
