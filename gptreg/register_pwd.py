@@ -488,7 +488,7 @@ def _register_chain(
     try:
         from gptreg.proxyutil import geo_profile_for_proxy
 
-        _geo = geo_profile_for_proxy(resolved.session_url or "")
+        _geo = geo_profile_for_proxy(resolved.session_url or "", ipinfo=resolved.ipinfo)
         if _geo:
             session.accept_language = _geo["language"]
             _b = cfg.setdefault("browser", {})

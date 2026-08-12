@@ -18,7 +18,7 @@ import string
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
@@ -233,6 +233,8 @@ class ResolvedProxy:
     chain: "StickyChainTunnel | None" = None
     region: str = ""
     sid: str = ""
+    # 探活时拿到的出口 ipinfo(country/timezone), Geo 对齐复用, 省单独 Geo 查询(+2s/号)
+    ipinfo: dict = field(default_factory=dict)
 
     def label(self) -> str:
         base = proxy_label(self.upstream_url or self.session_url)
@@ -294,6 +296,7 @@ def resolve_proxy(cfg: dict[str, Any], override: str | None = None) -> ResolvedP
                 if info.get("status") == 200 and info.get("ip"):
                     if attempt > 0:
                         logger.warning("[Proxy] 隧道探活失败重建成功 (attempt %s)", attempt + 1)
+                    rp.ipinfo = info.get("ipinfo") or {}  # Geo 对齐复用探活 ipinfo(省单独查询)
                     return rp
             except Exception:
                 pass
@@ -602,17 +605,32 @@ _GEO_LOCALE: dict[str, tuple[str, str, str]] = {
 }
 
 
-def geo_profile_for_proxy(proxy_url: str, timeout: int = 15) -> dict[str, str]:
+def geo_profile_for_proxy(proxy_url: str, ipinfo: dict | None = None, timeout: int = 15) -> dict[str, str]:
     """查代理出口 IP 的地理画像(国家/语言/时区), 失败回退 US。
 
     register-kit GeoProfile 借鉴: 语言/时区随出口 IP, 避免"时区/语言与出口地理位置
     对不上"被风控当设备指纹矛盾。调用方在注册时查一次, 贯穿整条注册链。
+    ipinfo: 隧道探活已拿到的 ipinfo(country/timezone), 有则**复用不查 ipwho.is**(省 ~2s/号)。
     返回 {country, language, languages, timezone, ip}。
     """
-    from curl_cffi.requests import Session
-
     out = {"country": "US", "language": "en-US", "languages": "en-US,en;q=0.9",
            "timezone": "America/Los_Angeles", "ip": ""}
+
+    # 优先复用探活 ipinfo(隧道探活 probe_proxy 已拿 ipinfo.io country/timezone)
+    if isinstance(ipinfo, dict) and ipinfo.get("country"):
+        cc = str(ipinfo["country"]).upper()
+        out["country"] = cc
+        out["ip"] = str(ipinfo.get("ip") or "")
+        lang, langs, _ = _GEO_LOCALE.get(cc, ("en-US", "en-US,en;q=0.9", "America/Los_Angeles"))
+        out["language"], out["languages"] = lang, langs
+        _tz = str(ipinfo.get("timezone") or "")
+        out["timezone"] = _tz or _GEO_LOCALE.get(cc, ("en-US", "", "America/Los_Angeles"))[2]
+        logger.info("[Geo] 复用探活 %s → %s  lang=%s tz=%s", out["ip"], cc, lang, out["timezone"])
+        return out
+
+    # 无 ipinfo: 查 ipwho.is 兜底(隧道探活没拿到 ipinfo 时)
+    from curl_cffi.requests import Session
+
     s = Session(impersonate="chrome142", verify=False)
     if proxy_url:
         s.proxies = {"http": proxy_url, "https": proxy_url}
@@ -715,6 +733,7 @@ class ProxyPool:
                     return ResolvedProxy(
                         session_url=tunnel.local_url, upstream_url=upstream,
                         chain=tunnel, region=region, sid=sid,
+                        ipinfo=info.get("ipinfo") or {},  # Geo 对齐复用探活 ipinfo
                     )
                 last = f"探活 status={info.get('status')} ip={info.get('ip')}"
             except Exception as exc:
