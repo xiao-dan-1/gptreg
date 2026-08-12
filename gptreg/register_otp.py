@@ -353,6 +353,7 @@ def register_one(
         _from_pool = False
     session = BrowserSession(cfg, proxy=resolved.session_url)
     session._proxy_label = resolved.label()
+    _fail_bucket: str | None = None  # 失败桶(池模式下 finally 据此 discard 坏隧道)
     create_acked = False
     create_attempts_log: list[dict[str, Any]] = []
 
@@ -712,6 +713,7 @@ def register_one(
             partial["create_attempts"] = create_attempts_log
         bucket = classify_result(partial)
         partial["fail_bucket"] = bucket
+        _fail_bucket = bucket  # 供 finally 判断(代理类失败→坏隧道丢弃)
         if bucket == "create_disallow":
             partial["mailbox_note"] = "create_disallow_not_mailbox_ban"
         # 失败也要带阶段耗时：定位是 OTP 卡住 / TLS / create 拒建 / 登录态
@@ -733,7 +735,12 @@ def register_one(
         return partial
     finally:
         if _from_pool:
-            proxy_pool.release(resolved)
+            # 代理类失败(隧道超时/断连)→ 坏隧道丢弃+补建(池自愈), 不归还污染池;
+            # 其他失败(收码/create/邮箱)→ 隧道本身没问题, 正常归还。
+            if _fail_bucket in ("tls_ssl", "proxy"):
+                proxy_pool.discard(resolved)
+            else:
+                proxy_pool.release(resolved)
         else:
             resolved.close()
         try:
@@ -904,4 +911,13 @@ def run_batch(
         logger.info("[批量] 代理池已关闭")
     summary = summarize_buckets(results)
     logger.info("[汇总/分桶] %s", format_bucket_summary(summary))
+    # 代理质量提示: 大量 tls_ssl/proxy 失败 → 隧道不稳, 建议换代理或降级
+    if results:
+        _pf = sum(1 for r in results if r.get("fail_bucket") in ("tls_ssl", "proxy"))
+        if _pf / len(results) > 0.3:
+            logger.warning(
+                "[批量] 代理类失败 %s/%s (%.0f%%)——隧道不稳(常见于动态住宅代理节点波动)。"
+                "建议: ①换高并发稳定代理 ②pool_size 调小(2-3) ③低频用 --proxy 10808 直连(单 IP)",
+                _pf, len(results), 100.0 * _pf / len(results),
+            )
     return results

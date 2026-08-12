@@ -707,10 +707,27 @@ class ProxyPool:
             self._cond.notify()
 
     def discard(self, rp: ResolvedProxy | None) -> None:
-        """丢弃一条(注册失败, 隧道可能已坏)——关闭而非归还。"""
+        """丢弃一条(注册失败, 隧道可能已坏)——关闭 + 补建保持池大小。
+
+        代理质量问题自动自愈: 坏隧道不归还污染池, 立即换新 sid 补一条。
+        """
         if rp is None:
             return
         rp.close()
+        with self._cond:
+            if self._closed:
+                return
+            try:
+                # 先移除被丢弃的旧隧道, 再补建一条 → 池大小保持
+                if rp in self._all:
+                    self._all.remove(rp)
+                new_rp = self._build_one()
+                self._all.append(new_rp)
+                self._idle.append(new_rp)
+                self._cond.notify()
+                logger.info("[ProxyPool] 坏隧道已丢弃并补建, size=%s idle=%s", self.size(), self.idle())
+            except Exception as exc:
+                logger.warning("[ProxyPool] 补建失败: %s", str(exc)[:100])
 
     def size(self) -> int:
         return len(self._all)
