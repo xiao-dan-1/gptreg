@@ -10,3 +10,23 @@
 | NO-SO      | RunionsMckelvie737+e41737      | invalidated  | http=401 | 
 | NO-SO      | VanhoozerZieser15+726b9b       | invalidated  | http=401 | 
 
+### Round 1 (age 0.00h, 18:26)
+
+| PWD-MODE   | ScaceSchlarb69+kzweon          | ok           | http=200 | ⭐
+| PWD-MODE   | BralleyWrynn548+k8lnfx         | ok           | http=200 | ⭐
+| PWD-MODE   | KeliaBaptist23+btvdj4          | ok           | http=200 | ⭐
+| PWD-MODE   | ThrelkeldBienvenu50+9g666w     | ok           | http=200 | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0ea2    | invalidated  | http=401 | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c        | ok           | http=200 | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+960711      | invalidated  | http=401 | 
+
+### Round 1 (age 0.00h, 18:26)
+
+| PWD-MODE   | ScaceSchlarb69+kzweon          | ok           | http=200 | ⭐
+| PWD-MODE   | BralleyWrynn548+k8lnfx         | ok           | http=200 | ⭐
+| PWD-MODE   | KeliaBaptist23+btvdj4          | ok           | http=200 | ⭐
+| PWD-MODE   | ThrelkeldBienvenu50+9g666w     | ok           | http=200 | ⭐
+| OTP-ONLY(对照) | JordisonGustavson604+fe0ea2    | invalidated  | http=401 | 
+| OTP-ONLY(对照) | FrentzelTigert02+b7757c        | ok           | http=200 | ⭐
+| OTP-ONLY(对照) | MacholParkhurst998+960711      | http401      | http=401 | 
+

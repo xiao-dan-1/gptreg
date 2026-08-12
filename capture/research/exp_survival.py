@@ -26,9 +26,10 @@ from gptreg.session import BrowserSession  # noqa: E402
 from gptreg.account_store import load_accounts  # noqa: E402
 
 GROUPS = {
-    "VM-SO": ["JordisonGustavson604", "RybkaMysak6041", "LauferDequattro9719"],
-    "BROWSER-SO": ["FrentzelTigert02", "ShethTrumble875", "McnamerFile68"],
-    "NO-SO": ["MacholParkhurst998", "RunionsMckelvie737", "VanhoozerZieser15"],
+    # 密码模式(quickjs_pwd_v3, register_pwd)新号 —— 预期长活(2026-08-12 根因定位后)
+    "PWD-MODE": ["ScaceSchlarb69", "BralleyWrynn548", "KeliaBaptist23", "ThrelkeldBienvenu50"],
+    # 对照: OTP-only create_account(已证 token 吊销) —— 标记死
+    "OTP-ONLY(对照)": ["JordisonGustavson604", "FrentzelTigert02", "MacholParkhurst998"],
 }
 OUT = ROOT / "capture" / "research" / "exp-survival-20260812.md"
 

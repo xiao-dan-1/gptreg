@@ -927,3 +927,9 @@ so 存活对照实验需改方式: 注册 → relogin 换新 token → 再定时
 - **之前所有 OTP-only 的"so 结构墙/存活"实验是模式错误导致的假象**——so 无关, 是 OTP 建号被 OpenAI 标记
 - **纯协议注册正确模式 = 密码模式(register_pwd / batch_totp / quickjs_pwd_v3)**
 - 待确认: 密码模式号的长期存活(当前只观察到 5min+), 及密码模式 × so 的对照
+
+**基线确认(2026-08-12 18:26, 密码模式 4 新号)**:
+- PWD-MODE(quickjs_pwd_v3 + browser so, cliproxy + 新号): **4/4 ok(me=200)** —— 全部活!
+- 对照 OTP-only(除 relogin 过的 Frentzel): 仍 invalidated
+- 定时测活已启动(exp_survival.py --interval 10, 每 10min 一轮)→ exp-survival-20260812.md
+- **密码模式 = token 不被吊销的正确注册模式(so 用 browser 也无妨)**
