@@ -26,11 +26,13 @@ from gptreg.session import BrowserSession  # noqa: E402
 from gptreg.account_store import load_accounts  # noqa: E402
 
 GROUPS = {
-    # 密码模式(quickjs_pwd_v3, register_pwd) × so 对照 —— 全活(2026-08-12)
+    # 密码模式(quickjs_pwd_v3, register_pwd) × so 对照
     "PWD-BROWSER-SO": ["ScaceSchlarb69", "BralleyWrynn548", "KeliaBaptist23", "ThrelkeldBienvenu50"],
     "PWD-VM-SO": ["PatroneVixayack957", "DistaffenBarbor2401"],
     "PWD-NO-SO": ["BarbanoDiehm875", "CowboySoderling10"],
-    # 对照: OTP-only create_account(已证 token 吊销) —— 标记死
+    # ⭐ 纯协议正解: 密码模式 + vm so(模拟行为 simulate_behavior) —— 预期活(2026-08-12 新增)
+    "PWD-VM-SIM(纯协议)": ["DisbroNelly812", "LantelmePascall12"],
+    # 对照: OTP-only create_account(已证 token 吊销)
     "OTP-ONLY(对照)": ["JordisonGustavson604", "FrentzelTigert02", "MacholParkhurst998"],
 }
 OUT = ROOT / "capture" / "research" / "exp-survival-20260812.md"
