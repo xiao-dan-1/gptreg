@@ -257,6 +257,7 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
         try:
             result = _register_with_retry(
                 cfg, account, email, password, display_name, bday, proxy,
+                proxy_pool=proxy_pool,
             )
         finally:
             _account_var.reset(_tok)
@@ -311,6 +312,18 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
             get_pool(cfg).set_pool_size(min(workers, max(1, int((cfg.get("protocol") or {}).get("sentinel_browser_pool_size") or 2))))
         except Exception as exc:
             print(f"[浏览器池] 设池大小失败: {exc}", flush=True)
+    # 动态代理池(纯协议正解): 预建探活过的隧道, 并发各取一条(免每号现场建隧道+探活,
+    # 坏隧道池自愈 discard 换新)。仅并发+非固定代理启用; 串行/固定代理走 resolve_proxy 兼容旧路径。
+    proxy_pool = None
+    if workers > 1 and not proxy:
+        try:
+            from gptreg.proxyutil import ProxyPool
+            _pp_size = int(((cfg.get("proxy") or {}).get("dynamic") or {}).get("pool_size") or 8)
+            proxy_pool = ProxyPool(cfg, size=min(workers * 2, _pp_size))
+            print(f"[代理池] 预建 {proxy_pool.size()} 条隧道(并发 {workers})", flush=True)
+        except Exception as exc:
+            print(f"[代理池] 建池失败(回退每号现场建隧道): {exc}", flush=True)
+            proxy_pool = None
     try:
         if workers <= 1:
             for i, (main, account) in enumerate(batch):
@@ -324,6 +337,11 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
                 for f in futures:
                     results.append(f.result())
     finally:
+        if proxy_pool is not None:
+            try:
+                proxy_pool.close()
+            except Exception:
+                pass
         shutdown_all()
 
     results.sort(key=lambda r: r[0])  # 按提交顺序
@@ -339,15 +357,15 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
     return 0 if n_ok == len(batch) else 1
 
 
-def _register_with_retry(cfg, account, email, password, name, bday, proxy):
+def _register_with_retry(cfg, account, email, password, name, bday, proxy, proxy_pool=None):
     """注册 + IP_BLOCKED 当轮重试 1 次(换 IP 大概率成, 避免直接弃下一轮)。"""
     result = register_account(cfg, account, email=email, password=password,
-                              name=name, bday=bday, proxy=proxy)
+                              name=name, bday=bday, proxy=proxy, proxy_pool=proxy_pool)
     if result.outcome == RegisterOutcome.IP_BLOCKED:
-        # 换 sid 重试一次: register_account 内部已换 sid, 重试是让 IP 风控概率解
+        # 换 sid 重试一次: register_account 内部已换 sid(池模式=换池隧道), 重试是让 IP 风控概率解
         print("  [retry] IP_BLOCKED, 换 IP 重试一次", flush=True)
         result = register_account(cfg, account, email=email, password=password,
-                                  name=name, bday=bday, proxy=proxy)
+                                  name=name, bday=bday, proxy=proxy, proxy_pool=proxy_pool)
     return result
 
 

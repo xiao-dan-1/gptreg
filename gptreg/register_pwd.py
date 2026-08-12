@@ -472,6 +472,7 @@ def _register_chain(
     name: str,
     bday: str,
     proxy_url: str,
+    proxy_pool=None,
 ) -> dict[str, Any]:
     """一次完整注册(signin→register→OTP→create→session), 返回注册凭据或抛分类异常。
 
@@ -479,7 +480,13 @@ def _register_chain(
     统一 diag 累加, 任一段抛分类异常由 register_account 统一归类。
     """
     _setup_t0 = time.time()
-    resolved = resolve_proxy(cfg, override=proxy_url)
+    if proxy_pool is not None:
+        # 池模式: 预建探活过的隧道直接取(免现场建隧道+探活 ~3-5s/号), 坏隧道池自愈
+        resolved = proxy_pool.acquire()
+        _from_pool = True
+    else:
+        resolved = resolve_proxy(cfg, override=proxy_url)
+        _from_pool = False
     session = BrowserSession(cfg, proxy=resolved.session_url)
     st = {"start": time.time()}
     # setup_s: 隧道建立+会话初始化(在 st.start 之前, 故归入独立段, 不污染 signin 段)。
@@ -534,7 +541,15 @@ def _register_chain(
                 exc.diag = dict(diag)  # type: ignore[attr-defined]
             except Exception:
                 pass
-        resolved.close()
+        if _from_pool:
+            # 链中任一段异常: 隧道可能坏(网络)或业务失败——统一丢弃换新隧道
+            # (池自动补建保持大小, 新 IP 对下个号有利), 不归还污染池
+            try:
+                proxy_pool.discard(resolved)
+            except Exception:
+                pass
+        else:
+            resolved.close()
         raise
     finally:
         # 恢复 cfg.browser(geo 临时覆盖), 避免影响其他账号/worker
@@ -678,14 +693,18 @@ def register_account(
     bday: str,
     proxy: str | None = None,
     auto_retry: bool = True,
+    proxy_pool=None,
 ) -> RegistrationResult:
     """执行一次密码注册 + TOTP 2FA, 返回结构化结果。
 
     proxy 空则走 config 动态模板(可换 sid 重试)。register 400: 落 log-in=邮箱已注册、
     invalid_auth_step/Invalid authorization=邮箱状态冲突(状态机不可重入) → 永久弃用;
     仅纯 IP 信誉才换 sid 重试 1 次(反复戳同一邮箱会放大认证请求量, 触发 rate_limit)。
+    proxy_pool: ProxyPool 时从池 acquire 隧道(预建复用, 免每号现场建隧道),
+                坏隧道池自愈(discard 换新), 成功 release 回池; None 走 resolve_proxy 兼容旧路径。
     """
     t0 = time.time()
+    _from_pool = proxy_pool is not None
     proxy_url = proxy
     if not proxy_url:
         proxy_url = build_dynamic_proxy(cfg)
@@ -697,7 +716,8 @@ def register_account(
 
     for att in range(3):
         try:
-            reg, session, resolved = _register_chain(cfg, account, email, password, name, bday, proxy_url)
+            reg, session, resolved = _register_chain(
+                cfg, account, email, password, name, bday, proxy_url, proxy_pool=proxy_pool)
             break
         except _MailRegistered as exc:
             return RegistrationResult(
@@ -716,7 +736,15 @@ def register_account(
             last_diag["attempt"] = att + 1
             logger.warning("  [warn] register 被拒(IP 风控): %s", str(exc)[:70])
             # 仅换 IP 重试 1 次(att=0 → 第二次尝试): 反复戳同一邮箱会放大认证请求量
-            if not auto_retry or att >= 1 or "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
+            if not auto_retry or att >= 1:
+                break
+            if _from_pool:
+                # 池模式: 隧道已在 _register_chain 异常路径 discard, 下一轮 acquire 拿新隧道(新 IP)
+                last_diag["retry_sid"] = att + 1
+                logger.warning("  [retry] 池换隧道重试 (%d/2)", att + 1)
+                time.sleep(1)
+                continue
+            if "-sid-" not in (proxy_url or "") or "-t-" not in (proxy_url or ""):
                 break
             new_sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
             proxy_url = re.sub(r"-sid-[^-]+-t-", f"-sid-{new_sid}-t-", proxy_url, count=1)
@@ -734,6 +762,8 @@ def register_account(
             res, new_url = _session_fail_retry(cfg, exc, email, proxy_url, att, last_diag, auto_retry)
             if res is not None:
                 return res
+            if _from_pool:
+                continue  # 池模式: 隧道已 discard, 下一轮 acquire 换新隧道
             proxy_url = new_url
 
     if reg is None:
@@ -774,7 +804,10 @@ def register_account(
                                   {"reason": str(exc)[:150]}, rec)
     finally:
         if resolved is not None:
-            resolved.close()
+            if _from_pool:
+                proxy_pool.release(resolved)  # 成功/账号已建: 隧道没问题, 归还复用
+            else:
+                resolved.close()
 
 
 def _partial_record(reg, email, password, name, bday, mail_main, status, mail_type="") -> dict[str, Any]:
