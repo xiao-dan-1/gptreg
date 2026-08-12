@@ -622,9 +622,18 @@ def geo_profile_for_proxy(proxy_url: str, timeout: int = 15) -> dict[str, str]:
         cc = str(d.get("country_code") or "US").upper()
         out["country"] = cc
         out["ip"] = str(d.get("ip") or "")
-        lang, langs, tz = _GEO_LOCALE.get(cc, ("en-US", "en-US,en;q=0.9", "America/Los_Angeles"))
-        out["language"], out["languages"], out["timezone"] = lang, langs, tz
-        logger.info("[Geo] 出口 %s → %s  lang=%s tz=%s", out["ip"], cc, lang, tz)
+        # 语言按国家映射(未知国家回退 en-US); 时区优先出口实际值(ipwho.is)
+        lang, langs, _ = _GEO_LOCALE.get(cc, ("en-US", "en-US,en;q=0.9", "America/Los_Angeles"))
+        out["language"], out["languages"] = lang, langs
+        _tz_raw = d.get("timezone")
+        if isinstance(_tz_raw, dict):
+            _tz_actual = str(_tz_raw.get("id") or "")
+        elif isinstance(_tz_raw, str):
+            _tz_actual = _tz_raw
+        else:
+            _tz_actual = ""
+        out["timezone"] = _tz_actual or _GEO_LOCALE.get(cc, ("en-US", "", "America/Los_Angeles"))[2]
+        logger.info("[Geo] 出口 %s → %s  lang=%s tz=%s", out["ip"], cc, lang, out["timezone"])
     except Exception as exc:
         logger.warning("[Geo] 查询失败(%s), 回退 US", str(exc)[:60])
     return out
