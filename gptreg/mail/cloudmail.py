@@ -103,7 +103,13 @@ class CloudMailClient(MailClient):
         )
         d = r.json() if r.status_code == 200 else {}
         if d.get("code") != 200:
-            logger.warning("[CloudMail] 拉邮件失败: %s", str(d)[:120])
+            msg = str(d)[:160]
+            logger.warning("[CloudMail] 拉邮件失败: %s", msg)
+            # 认证类错误(401 / token 过期)快速失败——会话过期不会自愈, 不必等满收码超时。
+            # 实测: bj02 等号曾因 XDAuv admin 会话过期白等 200s, 应立即失败让上层换 IP 重试。
+            code = int(d.get("code") or 0)
+            if code == 401 or "auth" in msg.lower() or "expired" in msg.lower():
+                raise MailClientError(f"cloud_mail 认证失败(会话过期): {msg}")
             return []
         return (d.get("data") or {}).get("list") or []
 
