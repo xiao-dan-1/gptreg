@@ -697,25 +697,32 @@ class ProxyPool:
 
     # ---- 建隧道 ----
     def _build_one(self) -> ResolvedProxy:
-        upstream = build_dynamic_proxy(self.cfg, region=self.region)
-        if not upstream:
-            raise RuntimeError("动态代理未配置(proxy.dynamic.enabled)")
-        dyn = (self.cfg.get("proxy") or {}).get("dynamic") or {}
-        hop1 = ensure_http_proxy_url(dyn.get("chain_via") or "http://127.0.0.1:10808")
-        tunnel = StickyChainTunnel(hop1=hop1, hop2=upstream)
-        tunnel.start()
-        try:
-            info = probe_proxy(tunnel.local_url, timeout=15)
-            if info.get("status") != 200 or not info.get("ip"):
-                raise RuntimeError(f"隧道探活失败: {info.get('status')} ip={info.get('ip')}")
-        except Exception:
+        # 并发建隧道时 cliproxy/动态代理偶发 TLS/探活失败(实测 2 条并发 1 条 TLS 错)。
+        # 探活失败换新 sid 重试(最多 3 次), 否则并发 worker 拿不到隧道就卡住。
+        last = ""
+        for attempt in range(1, 4):
+            upstream = build_dynamic_proxy(self.cfg, region=self.region)
+            if not upstream:
+                raise RuntimeError("动态代理未配置(proxy.dynamic.enabled)")
+            dyn = (self.cfg.get("proxy") or {}).get("dynamic") or {}
+            hop1 = ensure_http_proxy_url(dyn.get("chain_via") or "http://127.0.0.1:10808")
+            tunnel = StickyChainTunnel(hop1=hop1, hop2=upstream)
+            tunnel.start()
+            try:
+                info = probe_proxy(tunnel.local_url, timeout=12)
+                if info.get("status") == 200 and info.get("ip"):
+                    region, sid = _extract_region_sid(upstream)
+                    return ResolvedProxy(
+                        session_url=tunnel.local_url, upstream_url=upstream,
+                        chain=tunnel, region=region, sid=sid,
+                    )
+                last = f"探活 status={info.get('status')} ip={info.get('ip')}"
+            except Exception as exc:
+                last = str(exc)[:80]
             tunnel.close()
-            raise
-        region, sid = _extract_region_sid(upstream)
-        return ResolvedProxy(
-            session_url=tunnel.local_url, upstream_url=upstream,
-            chain=tunnel, region=region, sid=sid,
-        )
+            if attempt < 3:
+                time.sleep(0.5)
+        raise RuntimeError(f"隧道建失败(3次换sid重试): {last}")
 
     def _build(self, size: int) -> None:
         from concurrent.futures import ThreadPoolExecutor

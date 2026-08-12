@@ -280,7 +280,8 @@ def _stage_wait_otp(
     _t0 = time.time()
     mail_cfg = cfg.get("mail", {})
     otp_timeout = int(mail_cfg.get("otp_wait", 150) or 150)
-    otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 2) or 2))
+    # XDAuv 服务端偶发 Login failed(并发/高负载时更频繁), 提高重试容忍度
+    otp_max_attempts = max(1, int(mail_cfg.get("otp_max_attempts", 3) or 3))
     otp, extra = wait_otp_with_retry(
         cfg, account, email=email,
         after_ts=st["start"], proxy_url=proxy_url,
