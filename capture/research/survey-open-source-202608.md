@@ -894,3 +894,22 @@ POST /backend-api/accounts/mfa/user/activate_enrollment
 
 **落地**: register_otp.py 新增 `_enroll_recovery_now`(TOTP 激活后同步开 recovery), `recovery_key` 落盘账号记录。
 **价值**: 注册机账号开 TOTP 后**不再锁死**——丢失验证器可用 recovery key 登录(社区 2023 起的 TOTP 锁死痛点)。
+
+### ⭐ 重大发现:注册 token 吊销 ≠ 账号死(relogin 可恢复)(2026-08-12)
+
+**触发**: so 存活对照实验(Outlook 新买号 + cliproxy 住宅 IP, vm/browser/no so 三组 9 号)。
+注册时 health=ok, **~1min 后全部 token invalidated**(me 401 body "token invalidated", 非 "account deactivated")。
+
+**relogin 验证**(password+TOTP 重登):
+- vm so 号(GravinaHansman4646 / JordisonGustavson604): **重登成功, 新 token me=200 有效**
+- → **账号活, 可恢复; 号源干净, cliproxy 干净**
+
+**认知修正(重要)**:
+- 之前"vm so 账号 26min 必死 / 注册即废" = **token 吊销, 非账号死**(当时无 relogin 工具验证, 误判为死)
+- 纯协议注册账号**可长期用**: 注册 → relogin 换新 token → 续命闭环
+- 401 分两类: `token_invalidated`(可 relogin 恢复) vs `account_deactivated`(真死)
+- 号源/代理(1024proxy vs cliproxy)不是"注册即死"的根因——是注册 token 常态性被吊销
+
+**确认**: browser so 号(FrentzelTigert02)relogin 也成功(此前 403 是 429 限流干扰)。
+→ **三组(so 无关)全部"账号活, 注册 token 吊销可恢复"**。
+so 存活对照实验需改方式: 注册 → relogin 换新 token → 再定时测活(看 so 是否影响新 token 存活)。
