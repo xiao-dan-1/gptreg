@@ -17,6 +17,7 @@ import socket
 import string
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -610,3 +611,118 @@ def probe_proxy(session_url: str, timeout: int = 20) -> dict[str, Any]:
     except Exception:
         pass
     return info
+
+
+class ProxyPool:
+    """动态代理隧道池：预建 N 条不同 sid 的粘性隧道，并发账号各取一条。
+
+    实验(2026-08-12): 8 条并行建 6.6s, 出口 IP 8/8 分散(不同 C 段), sid 粘性 12s+。
+    相比每次 resolve_proxy 现场建隧道(2-5s/次), 池只建一次复用:
+      - 免每次建隧道+探活开销(8 并发省 ~20-30s)
+      - 并发出口数固定可控(避免瞬时 N 个隧道全建)
+      - 账号级出口粘性(sid t-N 分钟)
+
+    用法:
+        pool = ProxyPool(cfg, size=8)
+        rp = pool.acquire()      # ResolvedProxy(含隧道)
+        ... 注册 ...
+        pool.release(rp)         # 归还(隧道复用)
+        pool.close()
+    """
+
+    def __init__(self, cfg: dict[str, Any], size: int = 4, region: str | None = None):
+        self.cfg = cfg
+        self.region = region
+        # FIFO 空闲队列: acquire 从队头拿(popleft), release 追加队尾 —— 轮换使用所有隧道
+        # (LIFO pop 末尾 + append 末尾会永远拿刚归还的同一条, 实测 IP 1/5)
+        self._idle: deque[ResolvedProxy] = deque()
+        self._all: list[ResolvedProxy] = []
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+        self._closed = False
+        self._build(size)
+
+    # ---- 建隧道 ----
+    def _build_one(self) -> ResolvedProxy:
+        upstream = build_dynamic_proxy(self.cfg, region=self.region)
+        if not upstream:
+            raise RuntimeError("动态代理未配置(proxy.dynamic.enabled)")
+        dyn = (self.cfg.get("proxy") or {}).get("dynamic") or {}
+        hop1 = ensure_http_proxy_url(dyn.get("chain_via") or "http://127.0.0.1:10808")
+        tunnel = StickyChainTunnel(hop1=hop1, hop2=upstream)
+        tunnel.start()
+        try:
+            info = probe_proxy(tunnel.local_url, timeout=15)
+            if info.get("status") != 200 or not info.get("ip"):
+                raise RuntimeError(f"隧道探活失败: {info.get('status')} ip={info.get('ip')}")
+        except Exception:
+            tunnel.close()
+            raise
+        region, sid = _extract_region_sid(upstream)
+        return ResolvedProxy(
+            session_url=tunnel.local_url, upstream_url=upstream,
+            chain=tunnel, region=region, sid=sid,
+        )
+
+    def _build(self, size: int) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        built = 0
+        with ThreadPoolExecutor(max_workers=max(1, size)) as ex:
+            futs = [ex.submit(self._build_one) for _ in range(size)]
+            for f in futs:
+                try:
+                    rp = f.result()
+                    self._idle.append(rp)
+                    self._all.append(rp)
+                    built += 1
+                except Exception as exc:
+                    logger.warning("[ProxyPool] 建隧道失败: %s", str(exc)[:100])
+        if built < max(1, size):
+            logger.warning("[ProxyPool] 建池不完整: %s/%s", built, size)
+        logger.info("[ProxyPool] 预建 %s 条隧道(size=%s)", built, size)
+
+    # ---- 领取/归还 ----
+    def acquire(self, timeout: float = 30.0) -> ResolvedProxy:
+        with self._cond:
+            if self._closed:
+                raise RuntimeError("ProxyPool 已关闭")
+            if not self._idle:
+                self._cond.wait(timeout)
+            if self._idle:
+                return self._idle.popleft()
+            # 仍无空闲: 现场补建一条(池被打穿时)
+            rp = self._build_one()
+            self._all.append(rp)
+            return rp
+
+    def release(self, rp: ResolvedProxy | None) -> None:
+        if rp is None:
+            return
+        with self._cond:
+            if self._closed:
+                rp.close()
+                return
+            self._idle.append(rp)
+            self._cond.notify()
+
+    def discard(self, rp: ResolvedProxy | None) -> None:
+        """丢弃一条(注册失败, 隧道可能已坏)——关闭而非归还。"""
+        if rp is None:
+            return
+        rp.close()
+
+    def size(self) -> int:
+        return len(self._all)
+
+    def idle(self) -> int:
+        return len(self._idle)
+
+    def close(self) -> None:
+        with self._cond:
+            self._closed = True
+            self._cond.notify_all()
+        for rp in self._all:
+            rp.close()
+        self._all = []
+        self._idle.clear()

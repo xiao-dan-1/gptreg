@@ -323,6 +323,7 @@ def register_one(
     name: str | None = None,
     birthdate: str | None = None,
     used_cache: UsedCodeCache | None = None,
+    proxy_pool=None,
 ) -> dict[str, Any]:
     """执行一次完整 OTP-only 注册。
 
@@ -331,6 +332,9 @@ def register_one(
       → sentinel(authorize_continue) → OTP validate
       → sentinel(oauth_create_account) → create_account
       → callback → /api/auth/session → 落盘
+
+    proxy_pool: 提供 ProxyPool 时从池 acquire 隧道(复用, 免每次建隧道);
+                None 则走 resolve_proxy(现场建, 兼容旧路径)。
     """
     mail_main = account["email"]  # 号池主邮箱 / 收码身份
     email, used_alias = choose_registration_email(account, cfg)  # 注册用（可 plus 别名）
@@ -341,7 +345,12 @@ def register_one(
         used_alias = False
     display_name = name or cfg.get("register", {}).get("default_name") or random_display_name()
     bday = birthdate or random_birthdate(cfg)
-    resolved = resolve_proxy(cfg, proxy)
+    if proxy_pool is not None:
+        resolved = proxy_pool.acquire()
+        _from_pool = True
+    else:
+        resolved = resolve_proxy(cfg, proxy)
+        _from_pool = False
     session = BrowserSession(cfg, proxy=resolved.session_url)
     session._proxy_label = resolved.label()
     create_acked = False
@@ -723,7 +732,10 @@ def register_one(
         )
         return partial
     finally:
-        resolved.close()
+        if _from_pool:
+            proxy_pool.release(resolved)
+        else:
+            resolved.close()
         try:
             session.close()
         except Exception:
@@ -741,6 +753,21 @@ def run_batch(
     pool: MailPool | None = None,
 ) -> list[dict[str, Any]]:
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+    # 代理池: workers>1 + 动态代理 + pool_size 配置时, 预建隧道池并发各取一条
+    # (免每次建隧道开销 + 固定并发出口数分散 IP)。失败退回每次 resolve_proxy。
+    proxy_pool = None
+    _dyn = (cfg.get("proxy") or {}).get("dynamic") or {}
+    _pool_size = int((cfg.get("proxy") or {}).get("pool_size") or _dyn.get("pool_size") or 0)
+    if workers > 1 and not proxy and _dyn.get("enabled") and _pool_size > 0:
+        try:
+            from gptreg.proxyutil import ProxyPool
+
+            proxy_pool = ProxyPool(cfg, size=min(workers, _pool_size))
+            logger.info("[批量] 代理池预建完成 size=%s idle=%s", proxy_pool.size(), proxy_pool.idle())
+        except Exception as exc:
+            logger.warning("[批量] 建代理池失败(退回每次 resolve_proxy): %s", str(exc)[:100])
+            proxy_pool = None
 
     mail_cfg = cfg.get("mail", {})
     pool_path = resolve_path(mail_cfg.get("pool_file", "mail_pool.txt"), _root(cfg))
@@ -770,7 +797,7 @@ def run_batch(
             """执行一次注册并返回结果(不标记号池——占用保持到 one_job 结束,
             避免重试期间 mark_failed 释放 in_flight, 并发 worker 重复 claim 同主号)。"""
             try:
-                res = register_one(cfg, account, proxy=proxy, used_cache=cache)
+                res = register_one(cfg, account, proxy=proxy, used_cache=cache, proxy_pool=proxy_pool)
             except Exception as exc:
                 partial = {"success": False, "email": email, "error": str(exc)}
                 partial["fail_bucket"] = classify_result(partial)
@@ -872,6 +899,9 @@ def run_batch(
                     submit_one()
     # 常驻浏览器池(klsf)生命周期：批量结束关池（幂等）
     shutdown_all()
+    if proxy_pool is not None:
+        proxy_pool.close()
+        logger.info("[批量] 代理池已关闭")
     summary = summarize_buckets(results)
     logger.info("[汇总/分桶] %s", format_bucket_summary(summary))
     return results
