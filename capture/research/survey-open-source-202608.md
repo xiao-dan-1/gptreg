@@ -950,3 +950,10 @@ register_pwd 加 `protocol.sentinel_so_source`(browser/quickjs/none)支持 so �
 - 之前 SNAP_INJECT/行为字段注入实验在 OTP-only 下做的, 对密码模式无意义
 - 纯协议正确路线: register_pwd(quickjs_pwd_v3)密码模式, so 随便(browser 也无妨)
 - 附带修 register_pwd no-so bug(`len(so_b)` NoneType, 无 so 模式)
+
+**⚠️ 修正(18:50 复查)**: vm so 组 DistaffenBarbor2401 **账号被删(deactivated)**
+(password/verify 403 "deleted or deactivated", 非 token 吊销可恢复)。
+- vm so 2 个: 1 活(Patrone) 1 账号删(Distaffen)
+- browser so 4/4 活, 无 so 2/2 活(保持)
+- **修正**: 密码模式下 browser so / 无 so 稳定; **vm so 仍有账号级删除风险**(样本小, 待扩)
+- 建议: 生产用密码模式 + browser so(或至少不用 vm so; vm so 的"假行为"仍可能被识别)
