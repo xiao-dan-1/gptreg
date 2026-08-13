@@ -74,7 +74,7 @@ def signin_flow(
     session: BrowserSession,
     email: str,
     *,
-    follow_sleep: float = 0.5,
+    follow_sleep: float = 0.4,
     authorize_attempts: int = 1,
 ) -> str:
     """统一 signin 序列: get_providers → CSRF → signin → authorize。
@@ -84,11 +84,11 @@ def signin_flow(
     返回 authorize 落点 URL。
     """
     get_providers(session)
-    time.sleep(0.3)
+    time.sleep(0.2)
     csrf = get_csrf_token(session)
-    time.sleep(0.3)
+    time.sleep(0.2)
     authorize_url = signin_openai(session, csrf, email)
-    time.sleep(0.3)
+    time.sleep(0.2)
     final = follow_authorize(session, authorize_url, attempts=authorize_attempts)
     time.sleep(follow_sleep)
     return final

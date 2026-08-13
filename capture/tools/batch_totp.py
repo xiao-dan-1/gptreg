@@ -160,7 +160,7 @@ def _is_progressed(result: "RegistrationResult") -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=3, help="本次批量数量(默认 3)")
-    ap.add_argument("--workers", type=int, default=1, help="并发线程数(默认 1 串行; 建议≤可用代理/IP 数, 避免共用 IP 风控)")
+    ap.add_argument("--workers", type=int, default=4, help="并发线程数(默认 4, 实测 w=4 稳定 2.75x; w=8 吞吐高但单号耗时波动)")
     ap.add_argument("--pool", default="", help="号池文件(默认 mail_pool.txt; icloud 可用 icloud_pool.txt; cloudmail=动态生成)")
     ap.add_argument("--proxy", default=None, help="固定代理(--no-dynamic 时用; 默认走 config 动态链式)")
     ap.add_argument("--no-dynamic", action="store_true", help="不用动态代理换 IP(用 --proxy 固定)")

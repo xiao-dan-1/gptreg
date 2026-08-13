@@ -661,18 +661,25 @@ def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, An
                 "factor_id": factor_id, "factor_type": "totp"}), timeout=30)
             activated = resp_act.status_code == 200 and '"success":true' in (resp_act.text or "")
             logger.info("  [enroll] activate_enrollment HTTP %s activated=%s", resp_act.status_code, activated)
-            try:
-                resp_info = session.get(MFA_INFO_URL, headers=h6, timeout=30)
-                logger.info("  [enroll] mfa_info HTTP %s mfa_enabled=%s", resp_info.status_code,
-                            '"mfa_enabled":true' in (resp_info.text or ""))
-                if '"mfa_enabled":true' in (resp_info.text or ""):
-                    activated = True
-            except Exception as exc:
-                logger.warning("  [enroll] mfa_info 查询失败: %s", str(exc)[:60])
+            if not activated:
+                # activate 未明确 success 时, 用 mfa_info 兜底确认(正常路径省 1 个请求 ~0.5-1s)
+                try:
+                    resp_info = session.get(MFA_INFO_URL, headers=h6, timeout=30)
+                    logger.info("  [enroll] mfa_info HTTP %s mfa_enabled=%s", resp_info.status_code,
+                                '"mfa_enabled":true' in (resp_info.text or ""))
+                    if '"mfa_enabled":true' in (resp_info.text or ""):
+                        activated = True
+                except Exception as exc:
+                    logger.warning("  [enroll] mfa_info 查询失败: %s", str(exc)[:60])
         if not activated:
             raise _EnrollFailed("activate_enrollment 未确认 mfa_enabled=true")
-        # 同步开 recovery key(防 TOTP 锁死; 需 fresh token, 刚激活 TOTP 满足)
-        recovery = _enroll_recovery_now(session, reg["at"], reg["device_id"])
+        # 同步开 recovery key(防 TOTP 锁死; 需 fresh token, 刚激活 TOTP 满足)。
+        # enable_recovery=false 时跳过(省 2 个 HTTP 请求 ~1-2s; 代价=失去 TOTP 锁死兜底)。
+        recovery = {"recovery_key": "", "recovery_enrolled": False}
+        if (cfg.get("register") or {}).get("enable_recovery", True):
+            recovery = _enroll_recovery_now(session, reg["at"], reg["device_id"])
+        else:
+            logger.info("[TOTP/recovery] enable_recovery=false, 跳过 recovery key")
         return {
             "totp_secret": enroll_secret,
             "totp_enrolled": True,

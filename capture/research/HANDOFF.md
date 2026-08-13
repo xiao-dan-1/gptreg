@@ -52,15 +52,21 @@
 | 效率(08-13) | create 合并 / Geo 跳过 / ProxyPool 接入 / cloudmail 共享 token：w=8 池 16/16, 吞吐 8 号/min, setup 0.0s |
 | email-verification | register 400 + 落点 = IP/邮箱信誉**硬性拒绝**：send_otp 200 假成功拒发码, 预验证收码无效(2/2 触发超时), 换 IP(邮箱级)也难愈 → 靠时段/代理源缓解 |
 | cloudmail 401 | 根因=并发各登 admin token 互相踢(单会话), 已修复进程级共享 token(otp_failed 3→0) |
+| 测活判死边界(08-13) | me/accounts-check 对死号统一返回 401 `token_invalidated`, 不区分封号/删除/过期; **唯一可靠判别=relogin(password/verify 403 "account deleted")**; 8 样本 invalidated 里 7 真死 + 1 token 吊销可救(~12.5%) |
+| 并发 w 实证(08-13) | w=4 7/8(92s,2.75x) vs w=8 7/8(70s,4.54x); 失败源=boji.xdauv.xyz 子域 OTP 超时(非并发 ip_blocked), 已剔除; 默认 workers 定 4 |
+| 效率微优化(08-13) | signin sleep 1.4→1.0s + mfa_info 条件化(activate success 跳过) + recovery 可关(enable_recovery, 省 ~4s/号); Node 常驻复用评估后跳过(启动仅 30ms, 收益<2%) |
+| cloudmail 资格(08-13) | 0/4 无 Plus 试用资格(域名信誉崩, 对比旧记录 1/2) |
 
 ## 五、待办（下次可选）
 
 1. ~~纯协议组存活观察~~ ✅ 已完（08-13 07:45 跨 7.9h 判定点，纯协议长活确认）
 2. ~~register_pwd 集成 recovery_key~~ ✅ 已完（08-13 端到端验证，产出 4 段 `email----password----totp----recovery`）
 3. ~~email-verification 预验证~~ ✅ 已实证(w=8e 双触发): send_otp 200 假成功拒发码, 预验证对 register 400 邮箱无效; 收码窗口已 45→20s, 失败号省 25s
-4. **并发策略**：w=4 更稳（无 ip_blocked）, w=8 吞吐高(8 号/min)但 ip_blocked 风险 + 号源压力
+4. ~~并发策略~~ ✅ 已定(08-13 实证): w=4/w=8 失败率同(7/8), 失败源=boji 子域收码超时(已剔除), 非并发 ip_blocked; 默认 workers=4
 5. **主工作树同步**：config 改了 `sentinel_source/so_source/pool_size/max_wait/chain_via=7890` 等 + ProxyPool/效率/cloudmail 代码, 记得同步主工作树
 6. **号池**：100 个新买 Outlook 号（部分已用），iCloud 号源待补充（资格概率更好）
+7. **资格验证换号源**：cloudmail 资格已归零(0/4), 测资格/产长活需用 Outlook(3/7) 或 iCloud
+8. **代理端口固化**：chain_via 已 7890→10808(v2rayN); config 不入库(.gitignore), 换客户端需再改
 
 ## 六、关键文件/参考
 
@@ -72,5 +78,5 @@
 ## 七、账号池状态
 
 - Outlook：100 个新买号（已注册 ~20 个；预检 15/15 可用，无 MS 滥用）
-- cloudmail：动态生成（`--pool cloudmail`），收码快（~3s），适合测试/快建（不产长活）
+- cloudmail：动态生成（`--pool cloudmail`），收码快（~3s），适合测试/快建（不产长活）；**已剔除 boji.xdauv.xyz 坏域(OTP 超时)**, 资格已归零(0/4)
 - iCloud：待补充（README 示例 icloud_pool.txt，资格概率更好）
