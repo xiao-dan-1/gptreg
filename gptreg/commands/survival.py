@@ -305,9 +305,13 @@ def _summarize(results: list[tuple[str, str, str, int | None, float]]) -> None:
     """汇总: 总数 + 按号源存活率 + 吊销/过期可续期/存活年龄分布。"""
     ok = sum(1 for _, _, s, _, _ in results if s == "ok")
     dead = sum(1 for _, _, s, _, _ in results if s in ("invalidated", "deactivated"))
+    inv = sum(1 for _, _, s, _, _ in results if s == "invalidated")
     tok = sum(1 for _, _, s, _, _ in results if s == "token_expired")
     other = len(results) - ok - dead - tok
     print(f"\n存活: {ok}/{len(results)}  吊销/封禁: {dead}  过期可续期: {tok}  其他: {other}")
+    if inv:
+        print(f"  提示: {inv} 个 invalidated = token 失效(死因未知: 账号被删/封 OR token 吊销但账号活), "
+              f"可用 `relogin` 定论并挽损")
 
     # 按号源存活率
     by_src: dict[str, list[str]] = defaultdict(list)

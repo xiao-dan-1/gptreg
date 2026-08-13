@@ -56,6 +56,12 @@ def check_account_health_me(
     实测：accounts/check 同 IP 连续请求会被 WAF 403（需每 8 换 IP）；
     me 同 IP 连续测 5+ 账号全 200 无风控（社区 CLIProxyAPI 也用它批量管理）。
     返回 status: ok / deactivated / invalidated / token_expired / error。
+
+    ⚠️ 判死边界(2026-08-13 实测): me 对"死号"统一返回 401
+    {"code":"token_invalidated"}，不区分封号(account_deactivated)/删除/过期，
+    故下方 deactivated/token_expired 分支是防御性(当前端点不返回这些词)，
+    实际死号都落 invalidated。死因唯一可靠判别 = relogin(password/verify
+    403 "account deleted" = 账号被删/封，救不回)。
     """
     if not access_token:
         return {"status": "error", "detail": "empty token", "endpoint": "me"}
@@ -73,6 +79,9 @@ def check_account_health_me(
         low = text.lower()
         if resp.status_code == 200:
             return {"status": "ok", "http": 200, "endpoint": "me", "body": resp.text}
+        # ⚠️ deactivated / token_expired 两分支是防御性兜底: 实测(2026-08-13) me 对死号
+        # 统一返回 code=token_invalidated(不含 deactivated/deleted/token_expired 字样)，
+        # 实际死号都落下方 invalidated 分支。保留以防端点未来改响应词。
         if resp.status_code in (401, 403) and (
             "account_deactivated" in low or "deactivated" in low or "deleted" in low
         ):
@@ -82,6 +91,8 @@ def check_account_health_me(
         if resp.status_code in (401, 403) and (
             "token_invalidated" in low or "token_revoked" in low or "unauthorized" in low or "invalid" in low
         ):
+            # invalidated = token 失效, 死因未知: 可能是账号被删/封(救不回), 也可能是
+            # token 被吊销但账号仍活(relogin 可救)。轻量端点无法区分, 需 relogin 定论。
             return {"status": "invalidated", "http": resp.status_code, "endpoint": "me", "body": text}
         return {"status": "error", "http": resp.status_code, "endpoint": "me", "body": text}
     except Exception as exc:
@@ -99,9 +110,12 @@ def check_account_health(
 
     返回 status: ok / deactivated / invalidated / token_expired / error。
     默认走 /backend-api/me 快判（轻量、不风控，同 IP 并发安全）。
-    me 的 401 响应体带 `code` 字段，能区分封号(account_deactivated) vs
-    吊销(token_invalidated) vs 过期(token_expired)——无需 accounts/check 兜底。
-    prefer_me=False：用 accounts/check（秒封检测精度更高，但同 IP 连续请求会 WAF 403）。
+    ⚠️ 判死边界(2026-08-13 实测): me 与 accounts/check 对死号统一返回 401
+    code=token_invalidated，不区分封号(account_deactivated)/删除/过期——
+    deactivated/token_expired 分支是防御性(当前端点不返回这些词)，死号都落
+    invalidated。invalidated 语义 = "token 失效, 死因未知(账号被删/封 OR token
+    吊销但账号活)"，唯一可靠判别是 relogin(password/verify)。
+    prefer_me=False：用 accounts/check（同 IP 连续请求会 WAF 403）。
     timeout=None 用 session 默认(60s)；测活场景建议传 ~10s。
     """
     if not access_token:
@@ -117,7 +131,12 @@ def _check_accounts_check(
     *,
     timeout: float | None = None,
 ) -> dict[str, Any]:
-    """accounts/check 兜底：区分 deactivated(封号) vs invalidated(可续期)。"""
+    """accounts/check 兜底（秒封检测精度更高，但同 IP 连续请求会 WAF 403）。
+
+    ⚠️ 实测(2026-08-13): accounts/check 与 me 一样，对死号统一返回 401
+    code=token_invalidated(不返回 account_deactivated/token_expired 字样)，
+    故 deactivated/token_expired 分支同 me 一样是防御性兜底，实际死号落 invalidated。
+    """
     if not access_token:
         return {"status": "error", "detail": "empty token"}
 
