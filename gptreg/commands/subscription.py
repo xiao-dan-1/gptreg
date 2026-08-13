@@ -50,6 +50,11 @@ def _query(sess: BrowserSession, at: str) -> dict[str, Any]:
         return out
     rec = next(v for v in accs.values()) or {}
     out["account"] = rec.get("account") or {}
+    # 资格字段在 accountRecord 层(rec), 非 account 层(修复层级 bug, at-hub 对齐)
+    out["eligible_promo_campaigns"] = rec.get("eligible_promo_campaigns") or {}
+    out["eligible_offers"] = rec.get("eligible_offers")
+    out["yearly_plus"] = rec.get("is_eligible_for_yearly_plus_subscription")
+    out["entitlement"] = rec.get("entitlement") or {}
     account_id = str(out["account"].get("account_id") or "").strip()
     out["account_id"] = account_id
     if not account_id:
@@ -72,8 +77,8 @@ def _print_card(email: str, r: dict[str, Any]) -> None:
     acct = r.get("account") or {}
     sub = r.get("subscription") or {}
     print(f"  account_id: {r.get('account_id') or '?'}")
-    # 优惠活动(accounts/check)
-    promos = acct.get("eligible_promo_campaigns")
+    # 优惠活动(accounts/check, accountRecord 层)
+    promos = r.get("eligible_promo_campaigns")
     if promos and isinstance(promos, dict):
         for k, v in promos.items():
             m = (v or {}).get("metadata") or {}
@@ -82,10 +87,10 @@ def _print_card(email: str, r: dict[str, Any]) -> None:
             print(f"{tag} {m.get('plan_name') or k}  {m.get('title') or ''}  id={str((v or {}).get('id'))[:40]}  discount={m.get('discount')}")
     else:
         print("  [优惠活动] 无 (无 Plus 试用资格)")
-    offers = acct.get("eligible_offers")
+    offers = r.get("eligible_offers")
     if offers:
         print(f"  [可购offer] {json.dumps(offers, ensure_ascii=False)[:120]}")
-    print(f"  [年付plus资格] {acct.get('is_eligible_for_yearly_plus_subscription')}")
+    print(f"  [年付plus资格] {r.get('yearly_plus')}")
     print(f"  [历史付费] {acct.get('has_previously_paid_subscription')}")
 
     # 订阅详情(subscriptions 接口)

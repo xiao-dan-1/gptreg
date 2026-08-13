@@ -47,16 +47,19 @@ def _scan_account(sess: BrowserSession, d: dict, region: str = "US") -> dict:
     out["http"] = resp.status_code
     if resp.status_code == 200:
         accs = resp.json().get("accounts") or {}
-        acct = next(iter(accs.values())).get("account") or {} if accs else {}
+        rec = next(iter(accs.values())) if accs else {}  # accountRecord 层(accounts.<id>)
+        acct = rec.get("account") or {}  # account 层(plan_type/eligible_for_reactivation 等)
         out["ok"] = True
         out["plan_type"] = acct.get("plan_type") or "?"
-        ent = acct.get("entitlement") or {}
+        ent = rec.get("entitlement") or {}  # 资格字段在 accountRecord 层, 非 account 层(修复层级 bug)
         out["trial"] = ent.get("trial")
-        camp = acct.get("eligible_promo_campaigns") or {}
+        camp = rec.get("eligible_promo_campaigns") or {}  # 试用资格判据(at-hub 对齐)
         out["plus_promo"] = bool(camp.get("plus"))
         if camp.get("plus"):
             out["plus_id"] = str(camp["plus"].get("id", ""))
         out["reactivation"] = acct.get("eligible_for_reactivation")
+        out["eligible_offers"] = rec.get("eligible_offers")
+        out["yearly_plus"] = rec.get("is_eligible_for_yearly_plus_subscription")
     return out
 
 
