@@ -46,7 +46,7 @@
 | vm so | 必须派发行为事件；行为空则吊销 |
 | browser so | 长活 9h+（对照） |
 | 注册模式 | OTP-only create_account 全吊销；**密码模式才有活路** |
-| 试用资格 | 指纹/Geo 后 0%→44%；资格由账号画像决定，与邮箱域关系小 |
+| 试用资格(08-14 最终) | 看**注册全流程浏览器真实性**, 纯协议结构性出不了: vm so/browser so/随机行为都 0 资格, 唯一路径=浏览器全流程自动化(见 trial-eligibility-20260813.md) |
 | Codex OAuth 拿 RT | 强制手机验证，不可行（除非接码） |
 | 续命 | relogin（password+TOTP 重登） |
 | 效率(08-13) | create 合并 / Geo 跳过 / ProxyPool 接入 / cloudmail 共享 token：w=8 池 16/16, 吞吐 8 号/min, setup 0.0s |
@@ -56,6 +56,8 @@
 | 并发 w 实证(08-13) | w=4 7/8(92s,2.75x) vs w=8 7/8(70s,4.54x); 失败源=boji.xdauv.xyz 子域 OTP 超时(非并发 ip_blocked), 已剔除; 默认 workers 定 4 |
 | 效率微优化(08-13) | signin sleep 1.4→1.0s + mfa_info 条件化(activate success 跳过) + recovery 可关(enable_recovery, 省 ~4s/号); Node 常驻复用评估后跳过(启动仅 30ms, 收益<2%) |
 | cloudmail 资格(08-13) | 0/4 无 Plus 试用资格(域名信誉崩, 对比旧记录 1/2) |
+| iCloud 别名(08-14) | plus 别名邮件投递主邮箱收件箱, 接码 URL 能收(9.5s); batch_totp 已支持 iCloud 别名, 号池 +50 可复用(每主号 1 别名, accounts.jsonl 追踪) |
+| cloudmail 存活(08-14) | 新号 1.3h 即全灭(域名级风控极快), 比之前 12h-3d 更短 |
 
 ## 五、待办（下次可选）
 
@@ -64,8 +66,8 @@
 3. ~~email-verification 预验证~~ ✅ 已实证(w=8e 双触发): send_otp 200 假成功拒发码, 预验证对 register 400 邮箱无效; 收码窗口已 45→20s, 失败号省 25s
 4. ~~并发策略~~ ✅ 已定(08-13 实证): w=4/w=8 失败率同(7/8), 失败源=boji 子域收码超时(已剔除), 非并发 ip_blocked; 默认 workers=4
 5. **主工作树同步**：config 改了 `sentinel_source/so_source/pool_size/max_wait/chain_via=7890` 等 + ProxyPool/效率/cloudmail 代码, 记得同步主工作树
-6. **号池**：100 个新买 Outlook 号（部分已用），iCloud 号源待补充（资格概率更好）
-7. **资格验证换号源**：cloudmail 资格已归零(0/4), 测资格/产长活需用 Outlook(3/7) 或 iCloud
+6. **号池**：100 个新买 Outlook 号（部分已用）；iCloud 号池主号已用但**别名可复用 +50**(08-14 已支持)
+7. ~~资格验证换号源~~ ✅ 已定论(08-14): 资格看注册全流程浏览器真实性, 纯协议结构性出不了(邮箱域/年龄/TLS/so 全排除), 唯一路径浏览器自动化
 8. **代理端口固化**：chain_via 已 7890→10808(v2rayN); config 不入库(.gitignore), 换客户端需再改
 
 ## 六、关键文件/参考

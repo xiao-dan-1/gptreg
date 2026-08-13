@@ -100,20 +100,16 @@ def _jp_probe(cfg: dict, token: str, device_id: str, max_sid: int = 6) -> dict:
     """JP 出口探测(多 sid 循环找日本 IP 再 checkout, 确保出口是 JP)。
 
     试用资格由出口 IP 决定: US 出口 promo 被拒, JP 出口才被接受。
-    1024proxy 出口随机(约 83% JP), 换 sid 直到确认出口 JP 再探测。
+    用 config 动态代理(region 强制 JP), 换 sid 直到确认出口 JP 再探测。
     返回 _probe_checkout 结果 + probe_exit (出口 country_code)。
     """
-    from gptreg.proxyutil import StickyChainTunnel
+    from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
 
     for n in range(max_sid):
-        sid = f"jps{n}"
-        t = StickyChainTunnel(
-            hop1="http://127.0.0.1:10808",
-            hop2=f"socks5://ptyr38760-region-JP-sid-{sid}-t-5:xvc9mi68@us.1024proxy.io:3000",
-        )
-        t.start()
+        jp_url = build_dynamic_proxy(cfg, region="JP")  # 强制 JP region 出口
+        resolved = resolve_proxy(cfg, override=jp_url)
         try:
-            sess = BrowserSession(cfg, proxy=t.local_url)
+            sess = BrowserSession(cfg, proxy=resolved.session_url)
             sess.device_id = device_id or "probe-device"
             # 确认出口地区
             try:
@@ -133,7 +129,7 @@ def _jp_probe(cfg: dict, token: str, device_id: str, max_sid: int = 6) -> dict:
             finally:
                 sess.close()
         finally:
-            t.close()
+            resolved.close()
     return {"checkout_ok": False, "probe_exit": "no_JP_exit"}
 
 

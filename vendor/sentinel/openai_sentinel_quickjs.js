@@ -782,30 +782,50 @@ function loadPatchedSdk(sdkSource) {
 }
 
 // 模拟真实用户行为，喂 session observer（pointermove/keydown/scroll/wheel/click）。
-// 真实间隔 120-180ms（yield 让 collector 的 jt 先注册监听器，事件再到达；wrapper 修复后真实定时器可用）。
-// 坐标连续（人类鼠标轨迹），timeStamp 用 performance.now()。
+// 2026-08-14 改进(冲击试用资格): 随机轨迹 + 自然节奏 + 真实键盘字符,
+// 让 collector 采集的字段量级逼近真实浏览器分布(i 42-56, s 3882-38725, cs 1000-1400)。
+// 旧版固定 15 坐标 + 固定 130ms 太规律, 字段量级只有真人零头, 过不了资格门槛。
+// ★绝不派发 paste★(合成输入判别特征); 键盘用真实字符而非 Tab。
 async function simulateBehavior() {
   const fire = globalThis.__fire_event;
   if (typeof fire !== "function") return;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  const pts = [
-    [280, 180], [310, 205], [340, 230], [375, 255], [400, 280],
-    [435, 310], [465, 340], [500, 365], [525, 390], [510, 400],
-    [485, 415], [455, 430], [430, 445], [415, 455], [405, 465],
-  ];
-  for (const [x, y] of pts) {
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const rint = (a, b) => Math.floor(rnd(a, b));
+
+  // 随机起点(屏幕内常见交互区), 人类鼠标轨迹(随机步长 ±25/±20, 逐渐漂移)
+  let x = rnd(200, 600), y = rnd(200, 400);
+  const moves = rint(28, 48);  // 28-48 次移动 → i 逼近真实 42-56
+  for (let i = 0; i < moves; i++) {
+    x += rnd(-25, 25); y += rnd(-20, 20);
+    x = Math.max(60, Math.min(1800, x));
+    y = Math.max(60, Math.min(900, y));
     fire("pointermove", { type: "pointermove", clientX: x, clientY: y, screenX: x, screenY: y, pointerType: "mouse", buttons: 0, timeStamp: performance.now() });
-    await wait(130);
+    await wait(rnd(18, 85));  // 人类鼠标移动间隔 18-85ms(非固定)
   }
-  fire("wheel", { type: "wheel", deltaY: 260, clientX: 400, clientY: 300, deltaMode: 0, timeStamp: performance.now() });
-  await wait(150);
-  fire("scroll", { type: "scroll", scrollY: 260, timeStamp: performance.now() });
-  await wait(120);
-  fire("keydown", { type: "keydown", key: "Tab", code: "Tab", keyCode: 9, which: 9, timeStamp: performance.now() });
-  await wait(100);
-  fire("click", { type: "click", clientX: 505, clientY: 400, button: 0, timeStamp: performance.now() });
-  await wait(100);
-  // 2026-08-12 对齐 register-kit: ★绝不派发 paste★ —— 粘贴/一次性填充是"合成输入"判别特征
+  // 随机滚动(60% 概率, 自然 delta)
+  if (Math.random() < 0.6) {
+    const dy = rint(100, 400);
+    fire("wheel", { type: "wheel", deltaY: dy, clientX: x, clientY: y, deltaMode: 0, timeStamp: performance.now() });
+    await wait(rnd(40, 140));
+    fire("scroll", { type: "scroll", scrollY: dy, timeStamp: performance.now() });
+    await wait(rnd(40, 120));
+  }
+  // 随机键盘(50% 概率, 真实字符 2-5 个, 非 Tab)
+  if (Math.random() < 0.5) {
+    const keys = "abcdefghijklmnopqrstuvwxyz";
+    const n = rint(2, 5);
+    for (let i = 0; i < n; i++) {
+      const c = keys[rint(0, 26)];
+      fire("keydown", { type: "keydown", key: c, code: "Key" + c.toUpperCase(), keyCode: c.charCodeAt(0), which: c.charCodeAt(0), timeStamp: performance.now() });
+      await wait(rnd(50, 170));  // 人类打字节奏
+    }
+  }
+  // 随机点击(70% 概率, 落在当前轨迹终点附近)
+  if (Math.random() < 0.7) {
+    fire("click", { type: "click", clientX: x + rnd(-10, 10), clientY: y + rnd(-10, 10), button: 0, timeStamp: performance.now() });
+    await wait(rnd(50, 140));
+  }
   fire("message", { type: "message", timeStamp: performance.now() });
 }
 

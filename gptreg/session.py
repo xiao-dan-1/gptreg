@@ -1,6 +1,7 @@
 """curl_cffi 会话封装：统一 cookie / 头 / TLS 指纹 / 代理。"""
 from __future__ import annotations
 
+import hashlib
 import random
 import uuid
 from typing import Any
@@ -29,6 +30,26 @@ def _datadog_rum_headers() -> dict[str, str]:
     }
 
 
+_CHROME_VERSIONS = [99, 104, 110, 116, 119, 120, 123, 124, 131, 133, 142, 145]
+
+
+def _pick_impersonate_profile(device_id: str) -> dict[str, str]:
+    """按 device_id 确定性派生 chrome 版本(impersonate + UA + sec-ch-ua 主版本对齐)。
+
+    目的(2026-08-13): 打破所有账号 TLS 指纹(JA3)雷同。此前所有账号固定同一个
+    impersonate → accounts/check 的 pthdnu 字段完全相同 → 被 OpenAI 聚类为批量注册。
+    不同 device_id → 不同 chrome 版本 → 不同 TLS 指纹。
+    """
+    h = int(hashlib.md5(str(device_id).encode()).hexdigest()[:8], 16)
+    v = _CHROME_VERSIONS[h % len(_CHROME_VERSIONS)]
+    return {
+        "impersonate": f"chrome{v}",
+        "user_agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      f"(KHTML, like Gecko) Chrome/{v}.0.0.0 Safari/537.36",
+        "sec_ch_ua": f'"Chromium";v="{v}", "Google Chrome";v="{v}", "Not_A Brand";v="99"',
+    }
+
+
 class BrowserSession:
     """模拟 Chrome 的 HTTP 会话，device_id 贯穿整条注册链。"""
 
@@ -39,14 +60,24 @@ class BrowserSession:
         self.proxy = proxy or ""
         self.device_id = str(uuid.uuid4())
         self.auth_session_logging_id = str(uuid.uuid4())
-        self.user_agent = browser.get("user_agent", "")
-        self.sec_ch_ua = browser.get("sec_ch_ua", "")
         self.sec_ch_ua_platform = browser.get("sec_ch_ua_platform", '"Windows"')
         self.sec_ch_ua_mobile = browser.get("sec_ch_ua_mobile", "?0")
         self.accept_language = browser.get(
             "accept_language", "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"
         )
-        self.impersonate = browser.get("impersonate", "chrome142")
+        # TLS 指纹差异化(2026-08-13): impersonate_rotate=true 时按 device_id 派生
+        # chrome 版本, UA/sec-ch-ua 与 impersonate 主版本对齐(避免 UA 与 TLS 指纹矛盾)。
+        impersonate = browser.get("impersonate", "chrome142")
+        user_agent = browser.get("user_agent", "")
+        sec_ch_ua = browser.get("sec_ch_ua", "")
+        if browser.get("impersonate_rotate", False):
+            prof = _pick_impersonate_profile(self.device_id)
+            impersonate = prof["impersonate"]
+            user_agent = prof["user_agent"]
+            sec_ch_ua = prof["sec_ch_ua"]
+        self.user_agent = user_agent
+        self.sec_ch_ua = sec_ch_ua
+        self.impersonate = impersonate
         self.timeout = int(browser.get("request_timeout", 60))
         self.sentinel_sv = protocol.get("sentinel_sv", "20260219f9f6")
 
