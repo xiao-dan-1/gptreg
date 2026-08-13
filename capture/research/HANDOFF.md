@@ -46,7 +46,7 @@
 | vm so | 必须派发行为事件；行为空则吊销 |
 | browser so | 长活 9h+（对照） |
 | 注册模式 | OTP-only create_account 全吊销；**密码模式才有活路** |
-| 试用资格(08-14 钉死) | **=IP地区(JP有/US无) × 邮箱域(iCloud有/Outlook无)**: iCloud号+JP出口查 eligible_promo_campaigns.plus 非空=有资格; 高效产资格=iCloud号源+纯协议注册+JP出口(见 trial-eligibility-20260813.md) |
+| 试用资格(08-14 钉死) | **=IP地区(JP有/US无) × 邮箱域(iCloud有/Outlook无) × 时间(注册后~1h发放)**: iCloud号+JP出口+等1h 查 plus 非空=有资格(稳定~76%); 刚注册30min测偏低53% |
 | Codex OAuth 拿 RT | 强制手机验证，不可行（除非接码） |
 | 续命 | relogin（password+TOTP 重登） |
 | 效率(08-13) | create 合并 / Geo 跳过 / ProxyPool 接入 / cloudmail 共享 token：w=8 池 16/16, 吞吐 8 号/min, setup 0.0s |
