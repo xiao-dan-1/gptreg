@@ -87,8 +87,27 @@ def _used_mains() -> set[str]:
 
 
 def _unused_mains() -> list[tuple[str, dict]]:
-    """[(主号, 号池行)]——未用过且未永久弃用的主号。"""
+    """[(主号, 号池行)]——未用过且未永久弃用的主号。
+
+    iCloud 例外: 主号已注册仍可用一次别名(plus 别名邮件投递主邮箱收件箱, 接码 URL 能收),
+    故主号在 used 里也入候选(注册时走别名), 用 accounts.jsonl 里的别名记录限制每主号 1 别名。
+    """
     used = _used_mains()
+    # iCloud 别名追踪: accounts.jsonl 里 icloud 别名(含 +)的 base = 已用别名的主号
+    alias_bases: set[str] = set()
+    try:
+        acct_file = ROOT / "output" / "accounts.jsonl"
+        for line in acct_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                e = json.loads(line).get("email") or ""
+            except Exception:
+                continue
+            if "+" in e and ("@icloud.com" in e or "@me.com" in e):
+                alias_bases.add(_base(e))
+    except Exception:
+        pass
     # 池状态文件(bad=永久弃用)合并进 used, 覆盖账号表反查盲区(iCloud 池等)
     try:
         state_file = Path(str(POOL) + ".state.json")
@@ -106,7 +125,12 @@ def _unused_mains() -> list[tuple[str, dict]]:
         if not a:
             continue
         main = _base(a["email"])
-        if main not in used:
+        mt = a.get("mail_type") or ""
+        if mt == "icloud":
+            # 已用别名的主号跳过; 否则入候选(注册时走别名)
+            if main not in alias_bases:
+                mains.append((main, a))
+        elif main not in used:
             mains.append((main, a))
     return mains
 
@@ -243,8 +267,9 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
     _batch_t0 = time.time()
 
     def _one_job(idx: int, main: str, account: dict) -> tuple[int, str, bool, RegisterOutcome, float]:
-        # 仅 Outlook(ms_oauth) 用别名；iCloud/cloudmail/api 用主邮箱(URL绑定/独立收件箱/API按主号拉码, alias 收码不可靠)
-        if account.get("mail_type") == "ms_oauth":
+        # Outlook(ms_oauth) + iCloud 用别名; cloudmail/api 用主邮箱
+        # (iCloud plus 别名邮件投递主邮箱收件箱, 接码 URL 能收; cloudmail/api 按主号拉码)
+        if account.get("mail_type") in ("ms_oauth", "icloud"):
             email = _alias_of(main)
         else:
             email = main
