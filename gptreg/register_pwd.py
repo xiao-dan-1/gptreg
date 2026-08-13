@@ -465,12 +465,21 @@ def _stage_create(
     h2["openai-sentinel-token"] = tok2
     if so_b:
         h2["openai-sentinel-so-token"] = so_b
-    resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
-    diag["create_http"] = resp2.status_code
+    # create 5xx 服务端临时错误重试(4xx 客户端错误不重试, 重试无意义)
+    create_retries = max(1, int((cfg.get("register") or {}).get("create_retries", 3) or 3))
+    create_retry_sleep = float((cfg.get("register") or {}).get("create_retry_sleep", 2.0) or 2.0)
+    resp2 = None
+    for _attempt in range(create_retries):
+        resp2 = session.post(CREATE_URL, headers=h2, data=json.dumps({"name": name, "birthdate": bday}))
+        if resp2.status_code == 200 or resp2.status_code < 500:
+            break
+        logger.warning("  [create] HTTP %s 服务端临时错误重试(%d/%d)", resp2.status_code, _attempt + 1, create_retries)
+        time.sleep(create_retry_sleep)
+    diag["create_http"] = resp2.status_code if resp2 is not None else 0
     diag["create_http_s"] = round(time.time() - _http_t0, 1)  # create HTTP 请求本身耗时
     diag["create_s"] = round(time.time() - _t0, 1)  # 纯 create 段(t+so 并行 + create HTTP)
-    if resp2.status_code != 200:
-        raise _CreateFailed(f"create_account HTTP {resp2.status_code}: {resp2.text[:150]}")
+    if resp2 is None or resp2.status_code != 200:
+        raise _CreateFailed(f"create_account HTTP {resp2.status_code if resp2 else '?'}: {(resp2.text[:150]) if resp2 else ''}")
     cr = resp2.json()
     cu = cr.get("continue_url") or cr.get("url")
     if not cu:
