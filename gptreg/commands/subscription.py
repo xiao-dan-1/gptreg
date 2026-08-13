@@ -137,11 +137,13 @@ def run(cfg: dict[str, Any], args) -> int:
         finally:
             resolved.close()
     else:
-        # 默认: 探测池(JP 住宅隧道池, 独立于注册池 US)。plus-1-month-free 是 JP 地区灰度活动,
-        # 只有 JP 出口查 eligible_promo_campaigns.plus 才非空(US 出口空)。
+        # 默认: 探测池(住宅隧道池, 独立于注册池)。region 取 config proxy.dynamic.trial_region(默认 JP),
+        # 因 plus-1-month-free 是 JP 地区灰度活动, 只有 JP 出口查 eligible_promo_campaigns.plus 才非空。
         from gptreg.proxyutil import ProxyPool
 
-        pool = ProxyPool(cfg, size=min(max(1, len(accounts)), 4), region="JP")
+        _dyn = (cfg.get("proxy") or {}).get("dynamic") or {}
+        trial_region = str(_dyn.get("trial_region") or "JP")
+        pool = ProxyPool(cfg, size=min(max(1, len(accounts)), 4), region=trial_region)
         try:
             for i, d in enumerate(accounts, 1):
                 rp = pool.acquire()
