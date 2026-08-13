@@ -121,16 +121,41 @@ def run(cfg: dict[str, Any], args) -> int:
     accounts = accounts[: args.limit]
     print(f"订阅查询 {len(accounts)} 个账号:")
 
-    resolved = resolve_proxy(cfg, override=resolve_proxy_arg(args))
-    sess = BrowserSession(cfg, proxy=resolved.session_url)
-    try:
-        for i, d in enumerate(accounts, 1):
-            print(f"\n[{i}/{len(accounts)}] {d.get('email')}")
-            try:
-                _print_card(d.get("email"), _query(sess, d.get("access_token")))
-            except Exception as exc:
-                print(f"  [查询异常] {type(exc).__name__}: {str(exc)[:80]}")
-            time.sleep(0.5)
-    finally:
-        resolved.close()
+    fixed = resolve_proxy_arg(args)
+    if fixed:
+        # 显式 --proxy: 兼容旧路径(注意: 数据中心代理查不到 promo, 应传住宅代理)
+        resolved = resolve_proxy(cfg, override=fixed)
+        sess = BrowserSession(cfg, proxy=resolved.session_url)
+        try:
+            for i, d in enumerate(accounts, 1):
+                print(f"\n[{i}/{len(accounts)}] {d.get('email')}")
+                try:
+                    _print_card(d.get("email"), _query(sess, d.get("access_token")))
+                except Exception as exc:
+                    print(f"  [查询异常] {type(exc).__name__}: {str(exc)[:80]}")
+                time.sleep(0.5)
+        finally:
+            resolved.close()
+    else:
+        # 默认: 探测池(JP 住宅隧道池, 独立于注册池 US)。plus-1-month-free 是 JP 地区灰度活动,
+        # 只有 JP 出口查 eligible_promo_campaigns.plus 才非空(US 出口空)。
+        from gptreg.proxyutil import ProxyPool
+
+        pool = ProxyPool(cfg, size=min(max(1, len(accounts)), 4), region="JP")
+        try:
+            for i, d in enumerate(accounts, 1):
+                rp = pool.acquire()
+                sess = BrowserSession(cfg, proxy=rp.session_url)
+                try:
+                    print(f"\n[{i}/{len(accounts)}] {d.get('email')}")
+                    try:
+                        _print_card(d.get("email"), _query(sess, d.get("access_token")))
+                    except Exception as exc:
+                        print(f"  [查询异常] {type(exc).__name__}: {str(exc)[:80]}")
+                finally:
+                    sess.close()
+                    pool.release(rp)
+                time.sleep(0.5)
+        finally:
+            pool.close()
     return 0
