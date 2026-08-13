@@ -49,14 +49,18 @@
 | 试用资格 | 指纹/Geo 后 0%→44%；资格由账号画像决定，与邮箱域关系小 |
 | Codex OAuth 拿 RT | 强制手机验证，不可行（除非接码） |
 | 续命 | relogin（password+TOTP 重登） |
+| 效率(08-13) | create 合并 / Geo 跳过 / ProxyPool 接入 / cloudmail 共享 token：w=8 池 16/16, 吞吐 8 号/min, setup 0.0s |
+| email-verification | OpenAI 新流程"先验证邮箱再注册"：落点+register 400 时主动 send_otp→收码→validate→重试 register（适配已实施, 待真实风控场景确认） |
+| cloudmail 401 | 根因=并发各登 admin token 互相踢(单会话), 已修复进程级共享 token(otp_failed 3→0) |
 
 ## 五、待办（下次可选）
 
 1. ~~纯协议组存活观察~~ ✅ 已完（08-13 07:45 跨 7.9h 判定点，纯协议长活确认）
 2. ~~register_pwd 集成 recovery_key~~ ✅ 已完（08-13 端到端验证，产出 4 段 `email----password----totp----recovery`）
-3. **收码优化**：Outlook XDAuv 服务波动（并发建议 ≤2），cloudmail 收码快可高并发
-4. **主工作树同步**：config 改了 `sentinel_source/so_source/pool_size/max_wait/chain_via=7890` 等，记得同步主工作树
-5. **号池**：100 个新买 Outlook 号（部分已用），iCloud 号源待补充（资格概率更好）
+3. **email-verification 预验证待真实场景确认**：下次批量遇 register 400 + email-verification 落点时观察 `预验证邮箱后 register 成功` 是否出现（w=8c 已触发过一次, 暴露"注册场景不自动发码", 已修加 send_otp）
+4. **并发策略**：w=4 更稳（无 ip_blocked）, w=8 吞吐高(8 号/min)但 ip_blocked 风险 + 号源压力
+5. **主工作树同步**：config 改了 `sentinel_source/so_source/pool_size/max_wait/chain_via=7890` 等 + ProxyPool/效率/cloudmail 代码, 记得同步主工作树
+6. **号池**：100 个新买 Outlook 号（部分已用），iCloud 号源待补充（资格概率更好）
 
 ## 六、关键文件/参考
 
