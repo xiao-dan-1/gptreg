@@ -181,6 +181,7 @@ def _stage_signin(session: BrowserSession, email: str, diag: dict[str, Any]) -> 
 def _stage_register(
     session: BrowserSession,
     cfg: dict[str, Any],
+    account: dict[str, Any],
     email: str,
     password: str,
     final: str,
@@ -191,6 +192,7 @@ def _stage_register(
 
     400 分类: 落 log-in=邮箱已注册(永久弃用) / invalid_auth_step|Invalid authorization
     =邮箱状态冲突(已推进过注册, 不可重入, 永久弃用) / 其他=IP 信誉(换 sid 可重试)。
+    account 用于 email-verification 预验证时收码(新流程: 先验证邮箱再注册)。
     """
     _t0 = time.time()
     # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
@@ -212,6 +214,39 @@ def _stage_register(
                             data=json.dumps({"username": email, "password": password}))
 
     if resp.status_code != 200:
+        # ⭐ email-verification 落点 + register 400: OpenAI 新流程要求"先验证邮箱"再注册。
+        # authorize 落 email-verification 即已触发验证码发送(reauth 实证), 收码 validate 后
+        # 重试 register; 预验证无效(真 IP 信誉/邮箱已注册)时收码超时或仍 400 → 回退原判定。
+        if "email-verification" in (final or "") and "log-in" not in (final or "") and "/login" not in (final or ""):
+            _ev_t0 = time.time()
+            try:
+                logger.warning("[Auth] email-verification 落点 register 400, 预验证邮箱后重试")
+                _mc = cfg.get("mail") or {}
+                # 注册场景的 email-verification 落点不会自动发码(reauth 才会), 需主动
+                # send_otp 触发后再收(实测直接收超时 45s 无码)
+                try:
+                    session.get(
+                        "https://auth.openai.com/api/accounts/email-otp/send",
+                        headers=session.auth_navigate_headers(referer="https://auth.openai.com/email-verification"),
+                        allow_redirects=True)
+                except Exception:
+                    pass
+                _otp, _extra = wait_otp_with_retry(
+                    cfg, account, email=email, after_ts=st["start"],
+                    proxy_url=None, session=session,
+                    max_attempts=1, timeout=min(int(_mc.get("otp_wait", 150) or 150), 45),
+                    interval=3, settle_seconds=5,
+                )
+                if _otp:
+                    auth.validate_email_otp(session, _otp, None)
+                    auth.warm_about_you(session)
+                    resp = session.post(REGISTER_URL, headers=headers,
+                                        data=json.dumps({"username": email, "password": password}))
+                    diag["pre_verify_s"] = round(time.time() - _ev_t0, 1)
+                    if resp.status_code == 200:
+                        logger.info("[Auth] 预验证邮箱后 register 成功(新流程通过)")
+            except Exception as exc:
+                logger.warning("[Auth] email-verification 预验证失败(回退原判定): %s", str(exc)[:100])
         err = f"register HTTP {resp.status_code}: {resp.text[:150]}"
         # 提取服务器原始 code(如 invalid_auth_step), 让"已注册"判定可验证
         srv_code = ""
@@ -516,7 +551,7 @@ def _register_chain(
         pass
     try:
         final = _stage_signin(session, email, diag)
-        reg, send_url = _stage_register(session, cfg, email, password, final, st, diag)
+        reg, send_url = _stage_register(session, cfg, account, email, password, final, st, diag)
         otp = _stage_wait_otp(session, cfg, account, email, send_url, resolved.session_url or None,
                               st, diag)
         tok2, so_b, cu = _stage_create(session, cfg, name, bday, resolved.session_url or None, st, diag)
