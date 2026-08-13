@@ -735,6 +735,12 @@ def register_account(
             last_diag = dict(getattr(exc, "diag", {}) or {})
             last_diag["attempt"] = att + 1
             logger.warning("  [warn] register 被拒(IP 风控): %s", str(exc)[:70])
+            # 邮箱级风控(email-verification 新流程): 同邮箱换 IP 无效(实测换 3-5 IP 全失败,
+            # 该邮箱/域名已被 OpenAI 要求走邮箱验证) → 直接失败让批量换新号;
+            # 号保留(batch 不弃用), 下次批量可再试。
+            if "email-verification" in str(last_diag.get("landing_diag") or ""):
+                last_diag["email_verification_required"] = True
+                return RegistrationResult(RegisterOutcome.IP_BLOCKED, email, last_diag)
             # 仅换 IP 重试 1 次(att=0 → 第二次尝试): 反复戳同一邮箱会放大认证请求量
             if not auto_retry or att >= 1:
                 break

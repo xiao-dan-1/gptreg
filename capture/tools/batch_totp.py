@@ -362,10 +362,14 @@ def _register_with_retry(cfg, account, email, password, name, bday, proxy, proxy
     result = register_account(cfg, account, email=email, password=password,
                               name=name, bday=bday, proxy=proxy, proxy_pool=proxy_pool)
     if result.outcome == RegisterOutcome.IP_BLOCKED:
-        # 换 sid 重试一次: register_account 内部已换 sid(池模式=换池隧道), 重试是让 IP 风控概率解
-        print("  [retry] IP_BLOCKED, 换 IP 重试一次", flush=True)
-        result = register_account(cfg, account, email=email, password=password,
-                                  name=name, bday=bday, proxy=proxy, proxy_pool=proxy_pool)
+        # email-verification 邮箱级风控: 同邮箱换 IP 无效(实测换 3-5 IP 全失败), 不重试
+        if (result.diag or {}).get("email_verification_required"):
+            print("  [ip_blocked] email-verification(邮箱级风控), 不重试(换 IP 无效)", flush=True)
+        else:
+            # 换 sid 重试一次: register_account 内部已换 sid(池模式=换池隧道), 重试是让 IP 风控概率解
+            print("  [retry] IP_BLOCKED, 换 IP 重试一次", flush=True)
+            result = register_account(cfg, account, email=email, password=password,
+                                      name=name, bday=bday, proxy=proxy, proxy_pool=proxy_pool)
     return result
 
 
