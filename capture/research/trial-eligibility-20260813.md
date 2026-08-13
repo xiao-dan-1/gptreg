@@ -4,7 +4,7 @@
 
 ## 核心结论
 
-**试用资格 = OpenAI 灰度测试（grayscale test）发放的 promo campaign。** 真实根因（08-14 四次反转后最终钉死）：**出口 IP 信誉**——住宅代理（cliproxy）查 `eligible_promo_campaigns.plus` 非空 = 有资格；v2rayN 直连（10808）查 = 空（数据中心/脏 IP 不给发 promo）。纯协议号本身有资格，之前"纯协议结构性出不了资格"是用 v2rayN 直连查导致的误判。
+**试用资格 = OpenAI 灰度测试（grayscale test）发放的 promo campaign。** 真实根因（08-14 多次反转后最终钉死）：**IP 地区（JP 有/US 无）× 邮箱域（iCloud 有/Outlook 无）**——只有 iCloud 号 + JP 出口，`eligible_promo_campaigns.plus` 才非空。纯协议完全能高效产资格号：iCloud 号源 + 纯协议注册 + JP 出口。
 
 ---
 
@@ -86,27 +86,26 @@ TLS 指纹差异化（impersonate 轮换）已实现但**对 pthdnu 无效**；�
 2. **批量筛选**：无法制造，只能注册后筛。静态字段不可靠（08-12 已证），checkout 探测才准（但会创建 checkout 草稿）。
 3. **（保留能力）TLS 指纹差异化**：对资格/pthdnu 无效，但打破 JA3 雷同仍是通用反指纹好实践；代码已实现，`browser.impersonate_rotate` 控制，默认关。
 
-## 八、最终验证：资格 = 出口 IP 信誉（08-14 四次反转后钉死）
+## 八、最终验证：资格 = IP 地区 × 邮箱域（08-14 多次反转后钉死）
 
-**实测（同一账号，不同出口代理查 `eligible_promo_campaigns.plus`）**：
+**实测（`eligible_promo_campaigns.plus`，组合矩阵）**：
 
-| 出口代理 | has_plus（试用资格） |
-|---|---|
-| v2rayN 直连（10808） | ❌ False（无资格） |
-| cliproxy 住宅 US | ✅ True（有资格） |
-| cliproxy 住宅 JP | ✅ True（有资格） |
+| 邮箱域 | JP 出口 | US 出口 |
+|---|---|---|
+| iCloud | ✅ 有资格（3/3） | ❌ 无资格 |
+| Outlook | ❌ 无资格 | ❌ 无资格 |
 
-**结论**：`eligible_promo_campaigns` 的返回由**出口 IP 信誉**决定——住宅代理查有 `plus` 键（有试用资格），v2rayN 直连（数据中心/脏 IP）查空。
+**结论**：`eligible_promo_campaigns.plus` 由**两个维度共同决定**——`IP 地区`（JP 有/US 无，plus-1-month-free 是 JP 灰度活动）× `邮箱域`（iCloud 有/Outlook 无）。
 
 **完整反转过程**（教训深刻）：
 1. ~~判据 checkout~~ → 假阳性（硬编码 plus-1-month-free 被接受 ≠ 真资格）
 2. ~~字段层级~~ → account 层 vs accountRecord 层（真 bug，但修复后仍空）
-3. ~~时间~~ → 换 cliproxy 那次恰好查到，误以为是时间
-4. **出口 IP 信誉** → 真正的根因：我之前测资格全传了 `--proxy 10808`（v2rayN 直连），IP 信誉差导致查空
+3. ~~时间 / IP 信誉~~ → 换 JP 出口那次恰好查到，误以为是时间/IP 信誉
+4. **IP 地区 × 邮箱域** → 真正的根因：iCloud 号 + JP 出口才有资格
 
 **高效出资格的正确路径**：
-1. 纯协议注册（任何号源，~37s/号）
-2. **用住宅代理查 `eligible_promo_campaigns.plus`**（subscription 命令不带 --proxy，默认 cliproxy 住宅）
+1. **iCloud 号源** + 纯协议注册（~37s/号）
+2. **JP 出口**查 `eligible_promo_campaigns.plus`（subscription 探测池已改 region=JP）
 3. 有 plus 键的号 = 有试用资格，走 checkout 拿试用
 
 ## 参考来源
