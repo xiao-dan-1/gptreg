@@ -46,7 +46,7 @@
 | vm so | 必须派发行为事件；行为空则吊销 |
 | browser so | 长活 9h+（对照） |
 | 注册模式 | OTP-only create_account 全吊销；**密码模式才有活路** |
-| 试用资格(08-14 修正) | **=邮箱域(iCloud 有/Outlook 无), 纯协议 iCloud 号 3/3 checkout 有资格**; 判据是 checkout(JP 出口)非静态字段(静态字段对新号全 null); 纯协议能高效产资格号(见 trial-eligibility-20260813.md) |
+| 试用资格(08-14 钉死) | **=出口 IP 信誉**: 住宅代理(cliproxy)查 eligible_promo_campaigns.plus 非空=有资格, v2rayN 直连(10808)查=空; 纯协议号本身有资格, 之前"无资格"是用 10808 直连查的误判(见 trial-eligibility-20260813.md) |
 | Codex OAuth 拿 RT | 强制手机验证，不可行（除非接码） |
 | 续命 | relogin（password+TOTP 重登） |
 | 效率(08-13) | create 合并 / Geo 跳过 / ProxyPool 接入 / cloudmail 共享 token：w=8 池 16/16, 吞吐 8 号/min, setup 0.0s |

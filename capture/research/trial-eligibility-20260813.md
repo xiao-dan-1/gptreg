@@ -4,7 +4,7 @@
 
 ## 核心结论
 
-**试用资格 = OpenAI 灰度测试（grayscale test）发放的 promo campaign，针对特定用户组/地区，无法制造、只能批量注册后筛选。** 注册机号无资格的根因（08-14 最终验证）：**注册全流程的浏览器真实性**——纯协议只在 create 阶段补 so，前段 signin/register/about-you 是纯 HTTP 无浏览器交互，结构性出不了资格。
+**试用资格 = OpenAI 灰度测试（grayscale test）发放的 promo campaign。** 真实根因（08-14 四次反转后最终钉死）：**出口 IP 信誉**——住宅代理（cliproxy）查 `eligible_promo_campaigns.plus` 非空 = 有资格；v2rayN 直连（10808）查 = 空（数据中心/脏 IP 不给发 promo）。纯协议号本身有资格，之前"纯协议结构性出不了资格"是用 v2rayN 直连查导致的误判。
 
 ---
 
@@ -86,29 +86,28 @@ TLS 指纹差异化（impersonate 轮换）已实现但**对 pthdnu 无效**；�
 2. **批量筛选**：无法制造，只能注册后筛。静态字段不可靠（08-12 已证），checkout 探测才准（但会创建 checkout 草稿）。
 3. **（保留能力）TLS 指纹差异化**：对资格/pthdnu 无效，但打破 JA3 雷同仍是通用反指纹好实践；代码已实现，`browser.impersonate_rotate` 控制，默认关。
 
-## 八、最终验证：资格 = 邮箱域，纯协议 iCloud 号有资格（08-14 修正）
+## 八、最终验证：资格 = 出口 IP 信誉（08-14 四次反转后钉死）
 
-**关键教训**：之前用 `eligible_promo_campaigns` 静态字段判"0 资格"是判据错误——静态字段对所有新号都是 null，真正的资格要看 **checkout 时 promo 是否被接受**（`scan_trial_eligibility.py --probe`，JP 出口）。
+**实测（同一账号，不同出口代理查 `eligible_promo_campaigns.plus`）**：
 
-**实测（checkout 探测）**：
+| 出口代理 | has_plus（试用资格） |
+|---|---|
+| v2rayN 直连（10808） | ❌ False（无资格） |
+| cliproxy 住宅 US | ✅ True（有资格） |
+| cliproxy 住宅 JP | ✅ True（有资格） |
 
-| 账号 | 邮箱域 | 注册方式 | checkout 真实资格 |
-|---|---|---|---|
-| textual-henna-3x | iCloud | vm so + 随机行为 | ✅ promo 接受 |
-| retests.alchemy_1g | iCloud | browser so | ✅ promo 接受 |
-| result_starts.5w | iCloud | vm so 原版 | ✅ promo 接受 |
-| RuhlandAuber48 | Outlook | vm so | ❌ promo 拒绝 |
-| reg_87fa4c | cloudmail | vm so | ⚠️ 账号已死(1.3h) |
+**结论**：`eligible_promo_campaigns` 的返回由**出口 IP 信誉**决定——住宅代理查有 `plus` 键（有试用资格），v2rayN 直连（数据中心/脏 IP）查空。
 
-**结论**：资格 = **邮箱域**（iCloud 有资格，Outlook 无资格），不是注册方式。纯协议 iCloud 号 **3/3 checkout 有资格**。
-
-- survey 08-12 的"手工 iCloud vs 注册机 Outlook"对照混淆了变量——真正的区别是邮箱域
-- 纯协议完全能高效产资格号：**iCloud 号源 + 纯协议注册 + JP 出口 checkout**
+**完整反转过程**（教训深刻）：
+1. ~~判据 checkout~~ → 假阳性（硬编码 plus-1-month-free 被接受 ≠ 真资格）
+2. ~~字段层级~~ → account 层 vs accountRecord 层（真 bug，但修复后仍空）
+3. ~~时间~~ → 换 cliproxy 那次恰好查到，误以为是时间
+4. **出口 IP 信誉** → 真正的根因：我之前测资格全传了 `--proxy 10808`（v2rayN 直连），IP 信誉差导致查空
 
 **高效出资格的正确路径**：
-1. 用 iCloud 号源纯协议注册（高效，~37s/号）
-2. JP 出口 checkout 探测（scan_trial_eligibility --probe）确认 promo 接受
-3. 有资格的号走 checkout 流程（openai-promo-bypass 方式）拿试用
+1. 纯协议注册（任何号源，~37s/号）
+2. **用住宅代理查 `eligible_promo_campaigns.plus`**（subscription 命令不带 --proxy，默认 cliproxy 住宅）
+3. 有 plus 键的号 = 有试用资格，走 checkout 拿试用
 
 ## 参考来源
 
