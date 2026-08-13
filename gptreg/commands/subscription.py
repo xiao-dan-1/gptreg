@@ -28,7 +28,7 @@ def add_parser(subparsers) -> None:
     p.add_argument("--region", default=None, help="动态代理地区(覆盖 config)")
     p.add_argument("--proxy", default=None, help="覆盖代理；传 empty/none/direct 表示直连")
     p.add_argument("--no-proxy", action="store_true", help="强制直连")
-    p.add_argument("--workers", type=int, default=4, help="并发探测线程数(默认 4, 探测池复用)")
+    p.add_argument("--workers", type=int, default=8, help="并发探测线程数(默认 8, 探测池复用)")
     p.set_defaults(func=run)
 
 
