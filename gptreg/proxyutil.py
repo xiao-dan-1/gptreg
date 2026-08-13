@@ -722,9 +722,11 @@ class ProxyPool:
     # ---- 建隧道 ----
     def _build_one(self) -> ResolvedProxy:
         # 并发建隧道时 cliproxy/动态代理偶发 TLS/探活失败(实测 2 条并发 1 条 TLS 错)。
-        # 探活失败换新 sid 重试(最多 3 次), 否则并发 worker 拿不到隧道就卡住。
+        # 探活失败/地区不符换新 sid 重试(最多 5 次), 否则并发 worker 拿不到隧道就卡住。
+        # 2026-08-14: 代理源质量下降(US region 混入 VE 出口), 加地区校验 + 重试 5 次 + 间隔 1s。
         last = ""
-        for attempt in range(1, 4):
+        want_cc = (self.region or "").upper()
+        for attempt in range(1, 6):
             upstream = build_dynamic_proxy(self.cfg, region=self.region)
             if not upstream:
                 raise RuntimeError("动态代理未配置(proxy.dynamic.enabled)")
@@ -735,6 +737,14 @@ class ProxyPool:
             try:
                 info = probe_proxy(tunnel.local_url, timeout=12)
                 if info.get("status") == 200 and info.get("ip"):
+                    # 地区校验: 非目标 region 的出口 IP 丢弃(如 US region 混入 VE 出口, 连接不稳 + 风控)
+                    ipinfo = info.get("ipinfo") or {}
+                    cc = str(ipinfo.get("country") or "").upper()
+                    if want_cc and cc and cc != want_cc:
+                        last = f"出口地区不符 want={want_cc} got={cc} ip={info.get('ip')}"
+                        tunnel.close()
+                        time.sleep(1.0)
+                        continue
                     region, sid = _extract_region_sid(upstream)
                     return ResolvedProxy(
                         session_url=tunnel.local_url, upstream_url=upstream,
@@ -745,9 +755,9 @@ class ProxyPool:
             except Exception as exc:
                 last = str(exc)[:80]
             tunnel.close()
-            if attempt < 3:
-                time.sleep(0.5)
-        raise RuntimeError(f"隧道建失败(3次换sid重试): {last}")
+            if attempt < 5:
+                time.sleep(1.0)
+        raise RuntimeError(f"隧道建失败(5次换sid重试): {last}")
 
     def _build(self, size: int) -> None:
         from concurrent.futures import ThreadPoolExecutor
