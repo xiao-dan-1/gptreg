@@ -13,6 +13,7 @@ API(源自 gpt_register 集成):
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Callable
 
@@ -23,6 +24,12 @@ from gptreg.mail.mail_util import MailClientError
 from gptreg.otp import extract_otp
 
 logger = logging.getLogger(__name__)
+
+# 进程级共享 admin token: 并发注册每个账号新建 CloudMailClient, 若各登各的会互相踢
+# (cloudmail 服务端单会话, 新登录使旧 token 失效 → 高并发下大量 401 拉码失败,
+# 实测 w=8 时 3/16 otp_failed)。共享同一 token 后不再互相踢; 401 时清缓存下次重登。
+_SHARED_TOKEN: dict[str, str | None] = {"token": None}
+_TOKEN_LOCK = threading.Lock()
 
 
 class CloudMailClient(MailClient):
@@ -57,20 +64,29 @@ class CloudMailClient(MailClient):
             return self._token
         if not self.base_url or not self.admin_email or not self.admin_password:
             raise MailClientError("cloud_mail 未配置 base_url/admin_email/admin_password (config mail.cloud_mail)")
-        r = cr.post(
-            f"{self.base_url}/api/login",
-            json={"email": self.admin_email, "password": self.admin_password},
-            timeout=self.timeout, impersonate=self.impersonate, proxies=self._proxies(),
-        )
-        d = r.json() if r.status_code == 200 else {}
-        if d.get("code") != 200:
-            raise MailClientError(f"cloud_mail admin 登录失败: {str(d)[:120]}")
-        data = d.get("data") or {}
-        token = str(data.get("token") or data.get("jwt") or "")
-        if not token:
-            raise MailClientError(f"cloud_mail 登录未返回 token: {str(d)[:120]}")
-        self._token = token
-        return token
+        # 进程级共享: 有缓存直接用(并发注册各建 client, 若各登各的会互相踢 token → 高并发 401)
+        if _SHARED_TOKEN["token"]:
+            self._token = _SHARED_TOKEN["token"]
+            return self._token
+        with _TOKEN_LOCK:
+            if _SHARED_TOKEN["token"]:  # double-check(并发下只登一次)
+                self._token = _SHARED_TOKEN["token"]
+                return self._token
+            r = cr.post(
+                f"{self.base_url}/api/login",
+                json={"email": self.admin_email, "password": self.admin_password},
+                timeout=self.timeout, impersonate=self.impersonate, proxies=self._proxies(),
+            )
+            d = r.json() if r.status_code == 200 else {}
+            if d.get("code") != 200:
+                raise MailClientError(f"cloud_mail admin 登录失败: {str(d)[:120]}")
+            data = d.get("data") or {}
+            token = str(data.get("token") or data.get("jwt") or "")
+            if not token:
+                raise MailClientError(f"cloud_mail 登录未返回 token: {str(d)[:120]}")
+            _SHARED_TOKEN["token"] = token
+            self._token = token
+            return token
 
     def list_domains(self) -> list[str]:
         """可用域名: 优先用 config mail.cloud_mail.domains, 空则查 API
@@ -109,6 +125,9 @@ class CloudMailClient(MailClient):
             # 实测: bj02 等号曾因 XDAuv admin 会话过期白等 200s, 应立即失败让上层换 IP 重试。
             code = int(d.get("code") or 0)
             if code == 401 or "auth" in msg.lower() or "expired" in msg.lower():
+                # 共享 token 失效(过期/被服务端踢): 清缓存, 下次登录重拿; 本次快速失败
+                _SHARED_TOKEN["token"] = None
+                self._token = None
                 raise MailClientError(f"cloud_mail 认证失败(会话过期): {msg}")
             return []
         return (d.get("data") or {}).get("list") or []
