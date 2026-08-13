@@ -86,27 +86,29 @@ TLS 指纹差异化（impersonate 轮换）已实现但**对 pthdnu 无效**；�
 2. **批量筛选**：无法制造，只能注册后筛。静态字段不可靠（08-12 已证），checkout 探测才准（但会创建 checkout 草稿）。
 3. **（保留能力）TLS 指纹差异化**：对资格/pthdnu 无效，但打破 JA3 雷同仍是通用反指纹好实践；代码已实现，`browser.impersonate_rotate` 控制，默认关。
 
-## 八、最终验证：纯协议结构性出不了资格（08-14）
+## 八、最终验证：资格 = 邮箱域，纯协议 iCloud 号有资格（08-14 修正）
 
-**验证矩阵**（本轮全部实测，均为新注册 iCloud/Outlook 号）：
+**关键教训**：之前用 `eligible_promo_campaigns` 静态字段判"0 资格"是判据错误——静态字段对所有新号都是 null，真正的资格要看 **checkout 时 promo 是否被接受**（`scan_trial_eligibility.py --probe`，JP 出口）。
 
-| 方案 | 资格 |
-|---|---|
-| vm so 原版（固定 15 坐标行为） | 0 |
-| vm so + 改进行为（随机轨迹 28-48 次，自然节奏） | 0 |
-| browser so（create 阶段真实 Chrome 采 so） | 0 |
-| 浏览器手动注册（用户观察） | 大概率有 |
+**实测（checkout 探测）**：
 
-**结论**：资格 = **注册全流程**的浏览器真实性，不是单点（so/行为字段/TLS/邮箱域/年龄）能决定的。
+| 账号 | 邮箱域 | 注册方式 | checkout 真实资格 |
+|---|---|---|---|
+| textual-henna-3x | iCloud | vm so + 随机行为 | ✅ promo 接受 |
+| retests.alchemy_1g | iCloud | browser so | ✅ promo 接受 |
+| result_starts.5w | iCloud | vm so 原版 | ✅ promo 接受 |
+| RuhlandAuber48 | Outlook | vm so | ❌ promo 拒绝 |
+| reg_87fa4c | cloudmail | vm so | ⚠️ 账号已死(1.3h) |
 
-- browser so 注册 ≠ 浏览器手动注册：前者只有 create 阶段用 Chrome 采 so，前段 signin/register/about-you 全是纯 HTTP；后者全程真实页面交互
-- 所以"so 来源真实性"也不是关键（browser so 也 0）——真正的信号是**前段的浏览器交互**
-- 纯协议（vm so 或 browser so）结构性缺前段行为 → 资格 0
+**结论**：资格 = **邮箱域**（iCloud 有资格，Outlook 无资格），不是注册方式。纯协议 iCloud 号 **3/3 checkout 有资格**。
 
-**对"高效出资格"的最终含义**：
-1. 纯协议方向**结构性死路**（so/行为/TLS/邮箱域全试过，出不了资格）
-2. 唯一路径 = **浏览器全流程自动化注册**（Playwright 真实页面交互），牺牲效率换资格
-3. 真正的"高效"课题 = 浏览器自动化的效率上限（并发浏览器池、精简流程、session 复用）
+- survey 08-12 的"手工 iCloud vs 注册机 Outlook"对照混淆了变量——真正的区别是邮箱域
+- 纯协议完全能高效产资格号：**iCloud 号源 + 纯协议注册 + JP 出口 checkout**
+
+**高效出资格的正确路径**：
+1. 用 iCloud 号源纯协议注册（高效，~37s/号）
+2. JP 出口 checkout 探测（scan_trial_eligibility --probe）确认 promo 接受
+3. 有资格的号走 checkout 流程（openai-promo-bypass 方式）拿试用
 
 ## 参考来源
 

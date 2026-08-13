@@ -46,7 +46,7 @@
 | vm so | 必须派发行为事件；行为空则吊销 |
 | browser so | 长活 9h+（对照） |
 | 注册模式 | OTP-only create_account 全吊销；**密码模式才有活路** |
-| 试用资格(08-14 最终) | 看**注册全流程浏览器真实性**, 纯协议结构性出不了: vm so/browser so/随机行为都 0 资格, 唯一路径=浏览器全流程自动化(见 trial-eligibility-20260813.md) |
+| 试用资格(08-14 修正) | **=邮箱域(iCloud 有/Outlook 无), 纯协议 iCloud 号 3/3 checkout 有资格**; 判据是 checkout(JP 出口)非静态字段(静态字段对新号全 null); 纯协议能高效产资格号(见 trial-eligibility-20260813.md) |
 | Codex OAuth 拿 RT | 强制手机验证，不可行（除非接码） |
 | 续命 | relogin（password+TOTP 重登） |
 | 效率(08-13) | create 合并 / Geo 跳过 / ProxyPool 接入 / cloudmail 共享 token：w=8 池 16/16, 吞吐 8 号/min, setup 0.0s |
@@ -67,7 +67,7 @@
 4. ~~并发策略~~ ✅ 已定(08-13 实证): w=4/w=8 失败率同(7/8), 失败源=boji 子域收码超时(已剔除), 非并发 ip_blocked; 默认 workers=4
 5. **主工作树同步**：config 改了 `sentinel_source/so_source/pool_size/max_wait/chain_via=7890` 等 + ProxyPool/效率/cloudmail 代码, 记得同步主工作树
 6. **号池**：100 个新买 Outlook 号（部分已用）；iCloud 号池主号已用但**别名可复用 +50**(08-14 已支持)
-7. ~~资格验证换号源~~ ✅ 已定论(08-14): 资格看注册全流程浏览器真实性, 纯协议结构性出不了(邮箱域/年龄/TLS/so 全排除), 唯一路径浏览器自动化
+7. ~~资格验证换号源~~ ✅ 已定论(08-14): 资格=邮箱域(iCloud 有/Outlook 无), 纯协议 iCloud 号 checkout 有资格; 判据是 checkout(JP 出口)非静态字段
 8. **代理端口固化**：chain_via 已 7890→10808(v2rayN); config 不入库(.gitignore), 换客户端需再改
 
 ## 六、关键文件/参考
