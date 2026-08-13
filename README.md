@@ -131,6 +131,9 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 | `register.enable_totp` | **纯协议路线**：注册后自动开 TOTP（无密码 + TOTP 交付），默认 false |
 | `register.enable_password` | **纯协议路线**：注册后 reauth 补设密码，产出 `email----password----2fa` 全凭据，默认 false |
 | `mail.otp_wait` | 收码超时（秒），需覆盖发码延迟 |
+| `proxy.dynamic.trial_region` | **试用资格探测 region**（默认 JP）：`plus-1-month-free` 是 JP 灰度活动，只有 JP 出口能查到；独立于注册 region |
+| `browser.impersonate_rotate` | TLS 指纹差异化：按 device_id 派生 chrome 版本（打破 JA3 雷同），默认 true |
+| `register.enable_recovery` | 开 recovery key（防 TOTP 锁死），默认 true；false 跳过省 ~4s/号 |
 
 完整配置示例见 `config.yaml.example`。
 
@@ -150,6 +153,7 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 - **来源识别**：4 段 → `ms_oauth`；2 段+URL(@icloud.com/@me.com) → `icloud`；2 段非 URL → `api`；单段邮箱 → `cloudmail`
 - **号池状态**（`.state.json`）：失败/弃用带 TTL 自动回退（基建 30min、弃用 24h），代理恢复即复活
 - 主号需**未注册过 OpenAI**（已用会走邮箱级风控，换 IP 无效）
+- **iCloud 别名复用**：主号已注册仍可 +1 个别名（`主号+tag@icloud.com`，plus 别名邮件投递主邮箱收件箱，接码 URL 能收），每主号最多 1 别名（accounts.jsonl 追踪）
 - **示例**：`icloud_pool.txt.example`（iCloud 池）/ `mail_pool.txt.example`（Outlook 池）
 
 ---
@@ -247,7 +251,8 @@ signin → register(user/register 设密码, username_password_create 无 SO) �
 ```
 
 - **⭐ 纯协议正解（2026-08-13 实证）**：密码模式 + vm so（**派发行为事件 simulate_behavior，默认开**）→ **账号可长活**（实测 2/2 活，无需真浏览器）。行为字段空的 vm so（不派发事件）才会被吊销——历史"~30min 短活"是行为字段空的真相
-- **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生（防批量雷同）；语言/时区随出口 IP（防设备指纹矛盾）→ 账号"更像真人"，**试用资格概率提升**（实测 0% → ~44%；Outlook 3/7、cloudmail 1/2，资格主要由账号画像决定、与邮箱域关系小）
+- **试用资格（08-14 实证）**：`plus-1-month-free` 由 **IP 地区（JP 有/US 无）× 邮箱域（iCloud 有/Outlook 无）** 决定——**iCloud 号 + JP 出口查 ≈ 76% 有资格**（35/46 大样本）。查资格用 `subscription`（探测池自动 JP，并发 + 失败重试），不需要 checkout
+- **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生 + TLS 指纹按 device_id 轮换（`impersonate_rotate`）+ 语言/时区随出口 IP → 防批量雷同/设备指纹矛盾
 - **效率优化**：Geo 复用隧道探活 ipinfo（省单独查询 +2s/号）；cloudmail 收码快（~3s）→ 单号 ~38s、并发 w2 稳定 2/2；Outlook 收码是瓶颈（XDAuv 服务波动，并发建议 ≤2）
 - **recovery key**：`recovery_code` 因子，30 字符 key，激活时提交整个 key；防 TOTP 锁死
 - **relogin 续命**：password+TOTP 重登换新 token，不依赖存量 cookie（对比 refresh 依赖 session_cookies）
@@ -316,7 +321,7 @@ output/                        成功账号(accounts.jsonl)
 - **邮箱级风控**：同一邮箱多次失败会被 OpenAI 记住，换 IP 无效（勿反复试）
 - **so 真实性**：行为字段空的 so 账号被吊销；vm so 必须**派发行为事件（simulate_behavior，默认开）**才带行为字段 ≈ 浏览器；**绝不派发 paste**（"合成输入"判别特征，register-kit 踩坑）
 - **两条路线存活**：主路线（browser 真 so）长活（实测 8h+）；**纯协议路线（密码模式 + vm so 模拟行为）实证可长活**（2026-08-13 2/2 活），无需真浏览器
-- **指纹/Geo 画像**：账号指纹按账号差异化派生 + 语言/时区随出口 IP → 防批量雷同/设备指纹矛盾，试用资格概率提升（0% → ~43%）
+- **试用资格**：`plus-1-month-free` 由 **IP 地区（JP）× 邮箱域（iCloud）** 决定——iCloud 号 + JP 出口 ≈ 76% 有资格；查资格用 `subscription`（探测池自动 JP 住宅，勿传数据中心代理）
 - **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
 - **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才注册成功
