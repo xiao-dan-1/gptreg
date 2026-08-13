@@ -222,15 +222,17 @@ def _stage_register(
             try:
                 logger.warning("[Auth] email-verification 落点 register 400, 预验证邮箱后重试")
                 _mc = cfg.get("mail") or {}
-                # 注册场景的 email-verification 落点不会自动发码(reauth 才会), 需主动
-                # send_otp 触发后再收(实测直接收超时 45s 无码)
+                # register 400 会推进 state(类似 register-kit 设密码重置 state),
+                # signin 阶段那轮码作废 → 须主动 send_otp 重发再收(实测直接收超时 45s 无码)
                 try:
-                    session.get(
+                    _sr = session.get(
                         "https://auth.openai.com/api/accounts/email-otp/send",
                         headers=session.auth_navigate_headers(referer="https://auth.openai.com/email-verification"),
                         allow_redirects=True)
-                except Exception:
-                    pass
+                    diag["pre_verify_send"] = _sr.status_code
+                    logger.warning("[Auth] 预验证 send_otp HTTP %s", _sr.status_code)
+                except Exception as exc:
+                    diag["pre_verify_send"] = f"exc:{type(exc).__name__}"
                 _otp, _extra = wait_otp_with_retry(
                     cfg, account, email=email, after_ts=st["start"],
                     proxy_url=None, session=session,
