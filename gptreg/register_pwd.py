@@ -233,10 +233,13 @@ def _stage_register(
                     logger.warning("[Auth] 预验证 send_otp HTTP %s", _sr.status_code)
                 except Exception as exc:
                     diag["pre_verify_send"] = f"exc:{type(exc).__name__}"
+                # 实证(2026-08-13 w=8): register 400 邮箱 send_otp 返回 200 但实际不发码
+                # (服务端对该邮箱/IP 是硬性拒绝, 假成功)——收码必然超时, 属纯浪费。
+                # 保留 20s 短窗口试错(万一真发码可治愈), 超时快速回退原判定。
                 _otp, _extra = wait_otp_with_retry(
                     cfg, account, email=email, after_ts=st["start"],
                     proxy_url=None, session=session,
-                    max_attempts=1, timeout=min(int(_mc.get("otp_wait", 150) or 150), 45),
+                    max_attempts=1, timeout=min(int(_mc.get("otp_wait", 150) or 150), 20),
                     interval=3, settle_seconds=5,
                 )
                 if _otp:
