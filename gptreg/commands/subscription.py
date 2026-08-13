@@ -151,13 +151,20 @@ def run(cfg: dict[str, Any], args) -> int:
         pool = ProxyPool(cfg, size=min(workers, max(1, len(accounts))), region=trial_region)
 
         def _one(d):
-            rp = pool.acquire()
-            sess = BrowserSession(cfg, proxy=rp.session_url)
-            try:
-                return d.get("email"), _query(sess, d.get("access_token"))
-            finally:
-                sess.close()
-                pool.release(rp)
+            # 请求失败(非 200/超时/连接异常)换隧道重试, 避免把"失败"误判成"无资格"(漏判根因)
+            for _ in range(4):
+                rp = pool.acquire()
+                sess = BrowserSession(cfg, proxy=rp.session_url)
+                try:
+                    r = _query(sess, d.get("access_token"))
+                    if r.get("accounts_http") == 200:
+                        return d.get("email"), r
+                except Exception:
+                    pass
+                finally:
+                    sess.close()
+                    pool.release(rp)
+            return d.get("email"), None
 
         results: dict[str, Any] = {}
         try:
