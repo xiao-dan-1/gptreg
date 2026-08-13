@@ -30,7 +30,7 @@ def _datadog_rum_headers() -> dict[str, str]:
     }
 
 
-_CHROME_VERSIONS = [99, 104, 110, 116, 119, 120, 123, 124, 131, 133, 142, 145]
+_CHROME_VERSIONS = [104, 110, 116, 119, 120, 123, 124, 131, 136, 142, 145]
 
 
 def _pick_impersonate_profile(device_id: str) -> dict[str, str]:
