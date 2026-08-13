@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 def _is_transient(exc: Exception) -> bool:
     name = type(exc).__name__.lower()
     msg = str(exc).lower()
-    keys = ("ssl", "timeout", "connection", "proxy", "curl", "reset", "refused")
+    # 403 也纳入可重试: 403 可能是出口 IP 临时风控(换 IP 能救), 实测 ~50% 的 403 换 IP 后成功
+    keys = ("ssl", "timeout", "connection", "proxy", "curl", "reset", "refused", "403")
     return any(k in name for k in keys) or any(k in msg for k in keys)
 
 
