@@ -265,7 +265,7 @@ def _harvest_context(
     from pathlib import Path
 
     root = Path(cfg.get("_root") or Path(__file__).resolve().parent.parent)
-    sdk_local = root / "vendor" / "sentinel" / "rk_sdk.js"
+    sdk_local = root / "vendor" / "sentinel" / "sdk.js"
     # 优先本地缓存(按 sv, 首次下载后省 ~15s 远程加载)
     cached = _ensure_local_sdk(cfg, proxy=proxy)
     try:

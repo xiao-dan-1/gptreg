@@ -20,7 +20,7 @@ from typing import Optional
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _VENDOR = os.path.join(_HERE, "..", "vendor", "sentinel")
 _RUNNER = os.path.join(_VENDOR, "rk_sentinel_runner.js")
-_SDK = os.path.join(_VENDOR, "rk_sdk.js")
+_SDK = os.path.join(_VENDOR, "sdk.js")
 _PROXY_SERVER = os.path.join(_HERE, "rk_sentinel_proxy.py")
 _SV = "20260219f9f6"
 _CHALLENGE_URL = "http://127.0.0.1:1789/req"
