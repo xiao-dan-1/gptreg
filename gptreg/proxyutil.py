@@ -422,7 +422,7 @@ class StickyChainTunnel:
         srv.settimeout(1.0)
         self._sock = srv
         self.port = srv.getsockname()[1]
-        self.local_url = f"http://{self.bind_host}:{self.port}"
+        self.local_url = f"socks5h://{self.bind_host}:{self.port}"
         self._thread = threading.Thread(
             target=self._serve,
             name=f"chain-{self.port}",
@@ -467,29 +467,39 @@ class StickyChainTunnel:
             client.settimeout(120)
             hop1_host, hop1_port, hop1_auth = _parse_hop(self.hop1_url)
             hop2_host, hop2_port, hop2_auth = _parse_hop(self.hop2_url)
-            # 运行时拼装，避免源码里出现完整认证头字面量
             _pa = "Proxy-" + "Authorization"
             _basic = "Bas" + "ic "
 
-            # 读客户端完整首请求（CONNECT host:port 或绝对路径）。extra = \r\n\r\n 之后
-            # 已读到的请求体字节(recv 可能一次读进 headers+body), 非 CONNECT 转发时必须补发,
-            # 否则目标收到没 body 的 POST(同类吞数据 bug 的客户端侧残留)。
-            first, first_extra = _read_until_headers(client)
-            if not first:
+            # 1) SOCKS5 方法协商: client -> [ver=5, nmethods, methods...]
+            hdr = _socks5_recv_exact(client, 2)
+            if hdr[0] != 0x05:
                 return
-            first_line = first.split(b"\r\n", 1)[0].decode(errors="replace")
-            parts = first_line.split()
-            if len(parts) < 2:
-                client.sendall(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")
+            _socks5_recv_exact(client, hdr[1])
+            client.sendall(b"\x05\x00")
+
+            # 2) SOCKS5 CONNECT 请求: [ver=5, cmd=1, rsv=0, atyp, addr, port]
+            req = _socks5_recv_exact(client, 4)
+            if req[0] != 0x05 or req[1] != 0x01:
+                client.sendall(b"\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00")
                 return
-            method = parts[0].upper()
-            target = parts[1]
+            atyp = req[3]
+            if atyp == 0x01:
+                host = socket.inet_ntoa(_socks5_recv_exact(client, 4))
+            elif atyp == 0x03:
+                ln = _socks5_recv_exact(client, 1)[0]
+                host = _socks5_recv_exact(client, ln).decode(errors="replace")
+            elif atyp == 0x04:
+                host = socket.inet_ntop(socket.AF_INET6, _socks5_recv_exact(client, 16))
+            else:
+                client.sendall(b"\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00")
+                return
+            port = int.from_bytes(_socks5_recv_exact(client, 2), "big")
 
             hop1_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             hop1_sock.settimeout(120)
             hop1_sock.connect((hop1_host, hop1_port))
 
-            # 1) 经 hop1 CONNECT 到 hop2 代理主机
+            # 3) 经 hop1 CONNECT 到 hop2 代理主机
             connect_hop2 = (
                 "CONNECT " + hop2_host + ":" + str(hop2_port) + " HTTP/1.1\r\n"
                 + "Host: " + hop2_host + ":" + str(hop2_port) + "\r\n"
@@ -501,63 +511,33 @@ class StickyChainTunnel:
             hop1_resp, _ = _read_until_headers(hop1_sock)
             hop1_status = hop1_resp.split(b"\r\n", 1)[0]
             if b" 200 " not in hop1_status:
-                _st = hop1_status.decode(errors="replace").strip() or "(无响应/连接被断)"
-                logger.warning("[Proxy] hop1 CONNECT hop2 失败: %s", _st)
-                client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+                client.sendall(b"\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00")
                 return
 
-            if method == "CONNECT":
-                # 2) 对 hop2 再 CONNECT 到真实目标
-                if self.hop2_scheme == "socks5":
-                    # hop2 是 socks5(如 1024proxy): 握手 + 认证 + CONNECT(HTTP CONNECT 到它不认)
-                    try:
-                        _hop2_info = parse_proxy_auth(self.hop2_url)
-                        _socks5_connect(
-                            hop1_sock,
-                            host=target.rsplit(":", 1)[0],
-                            port=int(target.rsplit(":", 1)[1]),
-                            username=_hop2_info.get("username") or "",
-                            password=_hop2_info.get("password") or "",
-                        )
-                    except Exception as exc:
-                        logger.warning("[Proxy] hop2 socks5 %s 失败: %s", target, exc)
-                        client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
-                        return
-                    client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
-                else:
-                    connect_target = "CONNECT " + target + " HTTP/1.1\r\n" + "Host: " + target + "\r\n"
-                    if hop2_auth:
-                        connect_target += _pa + ": " + _basic + hop2_auth + "\r\n"
-                    connect_target += "\r\n"
-                    hop1_sock.sendall(connect_target.encode())
-                    hop2_resp, extra2 = _read_until_headers(hop1_sock)
-                    hop2_status = hop2_resp.split(b"\r\n", 1)[0]
-                    if b" 200 " not in hop2_status:
-                        _st = hop2_status.decode(errors="replace").strip() or "(无响应/连接被断)"
-                        logger.warning("[Proxy] hop2 CONNECT %s 失败: %s", target, _st)
-                        client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
-                        return
-                    # 3) 告诉客户端隧道已建立，随后双向透传 TLS
-                    client.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
-                    # 目标在 CONNECT 200 后立即发的早期数据(SSH banner/IMAP greeting)必须补发,
-                    # 否则 relay 从 hop1_sock recv 永远等不到这包 → 连接中止
-                    if extra2:
-                        try:
-                            client.sendall(extra2)
-                        except OSError:
-                            pass
+            # 4) 对 hop2 握手 + CONNECT 真实目标
+            if self.hop2_scheme == "socks5":
+                _hop2_info = parse_proxy_auth(self.hop2_url)
+                _socks5_connect(
+                    hop1_sock, host=host, port=port,
+                    username=_hop2_info.get("username") or "",
+                    password=_hop2_info.get("password") or "",
+                )
             else:
-                # 明文代理请求：注入 hop2 认证后原样转发
-                marker = (_pa + ":").encode()
-                if hop2_auth and marker not in first:
-                    idx = first.find(b"\r\n")
-                    if idx != -1:
-                        auth_line = (_pa + ": " + _basic + hop2_auth + "\r\n").encode()
-                        first = first[: idx + 2] + auth_line + first[idx + 2 :]
-                hop1_sock.sendall(first + first_extra)  # first_extra = 请求体(补发, 勿丢)
+                connect_target = "CONNECT " + host + ":" + str(port) + " HTTP/1.1\r\n" + "Host: " + host + ":" + str(port) + "\r\n"
+                if hop2_auth:
+                    connect_target += _pa + ": " + _basic + hop2_auth + "\r\n"
+                connect_target += "\r\n"
+                hop1_sock.sendall(connect_target.encode())
+                hop2_resp, _ = _read_until_headers(hop1_sock)
+                hop2_status = hop2_resp.split(b"\r\n", 1)[0]
+                if b" 200 " not in hop2_status:
+                    client.sendall(b"\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00")
+                    return
 
-            # 双向透传。relay 两个方向独立完成: 任一方向 EOF 只 shutdown 自己方向,
-            # 不 kill 另一方向(共享 done 曾导致半关闭时反向响应被掐断)。
+            # 5) SOCKS5 CONNECT 响应(成功)
+            client.sendall(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
+
+            # 6) 双向透传
             def relay(src: socket.socket, dst: socket.socket) -> None:
                 try:
                     while True:
@@ -580,7 +560,6 @@ class StickyChainTunnel:
             t2 = threading.Thread(target=relay, args=(hop1_sock, client), daemon=True)
             t1.start()
             t2.start()
-            # 等两个方向都完成(各自 EOF/关闭), 不再因任一方向提前中断另一方向
             t1.join(timeout=300)
             t2.join(timeout=300)
         except Exception as exc:

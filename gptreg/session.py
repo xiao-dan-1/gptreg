@@ -67,7 +67,7 @@ class BrowserSession:
         )
         # TLS 指纹差异化(2026-08-13): impersonate_rotate=true 时按 device_id 派生
         # chrome 版本, UA/sec-ch-ua 与 impersonate 主版本对齐(避免 UA 与 TLS 指纹矛盾)。
-        impersonate = browser.get("impersonate", "chrome142")
+        impersonate = browser.get("impersonate", "chrome131")
         user_agent = browser.get("user_agent", "")
         sec_ch_ua = browser.get("sec_ch_ua", "")
         if browser.get("impersonate_rotate", False):
