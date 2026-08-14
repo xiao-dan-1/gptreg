@@ -49,9 +49,20 @@ def _rk_sentinel(session, device_id, flow, cfg, with_so=True):
     user_agent = b.get("user_agent") or ""
     language = b.get("language") or "en-US"
     languages = b.get("languages") or "en-US,en;q=0.9"
-    width = int(b.get("screen_width") or 1920)
-    height = int(b.get("screen_height") or 1080)
-    cores = int(b.get("hardware_concurrency") or 16)
+    # fingerprint 确定性派生(register-kit FingerprintProfile 借鉴): 按 device_id 从池派生
+    # screen/cores, 同账号稳定、异账号各异(防批量雷同)。cfg 显式指定优先。
+    import hashlib
+    import random
+    _SCREENS = [(1920, 1080), (1536, 864), (1366, 768), (1600, 900), (2560, 1440), (1440, 900)]
+    _CORES = [4, 6, 8, 12, 16]
+    _seed = int(hashlib.md5(str(device_id or "").lower().encode()).hexdigest()[:8], 16)
+    _rng = random.Random(_seed)
+    if b.get("screen_width") and b.get("screen_height"):
+        width = int(b["screen_width"])
+        height = int(b["screen_height"])
+    else:
+        width, height = _rng.choice(_SCREENS)
+    cores = int(b.get("hardware_concurrency") or 0) or _rng.choice(_CORES)
     timezone = b.get("timezone") or "America/Los_Angeles"
     if with_so:
         return gen_sentinel_pair(device_id, flow, user_agent,
