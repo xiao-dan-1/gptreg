@@ -141,6 +141,8 @@ class BrowserSession:
             {
                 "accept": "application/json",
                 "content-type": "application/json",
+                "cache-control": "no-cache",
+                "pragma": "no-cache",
                 "sec-fetch-site": "same-origin",
                 "sec-fetch-mode": "cors",
                 "sec-fetch-dest": "empty",

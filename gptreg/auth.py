@@ -47,7 +47,7 @@ def signin_openai(session: BrowserSession, csrf_token: str, email: str) -> str:
         "prompt": "login",
         "ext-oai-did": session.device_id,
         "auth_session_logging_id": session.auth_session_logging_id,
-        "ext-passkey-client-capabilities": "1111",
+        "ext-passkey-client-capabilities": "11111",
         "screen_hint": "login_or_signup",
         "login_hint": email,
     }
@@ -57,7 +57,7 @@ def signin_openai(session: BrowserSession, csrf_token: str, email: str) -> str:
     headers["origin"] = "https://chatgpt.com"
     body = urlencode(
         {
-            "callbackUrl": "https://chatgpt.com/",
+            "callbackUrl": "/",
             "csrfToken": csrf_token,
             "json": "true",
         }

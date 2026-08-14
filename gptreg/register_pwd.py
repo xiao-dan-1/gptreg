@@ -552,7 +552,7 @@ def _register_chain(
 
             _geo = geo_profile_for_proxy(resolved.session_url or "", ipinfo=resolved.ipinfo)
             if _geo:
-                session.accept_language = _geo["language"]
+                session.accept_language = _geo["languages"]
                 _b = cfg.setdefault("browser", {})
                 _geo_saved = (_b.get("timezone"), _b.get("language"), _b.get("languages"))
                 _b["timezone"] = _geo["timezone"]
