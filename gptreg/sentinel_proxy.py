@@ -114,7 +114,7 @@ def ensure_sentinel_proxy(cfg: dict[str, Any] | None = None) -> str:
             "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
         )
     )
-    impersonate = str(browser.get("impersonate") or "chrome142")
+    impersonate = str(browser.get("impersonate") or "chrome131")
     forward = _pick_forward_proxy(cfg)
     port = int(protocol.get("sentinel_proxy_port") or _DEFAULT_PORT)
 

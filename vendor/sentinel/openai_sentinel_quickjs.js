@@ -803,26 +803,23 @@ async function simulateBehavior() {
     fire("pointermove", { type: "pointermove", clientX: x, clientY: y, screenX: x, screenY: y, pointerType: "mouse", buttons: 0, timeStamp: performance.now() });
     await wait(rnd(18, 85));  // 人类鼠标移动间隔 18-85ms(非固定)
   }
-  // 随机滚动(60% 概率, 自然 delta)
-  if (Math.random() < 0.6) {
+  // 确定性滚动(register-kit 对齐: 每轮都滚, 保证 so 行为字段完整)
+  {
     const dy = rint(100, 400);
     fire("wheel", { type: "wheel", deltaY: dy, clientX: x, clientY: y, deltaMode: 0, timeStamp: performance.now() });
     await wait(rnd(40, 140));
     fire("scroll", { type: "scroll", scrollY: dy, timeStamp: performance.now() });
     await wait(rnd(40, 120));
   }
-  // 随机键盘(50% 概率, 真实字符 2-5 个, 非 Tab)
-  if (Math.random() < 0.5) {
-    const keys = "abcdefghijklmnopqrstuvwxyz";
-    const n = rint(2, 5);
-    for (let i = 0; i < n; i++) {
-      const c = keys[rint(0, 26)];
-      fire("keydown", { type: "keydown", key: c, code: "Key" + c.toUpperCase(), keyCode: c.charCodeAt(0), which: c.charCodeAt(0), timeStamp: performance.now() });
-      await wait(rnd(50, 170));  // 人类打字节奏
-    }
+  // 逐键敲邮箱(register-kit 对齐: 确定性敲邮箱长度串模拟注册输入, 非随机短字符)。
+  // register-kit 硬编码 "user.name2481@icloud.com"; 优先用 payload 注入的注册邮箱, 缺省同类串。
+  const emailStr = String(globalThis.__reg_email || "user.name2481@icloud.com");
+  for (const ch of emailStr) {
+    fire("keydown", { type: "keydown", key: ch, code: "Key" + ch.toUpperCase(), keyCode: ch.charCodeAt(0), which: ch.charCodeAt(0), timeStamp: performance.now() });
+    await wait(rnd(30, 90));  // 人类打字节奏
   }
-  // 随机点击(70% 概率, 落在当前轨迹终点附近)
-  if (Math.random() < 0.7) {
+  // 确定性点击(register-kit 对齐: 每轮都点, 保证 so 行为字段完整)
+  {
     fire("click", { type: "click", clientX: x + rnd(-10, 10), clientY: y + rnd(-10, 10), button: 0, timeStamp: performance.now() });
     await wait(rnd(50, 140));
   }
