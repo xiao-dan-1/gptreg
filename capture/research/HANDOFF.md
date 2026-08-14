@@ -1,5 +1,35 @@
 # 纯协议研究交接（2026-08-13）
 
+> ⚠️ **2026-08-15 重大更新**（两天集中对齐 register-kit 风控，见下；覆盖旧内容部分结论）：
+
+## 风控对齐 register-kit（08-15 完成）
+
+| 维度 | 结论 | commit |
+|---|---|---|
+| UA 平台 | curl_cffi 0.15.0 chrome 指纹 JA3 全 Macintosh，UA 写 Windows 会矛盾 → 切 Mac | `23cbc4b` |
+| navigator.platform | Win32 → MacIntel | `80ef0db` |
+| chrome 版本 | chrome131 触发 CF 403，回退 chrome142 | `b645650` |
+| so 行为 | keydown 逐键敲邮箱 + 确定性派发 | `599cd12` |
+| HTTP header | ext-passkey=11111 / callbackUrl="/" / cache-control+pragma / accept-language 完整串 | `a55cb33` |
+| vm 隔离沙箱 | eval(Node 全局) → vm.createContext + crypto webcrypto + location new URL | `80bee46` |
+| **英文时区名** | **手动拆解 requirements/solve 英文 500；token(flow) 完整流程英文能过 → 集成 register-kit sentinel** | `c3a0eda` |
+
+## ⭐ 英文时区名根因（08-15 最重要发现）
+
+- SDK 采样时区用 `""+new Date`（隐式 toString，grep sdk.js：toString 15 次 / getTimezoneOffset 0 次）。英文时区名（真浏览器格式）在我们手动拆解流程下 `/req 500`，中文（TZ env）能过。
+- 二分排除 7 个候选（navigator/screen/localStorage/document/Date/Intl/sdk.js/req 端点）都不是。**根因是流程差异**：手动拆解 `getRequirementsToken → /req → getEnforcementToken + _n` 不完整，register-kit 的 `token(flow)`（SDK 公开 API）英文能过。
+- 方案：复制 register-kit 的 `sentinel-runner.js`/`sentinel_node.py`/`sentinel_proxy.py`（`rk_*`），register_pwd 的 3 处 sentinel 调用改 `_rk_sentinel()` → `gen_sentinel_token`（设密码）/`gen_sentinel_pair`（create）。`sentinel_proxy`(:1789) 走 10808 转发 `sentinel.openai.com/backend-api/sentinel/req`。
+- 实测：lifter.daises7c 注册成功 + `plus-1-month-free` 资格。`openai_sentinel_quickjs.js`（手动拆解）仍被 backfill/relogin 用，未动。
+
+## register-kit 对照（08-15）
+
+- register-kit sentinel 正常（vm 隔离 + 手写 SpoofedDate/Intl，token 时区英文 Eastern Daylight Time）。
+- **register-kit 发码失败（收码 0 封）根因：缺 `sec-ch-ua`/`accept-language`/`origin` header**（补 sec-ch-ua 后跑通）。我们发码正常（11.8s 到件）。
+- 我们注册机能注册 register-kit 的号（icloud-api.top 号源好，同一取码服务）。
+- register-kit 的 gost.exe 会被 Windows Defender 隔离（WinError 225），需加白名单。
+
+---
+
 > 目的：下次继续研究时快速了解现状、待办、如何继续。
 > 完整研究记录：`survey-open-source-202608.md`（全部验证，含 08-12/08-13 重大发现）
 
