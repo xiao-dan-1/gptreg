@@ -93,6 +93,13 @@ def _unused_mains() -> list[tuple[str, dict]]:
     故主号在 used 里也入候选(注册时走别名), 用 accounts.jsonl 里的别名记录限制每主号 1 别名。
     """
     used = _used_mains()
+    # 永久弃用主号(FAILED_FILE + 池 bad): iCloud 别名复用也不可复用(邮箱已在 OpenAI 注册/被标记)
+    bad_mains: set[str] = set()
+    if FAILED_FILE.exists():
+        for line in FAILED_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                bad_mains.add(_base(line))
     # iCloud 别名追踪: accounts.jsonl 里 icloud 别名(含 +)的 base = 已用别名的主号
     alias_bases: set[str] = set()
     try:
@@ -116,7 +123,7 @@ def _unused_mains() -> list[tuple[str, dict]]:
             for e in (state.get("used") or []):
                 used.add(_base(e))
             for e in (state.get("bad") or {}):
-                used.add(_base(e))
+                bad_mains.add(_base(e))
     except Exception:
         pass
     mains: list[tuple[str, dict]] = []
@@ -127,8 +134,8 @@ def _unused_mains() -> list[tuple[str, dict]]:
         main = _base(a["email"])
         mt = a.get("mail_type") or ""
         if mt == "icloud":
-            # 已用别名的主号跳过; 否则入候选(注册时走别名)
-            if main not in alias_bases:
+            # 已用别名的主号跳过; 永久弃用(bad/FAILED_FILE)也跳过; 否则入候选(注册时走别名)
+            if main not in alias_bases and main not in bad_mains:
                 mains.append((main, a))
         elif main not in used:
             mains.append((main, a))
