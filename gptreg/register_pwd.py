@@ -28,7 +28,6 @@ from gptreg.mail.mail_util import MailClientError
 from gptreg.mail.pool import parse_mail_line  # noqa: F401  (CLI 选号复用)
 from gptreg.mail.wait_otp import wait_otp_with_retry
 from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
-from gptreg.sentinel_quickjs import get_sentinel_token_via_quickjs
 from gptreg.session import BrowserSession
 from gptreg.account_store import save_account
 
@@ -36,6 +35,32 @@ logger = logging.getLogger(__name__)
 
 FLOW_PWD = "username_password_create"
 FLOW_OAUTH = "oauth_create_account"
+
+
+def _rk_sentinel(session, device_id, flow, cfg, with_so=True):
+    """register-kit token(flow) 完整流程替代手动 requirements/solve(英文时区名对齐)。
+
+    设密码(FLOW_PWD)用 with_so=False; create(FLOW_OAUTH)用 with_so=True。
+    返回 (token, so): token=JSON 字符串(p/t/c/id/flow), so=sessionObserverToken 字符串。
+    """
+    from gptreg.rk_sentinel import ensure_sentinel_proxy, gen_sentinel_pair, gen_sentinel_token
+    ensure_sentinel_proxy(exit_proxy="socks5://127.0.0.1:10808")
+    b = cfg.get("browser") or {}
+    user_agent = b.get("user_agent") or ""
+    language = b.get("language") or "en-US"
+    languages = b.get("languages") or "en-US,en;q=0.9"
+    width = int(b.get("screen_width") or 1920)
+    height = int(b.get("screen_height") or 1080)
+    cores = int(b.get("hardware_concurrency") or 16)
+    timezone = b.get("timezone") or "America/Los_Angeles"
+    if with_so:
+        return gen_sentinel_pair(device_id, flow, user_agent,
+                                 language=language, languages=languages,
+                                 width=width, height=height, cores=cores, timezone=timezone)
+    token = gen_sentinel_token(device_id, flow, user_agent,
+                               language=language, languages=languages,
+                               width=width, height=height, cores=cores, timezone=timezone)
+    return token, None
 REGISTER_URL = "https://auth.openai.com/api/accounts/user/register"
 CREATE_URL = "https://auth.openai.com/api/accounts/create_account"
 PASSWORD_REFERER = "https://auth.openai.com/create-account/password"
@@ -196,8 +221,7 @@ def _stage_register(
     """
     _t0 = time.time()
     # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
-    token, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_PWD, cfg=cfg,
-                                              log=lambda m: None)
+    token, _ = _rk_sentinel(session, session.device_id, FLOW_PWD, cfg, with_so=False)
     logger.info("  [quickjs/t] register 真 t 就绪 t_len=%s (so: 密码 register 无 so)", len(token))
     headers = session.auth_api_headers(referer=PASSWORD_REFERER)
     headers["openai-sentinel-token"] = token
@@ -370,8 +394,7 @@ def _stage_create(
         # none 模式同样单次(只要 t, so 丢弃)。
         _ct = time.time()
         try:
-            tok, so_vm = get_sentinel_token_via_quickjs(
-                session, session.device_id, flow=FLOW_OAUTH, cfg=cfg, log=lambda m: None)
+            tok, so_vm = _rk_sentinel(session, session.device_id, FLOW_OAUTH, cfg, with_so=True)
             holder["tok2"] = tok
             holder["so_b"] = so_vm if so_source == "quickjs" else None
             logger.info("  [quickjs] create 真 t+so 一次产出 t_len=%s so_len=%s (%.1fs)",
@@ -384,8 +407,7 @@ def _stage_create(
             _ct = time.time()
             try:
                 # 静默 quickjs 默认 log(so_len 是 vm so, 会被忽略); so 由 browser 采集
-                tok, _ = get_sentinel_token_via_quickjs(session, session.device_id, flow=FLOW_OAUTH, cfg=cfg,
-                                                        log=lambda m: None)
+                tok, _ = _rk_sentinel(session, session.device_id, FLOW_OAUTH, cfg, with_so=False)
                 holder["tok2"] = tok
                 logger.info("  [quickjs/t] create 真 t 就绪 t_len=%s (%.1fs, so 由 browser 采集)", len(tok), time.time() - _ct)
             except Exception as exc:
