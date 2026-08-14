@@ -58,12 +58,12 @@ _DEFAULTS: dict[str, Any] = {
     },
     "browser": {
         "user_agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/142.0.0.0 Safari/537.36"
         ),
         "sec_ch_ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
-        "sec_ch_ua_platform": '"Windows"',
+        "sec_ch_ua_platform": '"macOS"',
         "sec_ch_ua_mobile": "?0",
         "impersonate": "chrome142",
         "language": "en-US",

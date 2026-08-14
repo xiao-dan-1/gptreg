@@ -44,7 +44,7 @@ def _pick_impersonate_profile(device_id: str) -> dict[str, str]:
     v = _CHROME_VERSIONS[h % len(_CHROME_VERSIONS)]
     return {
         "impersonate": f"chrome{v}",
-        "user_agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "user_agent": f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                       f"(KHTML, like Gecko) Chrome/{v}.0.0.0 Safari/537.36",
         "sec_ch_ua": f'"Chromium";v="{v}", "Google Chrome";v="{v}", "Not_A Brand";v="99"',
     }
@@ -60,7 +60,7 @@ class BrowserSession:
         self.proxy = proxy or ""
         self.device_id = str(uuid.uuid4())
         self.auth_session_logging_id = str(uuid.uuid4())
-        self.sec_ch_ua_platform = browser.get("sec_ch_ua_platform", '"Windows"')
+        self.sec_ch_ua_platform = browser.get("sec_ch_ua_platform", '"macOS"')
         self.sec_ch_ua_mobile = browser.get("sec_ch_ua_mobile", "?0")
         self.accept_language = browser.get(
             "accept_language", "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"
