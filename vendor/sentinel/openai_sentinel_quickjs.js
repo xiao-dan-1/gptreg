@@ -1,3 +1,6 @@
+const __vm = require("node:vm");
+let __ctx = null;
+
 const EXPOSE_PATCH = "return o?r?.[n(63)]?ce({so:o,c:r[n(63)]},t):o:null},t.token=ye,t}({});";
 const EXPOSE_REPLACEMENT =
   "return o?r?.[n(63)]?ce({so:o,c:r[n(63)]},t):o:null},t.token=ye,t.__debug_n=_n,t.__debug_bindProof=D,t}({});";
@@ -85,7 +88,7 @@ function createElement(tagName) {
     addEventListener() {},
     removeEventListener() {},
     getBoundingClientRect() {
-      const g = globalThis.__font_gbcr;
+      const g = __ctx.__font_gbcr;
       if (g && typeof g === "object") {
         return {
           x: Number(g.x || 0), y: Number(g.y || 0), width: Number(g.width || 0),
@@ -185,11 +188,11 @@ function installRuntime(payload) {
   // 枚举可见的 __sentinel_*/__debug*/__vm_* 会泄漏 vm 执行痕迹进指纹（已实证捕获）。
   function defineHidden(key, value) {
     try {
-      Object.defineProperty(globalThis, key, {
+      Object.defineProperty(__ctx, key, {
         value, writable: true, configurable: true, enumerable: false,
       });
     } catch (e) {
-      globalThis[key] = value;
+      __ctx[key] = value;
     }
   }
   const screen = {
@@ -226,16 +229,7 @@ function installRuntime(payload) {
     visibilityState: "visible",
     referrer: "https://auth.openai.com/",
     URL: "https://auth.openai.com/",
-    location: {
-      href: "https://auth.openai.com/about-you",
-      origin: "https://auth.openai.com",
-      protocol: "https:",
-      host: "auth.openai.com",
-      hostname: "auth.openai.com",
-      pathname: "/about-you",
-      search: "",
-      hash: "",
-    },
+    location: new URL("https://auth.openai.com/about-you"),
     cookie: `oai-did=${encodeURIComponent(payload.device_id || "")}`,
     scripts,
     currentScript: _loaderScriptEl,  // 真浏览器 p[5]=backend-api 加载器 src（SDK 读 currentScript.src）
@@ -293,31 +287,24 @@ function installRuntime(payload) {
     timeOrigin: _timeOrigin,
     memory: { jsHeapSizeLimit: Number(payload.js_heap_size_limit || 4395630592) },
   };
-  // 运行时 trace：始终记录 performance.now / Math.random 调用序列（对比学习），
-  // 有 payload.runtime_trace 时按 browser 序列复刻（验证 t 是否确定性可复刻）。
-  const _trNow = [], _trRand = [];
+  // 运行时 trace：记录 performance.now 调用序列（对比学习）。
+  // 注: Math.random 的 trace 已移除——vm 隔离后 context 内置 Math 从 Node 侧不可见/不可写,
+  // SDK 直接用 context 原生 random(与 register-kit 一致)。
+  const _trNow = [];
   const _basePN = performance.now.bind(performance);
-  const _baseMR = globalThis.Math.random;
   const _nt = (payload.runtime_trace && Array.isArray(payload.runtime_trace.now)) ? payload.runtime_trace.now : [];
-  const _rt = (payload.runtime_trace && Array.isArray(payload.runtime_trace.rand)) ? payload.runtime_trace.rand : [];
-  let _ni = 0, _ri = 0;
+  let _ni = 0;
   performance.now = () => {
     const v = _ni < _nt.length ? _nt[_ni++] : _basePN();
     _trNow.push(v);
     return v;
   };
-  globalThis.Math.random = () => {
-    const v = _ri < _rt.length ? _rt[_ri++] : _baseMR();
-    _trRand.push(v);
-    return v;
-  };
   defineHidden("__trace_now", _trNow);
-  defineHidden("__trace_rand", _trRand);
   // 捕获 unhandled rejection（假 so 根因：_t() 执行 TypeError 可能是 promise rejection）
   if (typeof process !== "undefined" && process.on) {
     try {
       process.on("unhandledRejection", (reason) => {
-        globalThis.__so_rej = (reason && reason.stack) || String(reason);
+        __ctx.__so_rej = (reason && reason.stack) || String(reason);
       });
     } catch (e) { /* ignore */ }
   }
@@ -328,7 +315,7 @@ function installRuntime(payload) {
       try {
         return _origRS(target, prop, value);
       } catch (e) {
-        globalThis.__reflect_err = {
+        __ctx.__reflect_err = {
           prop: String(prop), targetType: target === null ? "null" : typeof target,
           targetStr: (target && typeof target === "object") ? String(Object.getPrototypeOf(target)) : "",
           msg: String(e && e.message || e),
@@ -405,17 +392,17 @@ function installRuntime(payload) {
     }
   }
 
-  globalThis.window = globalThis;
-  globalThis.self = globalThis;
-  globalThis.top = globalThis;
-  globalThis.parent = globalThis;
+  __ctx.window = __ctx;
+  __ctx.self = __ctx;
+  __ctx.top = __ctx;
+  __ctx.parent = __ctx;
   // window 尺寸/DPR：真浏览器必有，缺失会让 SDK 退回奇怪默认值（实测 p[0]=3000）
-  globalThis.innerWidth = screen.width;
-  globalThis.innerHeight = screen.height;
-  globalThis.outerWidth = screen.width;
-  globalThis.outerHeight = screen.height;
-  globalThis.devicePixelRatio = 1;
-  globalThis.document = document;
+  __ctx.innerWidth = screen.width;
+  __ctx.innerHeight = screen.height;
+  __ctx.outerWidth = screen.width;
+  __ctx.outerHeight = screen.height;
+  __ctx.devicePixelRatio = 1;
+  __ctx.document = document;
   // 真 Chrome：navigator 属性大多在 Navigator.prototype 上，SDK 的 T() 采样
   // Object.keys(Object.getPrototypeOf(navigator)) 并做 navigator[key].toString()（p[10]）。
   // 所以除自身属性外，必须把候选键放到 navigator 的 __proto__ 上。
@@ -437,15 +424,10 @@ function installRuntime(payload) {
   };
   const navigatorProto = { ...navigatorProps, ...chromeNavigatorExtras() };
   Object.setPrototypeOf(navigatorProps, navigatorProto);
-  Object.defineProperty(globalThis, 'navigator', { value: navigatorProps, configurable: true, writable: true });
-  globalThis.location = {
-    href: "https://auth.openai.com/",
-    origin: "https://auth.openai.com",
-    pathname: "/",
-    search: "",
-  };
-  globalThis.screen = screen;
-  globalThis.performance = performance;
+  Object.defineProperty(__ctx, 'navigator', { value: navigatorProps, configurable: true, writable: true });
+  __ctx.location = new URL("https://auth.openai.com/");
+  __ctx.screen = screen;
+  __ctx.performance = performance;
   // 真浏览器 auth.openai.com 的 localStorage 有 Statsig 键（turnstile 指纹计算 Object.keys(localStorage) 读取）
   const _ls = createStorage();
   try {
@@ -458,7 +440,7 @@ function installRuntime(payload) {
       isLoggedIn: false,
     }));
   } catch (e) { /* 尽力 */ }
-  globalThis.localStorage = _ls;
+  __ctx.localStorage = _ls;
   // 附加自定义 localStorage 键（实验：补全真浏览器实际键，缩小 Object.keys 缺口）
   if (payload.ls_extra && typeof payload.ls_extra === "object") {
     for (const _k of Object.keys(payload.ls_extra)) {
@@ -467,40 +449,40 @@ function installRuntime(payload) {
   }
   // __reactRouterContext 注入（实验：blob2 读 state.loaderData.root.clientBootstrap.cf*）
   if (payload.react_router_full && typeof payload.react_router_full === "object") {
-    try { globalThis.__reactRouterContext = payload.react_router_full; } catch (e) { /* ignore */ }
+    try { __ctx.__reactRouterContext = payload.react_router_full; } catch (e) { /* ignore */ }
   } else if (payload.react_router) {
-    try { globalThis.__reactRouterContext = { state: { loaderData: {} } }; } catch (e) { /* ignore */ }
+    try { __ctx.__reactRouterContext = { state: { loaderData: {} } }; } catch (e) { /* ignore */ }
   }
-  globalThis.sessionStorage = createStorage();
+  __ctx.sessionStorage = createStorage();
   // 字体渲染测量真值（实验：createElement().getBoundingClientRect 返回真浏览器值）
   if (payload.font_gbcr && typeof payload.font_gbcr === "object") {
-    globalThis.__font_gbcr = payload.font_gbcr;
+    __ctx.__font_gbcr = payload.font_gbcr;
   }
   // 附加 window 全局（实验：穷举注入浏览器页面全局，定位 t 缺口）
   if (payload.win_extra && typeof payload.win_extra === "object") {
     for (const _k of Object.keys(payload.win_extra)) {
       try {
-        if (!(_k in globalThis)) globalThis[_k] = payload.win_extra[_k];
+        if (!(_k in __ctx)) __ctx[_k] = payload.win_extra[_k];
       } catch (e) { /* ignore */ }
     }
   }
   // __sentinel_*/SentinelSDK 是真浏览器全局（backend-api 加载器创建，可枚举），保持忠实
-  globalThis.__sentinel_init_pending = [];
-  globalThis.__sentinel_token_pending = [];
-  globalThis.SentinelSDK = globalThis.SentinelSDK || {};
+  __ctx.__sentinel_init_pending = [];
+  __ctx.__sentinel_token_pending = [];
+  __ctx.SentinelSDK = __ctx.SentinelSDK || {};
   // 仅我们的 vm/诊断产物需要隐藏（真浏览器没有 __debug_*/__vm_*）
   for (const _k of [
     "__payload_json", "__sdk_source", "__vm_done", "__vm_output_json", "__vm_error",
     "__debugP", "__debug_D", "__debug_se",
   ]) {
-    defineHidden(_k, globalThis[_k]);
+    defineHidden(_k, __ctx[_k]);
   }
   // Node 专属全局（process/Buffer/global）真浏览器没有，window 键采样会命中 → 只隐藏枚举（保留值，
   // 否则 wrapper 的 process.stdout/stdin 会挂）。process 非可配置时静默失败（尽力而为）。
   for (const _n of ["process", "Buffer", "global"]) {
     try {
-      Object.defineProperty(globalThis, _n, {
-        value: globalThis[_n], writable: true, configurable: true, enumerable: false,
+      Object.defineProperty(__ctx, _n, {
+        value: __ctx[_n], writable: true, configurable: true, enumerable: false,
       });
     } catch (e) { /* 非可配置则忽略 */ }
   }
@@ -508,23 +490,23 @@ function installRuntime(payload) {
   // "Assignment to constant variable"（vm 特有全局不可写 → TypeError 根因假设）。
   if (payload.strip_node_globals) {
     for (const _n of ["process", "Buffer", "global"]) {
-      try { globalThis[_n] = undefined; } catch (e) { /* ignore */ }
+      try { __ctx[_n] = undefined; } catch (e) { /* ignore */ }
     }
   }
 
-  globalThis.setTimeout = (cb, ms) => {
+  __ctx.setTimeout = (cb, ms) => {
     const d = typeof ms === "number" ? ms : 0;
     if (d >= 100) return __realST(cb, d);   // 大延迟（看门狗/超时）→ 真异步
     cb(); return 1;                          // 小延迟/0 → 同步，解释器快跑
   };
-  globalThis.clearTimeout = (id) => __realCST(id);
-  globalThis.setInterval = () => 1;
-  globalThis.clearInterval = () => {};
-  globalThis.requestIdleCallback = (cb) => {
+  __ctx.clearTimeout = (id) => __realCST(id);
+  __ctx.setInterval = () => 1;
+  __ctx.clearInterval = () => {};
+  __ctx.requestIdleCallback = (cb) => {
     if (typeof cb === "function") cb({ didTimeout: false, timeRemaining: () => 50 });
     return 1;
   };
-  globalThis.cancelIdleCallback = () => {};
+  __ctx.cancelIdleCallback = () => {};
   // 真实事件系统：session observer 通过 addEventListener 采行为数据。
   // 记录注册的事件类型（供诊断），并让 dispatchEvent 能触发回调（模拟行为喂给 collector）。
   const _listeners = {};
@@ -540,16 +522,16 @@ function installRuntime(payload) {
   }
   function _fire(type, ev) {
     for (const cb of _listeners[type] || []) {
-      try { cb(ev || { type, target: globalThis, timeStamp: performance.now() }); } catch (e) { /* ignore */ }
+      try { cb(ev || { type, target: __ctx, timeStamp: performance.now() }); } catch (e) { /* ignore */ }
     }
   }
-  globalThis.addEventListener = _regEvent;
-  globalThis.removeEventListener = (t, cb) => {
+  __ctx.addEventListener = _regEvent;
+  __ctx.removeEventListener = (t, cb) => {
     const arr = _listeners[String(t)];
     if (arr) _listeners[String(t)] = arr.filter((x) => x !== cb);
   };
-  globalThis.dispatchEvent = (ev) => { _fire(ev && ev.type, ev); return true; };
-  globalThis.postMessage = () => {};
+  __ctx.dispatchEvent = (ev) => { _fire(ev && ev.type, ev); return true; };
+  __ctx.postMessage = () => {};
   defineHidden("__fire_event", _fire);  // 供 solve 模拟行为时派发事件
   // document 也走同一事件系统（observer 可能在 document 上注册）
   document.addEventListener = _regEvent;
@@ -559,42 +541,42 @@ function installRuntime(payload) {
   };
   document.dispatchEvent = (ev) => { _fire(ev && ev.type, ev); return true; };
 
-  globalThis.atob = (input) => String.fromCharCode(...base64ToBytes(input));
-  globalThis.btoa = (input) => {
+  __ctx.atob = (input) => String.fromCharCode(...base64ToBytes(input));
+  __ctx.btoa = (input) => {
     const str = String(input || "");
     const bytes = [];
     for (let i = 0; i < str.length; i += 1) bytes.push(str.charCodeAt(i) & 255);
     return bytesToBase64(bytes);
   };
-  globalThis.TextEncoder = globalThis.TextEncoder || TextEncoderPoly;
-  globalThis.TextDecoder = globalThis.TextDecoder || TextDecoderPoly;
-  globalThis.URL = globalThis.URL || URLPoly;
-  globalThis.URLSearchParams = globalThis.URLSearchParams || URLSearchParamsPoly;
-  globalThis.Event =
-    globalThis.Event ||
+  __ctx.TextEncoder = __ctx.TextEncoder || TextEncoderPoly;
+  __ctx.TextDecoder = __ctx.TextDecoder || TextDecoderPoly;
+  __ctx.URL = __ctx.URL || URLPoly;
+  __ctx.URLSearchParams = __ctx.URLSearchParams || URLSearchParamsPoly;
+  __ctx.Event =
+    __ctx.Event ||
     class Event {
       constructor(type) {
         this.type = type;
       }
     };
-  globalThis.CustomEvent =
-    globalThis.CustomEvent ||
-    class CustomEvent extends globalThis.Event {
+  __ctx.CustomEvent =
+    __ctx.CustomEvent ||
+    class CustomEvent extends __ctx.Event {
       constructor(type, init) {
         super(type);
         this.detail = init && Object.prototype.hasOwnProperty.call(init, "detail") ? init.detail : null;
       }
     };
-  globalThis.MessageChannel =
-    globalThis.MessageChannel ||
+  __ctx.MessageChannel =
+    __ctx.MessageChannel ||
     class MessageChannel {
       constructor() {
         this.port1 = { postMessage() {}, addEventListener() {}, removeEventListener() {}, start() {}, close() {} };
         this.port2 = { postMessage() {}, addEventListener() {}, removeEventListener() {}, start() {}, close() {} };
       }
     };
-  globalThis.matchMedia =
-    globalThis.matchMedia ||
+  __ctx.matchMedia =
+    __ctx.matchMedia ||
     ((query) => ({
       media: String(query || ""),
       matches: false,
@@ -607,18 +589,18 @@ function installRuntime(payload) {
         return false;
       },
     }));
-  globalThis.getComputedStyle =
-    globalThis.getComputedStyle ||
+  __ctx.getComputedStyle =
+    __ctx.getComputedStyle ||
     (() => ({
       getPropertyValue() {
         return "";
       },
     }));
-  globalThis.history = globalThis.history || { length: 1, state: null, back() {}, forward() {}, go() {}, pushState() {}, replaceState() {} };
-  globalThis.chrome = globalThis.chrome || { runtime: {}, app: {} };
-  globalThis.CSS = globalThis.CSS || { supports() { return true; } };
-  globalThis.indexedDB =
-    globalThis.indexedDB ||
+  __ctx.history = __ctx.history || { length: 1, state: null, back() {}, forward() {}, go() {}, pushState() {}, replaceState() {} };
+  __ctx.chrome = __ctx.chrome || { runtime: {}, app: {} };
+  __ctx.CSS = __ctx.CSS || { supports() { return true; } };
+  __ctx.indexedDB =
+    __ctx.indexedDB ||
     {
       open() {
         return { onerror: null, onsuccess: null, onupgradeneeded: null, result: {}, error: null };
@@ -627,7 +609,7 @@ function installRuntime(payload) {
         return {};
       },
     };
-  globalThis.fetch = async () => {
+  __ctx.fetch = async () => {
     throw new Error("fetch should not be called");
   };
 
@@ -637,28 +619,26 @@ function installRuntime(payload) {
     }
     return arr;
   };
-  const _origCrypto = globalThis.crypto;
+  // register-kit 对齐: crypto 用 Node webcrypto(含 subtle.digest 等完整 API, 密码学安全),
+  // 而非手写 randomUUID/getRandomValues。仅包装 randomUUID 保留 trace(保真 [14] 会话内恒定)。
+  const __nodeCrypto = require("node:crypto");
+  const _webcrypto = __nodeCrypto.webcrypto;
   const _origRandomUUID =
-    _origCrypto && typeof _origCrypto.randomUUID === "function"
-      ? _origCrypto.randomUUID.bind(_origCrypto)
+    _webcrypto && typeof _webcrypto.randomUUID === "function"
+      ? _webcrypto.randomUUID.bind(_webcrypto)
       : null;
   // 记录 randomUUID 返回值，供探针判断 p[14] 是否来自它（保真 [14] 会话内恒定）。
   const _uuidCalls = [];
   defineHidden("__debug_randomUUID_calls", _uuidCalls);
-  globalThis.crypto = {
-    randomUUID: _origRandomUUID
-      ? () => {
-          const u = _origRandomUUID();
-          if (_uuidCalls) _uuidCalls.push(u);
-          return u;
-        }
-      : () => {
-          const u = "10000000-0000-4000-8000-" + String(Math.floor(Math.random() * 1e12)).padStart(12, "0");
-          if (_uuidCalls) _uuidCalls.push(u);
-          return u;
-        },
-    getRandomValues: randomFill,
-  };
+  __ctx.crypto = _webcrypto;  // 直接用 Node webcrypto(完整 subtle/getRandomValues/randomUUID, this 正确)
+  if (_origRandomUUID) {
+    // 覆盖 randomUUID 为 trace 版本(实例属性覆盖原型方法, bind 保证 this 正确)
+    __ctx.crypto.randomUUID = () => {
+      const u = _origRandomUUID();
+      if (_uuidCalls) _uuidCalls.push(u);
+      return u;
+    };
+  }
 
   // 诊断钩子（payload.debug_undef）：记录 SDK 对 navigator/document 的读取，
   // 定位 p[10]（navigator 属性采样）与 p[5]（sdk 路径）的真实来源。
@@ -716,13 +696,13 @@ function installRuntime(payload) {
         return t[k];
       },
     });
-    Object.defineProperty(globalThis, "navigator", { value: navProxy, configurable: true, writable: true });
-    globalThis.document = docProxy;
+    Object.defineProperty(__ctx, "navigator", { value: navProxy, configurable: true, writable: true });
+    __ctx.document = docProxy;
     // screen / performance / crypto 包装：`_n`（turnstile 求解器）依赖这些
     for (const [gn, gk] of [["screen", "screen"], ["performance", "performance"], ["crypto", "crypto"]]) {
-      const gv = globalThis[gk];
+      const gv = __ctx[gk];
       if (gv && typeof gv === "object") {
-        globalThis[gk] = new Proxy(gv, {
+        __ctx[gk] = new Proxy(gv, {
           get(t, k) {
             if (typeof k !== "symbol") {
               const v = t[k];
@@ -749,7 +729,7 @@ function loadPatchedSdk(sdkSource) {
     'try{return await Nt(e[n(1)])}catch{return null}',
     'try{if(typeof globalThis.__snap_inject==="function")globalThis.__snap_inject();return await Nt(e[n(1)])}catch(e){globalThis.__so_n_err=(e&&e.stack)||String(e);return null}'
   );
-  globalThis.__patch_n = sdk.includes("__so_n_err") ? "OK" : "MISS";
+  __ctx.__patch_n = sdk.includes("__so_n_err") ? "OK" : "MISS";
   // 捕获 SETREF handler 内部错误（TypeError: Assignment to constant variable 定位）
   sdk = sdk.replace(
     "(n,e)=>St[t(10)](n,St[t(25)](e))",
@@ -770,7 +750,7 @@ function loadPatchedSdk(sdkSource) {
     "catch(t){s(btoa(Ct+\": \"+t))}",
     "catch(t){globalThis.__so_jt_err=(t&&t.stack)||String(t);s(btoa(Ct+\": \"+t))}"
   );
-  globalThis.__patch_jt = sdk.includes("__so_jt_err") ? "OK" : "MISS";
+  __ctx.__patch_jt = sdk.includes("__so_jt_err") ? "OK" : "MISS";
   // 诊断：_t() 队列处理器加循环守卫（collector 死循环定位用）
   sdk = sdk.replace(
     "_t(){const t=xt;for(;St[t(25)](Y).length>0;){const[n,...e]=St[t(25)](Y).shift(),r=St.get(n)(...e);r&&typeof r[t(13)]===t(17)&&await r,Ct++}}",
@@ -778,7 +758,7 @@ function loadPatchedSdk(sdkSource) {
   );
   sdk = sdk.replace("function D(t,n){I.set(t,n)}", "function D(t,n){I.set(t,n);globalThis.__debug_D=D;}");
   sdk = sdk.replace("function se(t,n){const e=Hn,r=re(t);", "globalThis.__debug_se=se;function se(t,n){const e=Hn,r=re(t);");
-  eval(sdk);
+  __vm.runInContext(sdk, __ctx, { filename: 'sdk.js' });
 }
 
 // 模拟真实用户行为，喂 session observer（pointermove/keydown/scroll/wheel/click）。
@@ -787,7 +767,7 @@ function loadPatchedSdk(sdkSource) {
 // 旧版固定 15 坐标 + 固定 130ms 太规律, 字段量级只有真人零头, 过不了资格门槛。
 // ★绝不派发 paste★(合成输入判别特征); 键盘用真实字符而非 Tab。
 async function simulateBehavior() {
-  const fire = globalThis.__fire_event;
+  const fire = __ctx.__fire_event;
   if (typeof fire !== "function") return;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -813,7 +793,7 @@ async function simulateBehavior() {
   }
   // 逐键敲邮箱(register-kit 对齐: 确定性敲邮箱长度串模拟注册输入, 非随机短字符)。
   // register-kit 硬编码 "user.name2481@icloud.com"; 优先用 payload 注入的注册邮箱, 缺省同类串。
-  const emailStr = String(globalThis.__reg_email || "user.name2481@icloud.com");
+  const emailStr = String(__ctx.__reg_email || "user.name2481@icloud.com");
   for (const ch of emailStr) {
     fire("keydown", { type: "keydown", key: ch, code: "Key" + ch.toUpperCase(), keyCode: ch.charCodeAt(0), which: ch.charCodeAt(0), timeStamp: performance.now() });
     await wait(rnd(30, 90));  // 人类打字节奏
@@ -827,18 +807,20 @@ async function simulateBehavior() {
 }
 
 async function run(payload, sdkSource) {
+  __ctx = { console: console };
+  __vm.createContext(__ctx);
   installRuntime(payload);
   loadPatchedSdk(sdkSource);
 
   if (payload.action === "requirements") {
-    const requestP = await globalThis.__debugP.getRequirementsToken();
+    const requestP = await __ctx.__debugP.getRequirementsToken();
     return {
       request_p: requestP,
-      uuid_calls: Array.isArray(globalThis.__debug_randomUUID_calls)
-        ? globalThis.__debug_randomUUID_calls
+      uuid_calls: Array.isArray(__ctx.__debug_randomUUID_calls)
+        ? __ctx.__debug_randomUUID_calls
         : [],
-      fp_reads: Array.isArray(globalThis.__debug_fp_reads)
-        ? globalThis.__debug_fp_reads
+      fp_reads: Array.isArray(__ctx.__debug_fp_reads)
+        ? __ctx.__debug_fp_reads
         : [],
     };
   }
@@ -848,46 +830,46 @@ async function run(payload, sdkSource) {
     const _flow = String(payload.flow || "");
     try {
       // 模拟 solve 完整流程：getEnforcementToken(产 p，初始化字节码 VM 状态) + D 注册
-      if (!payload.skip_fp && globalThis.__debugP && typeof globalThis.__debugP.getEnforcementToken === 'function') {
-        try { await globalThis.__debugP.getEnforcementToken(payload.challenge || {}); } catch (e) { /* ignore */ }
+      if (!payload.skip_fp && __ctx.__debugP && typeof __ctx.__debugP.getEnforcementToken === 'function') {
+        try { await __ctx.__debugP.getEnforcementToken(payload.challenge || {}); } catch (e) { /* ignore */ }
       }
       // solve 独有：bindProof(challenge, request_p) —— 可能是 collector 启动关键
-      if (typeof globalThis.SentinelSDK !== 'undefined' && typeof globalThis.SentinelSDK.__debug_bindProof === 'function') {
-        try { globalThis.SentinelSDK.__debug_bindProof(payload.challenge || {}, String(payload.request_p || "")); } catch (e) { /* ignore */ }
+      if (typeof __ctx.SentinelSDK !== 'undefined' && typeof __ctx.SentinelSDK.__debug_bindProof === 'function') {
+        try { __ctx.SentinelSDK.__debug_bindProof(payload.challenge || {}, String(payload.request_p || "")); } catch (e) { /* ignore */ }
       }
       // se 前注册 D(challenge, request_p)：collector_dx 解密需要 key（solve 里 getEnforcementToken 会做，
       // collect_test 之前漏了 → collector 解密失败不启动 = 字段 null 根因）
-      if (typeof globalThis.__debug_D === "function") {
-        try { globalThis.__debug_D(payload.challenge || {}, String(payload.request_p || "")); } catch (e) { /* ignore */ }
+      if (typeof __ctx.__debug_D === "function") {
+        try { __ctx.__debug_D(payload.challenge || {}, String(payload.request_p || "")); } catch (e) { /* ignore */ }
       }
       // 模拟 solve：_n(t 求解，初始化字节码 VM 状态 St/jt，collector 复用）
-      if (!payload.skip_n && globalThis.SentinelSDK && typeof globalThis.SentinelSDK.__debug_n === 'function') {
+      if (!payload.skip_n && __ctx.SentinelSDK && typeof __ctx.SentinelSDK.__debug_n === 'function') {
         const _dx = (payload.challenge || {}).turnstile && (payload.challenge || {}).turnstile.dx;
-        if (_dx) { try { await globalThis.SentinelSDK.__debug_n(payload.challenge || {}, _dx); } catch (e) { /* ignore */ } }
+        if (_dx) { try { await __ctx.SentinelSDK.__debug_n(payload.challenge || {}, _dx); } catch (e) { /* ignore */ } }
       }
-      if (!payload.skip_se && typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, payload.challenge || {});
+      if (!payload.skip_se && typeof __ctx.__debug_se === "function") __ctx.__debug_se(_flow, payload.challenge || {});
       // 让 collector 注册监听器（其 jt 异步，需 yield）
       await new Promise((r) => setTimeout(r, Number(payload.se_wait_ms || 500)));
       // dump 初始化状态（se 后无事件，collector 是否初始化字段）
       const oai_before = {};
-      for (const k of Object.keys(globalThis)) {
-        if (k.startsWith("__oai_so_")) oai_before[k] = String(globalThis[k]).slice(0, 60);
+      for (const k of Object.keys(__ctx)) {
+        if (k.startsWith("__oai_so_")) oai_before[k] = String(__ctx[k]).slice(0, 60);
       }
-      // 手动写字段测试：验证 vm 里 globalThis.__oai_so_* 可写性（字段写入失败根因）
-      try { Reflect.set(globalThis, "__oai_so_test", 123); globalThis.__write_test = "OK:" + String(globalThis.__oai_so_test); }
-      catch (e) { globalThis.__write_test = "ERR:" + String(e); }
+      // 手动写字段测试：验证 vm 里 __ctx.__oai_so_* 可写性（字段写入失败根因）
+      try { Reflect.set(__ctx, "__oai_so_test", 123); __ctx.__write_test = "OK:" + String(__ctx.__oai_so_test); }
+      catch (e) { __ctx.__write_test = "ERR:" + String(e); }
       // 模拟 solve：调 sessionObserverToken，验证是否触发 collector 完整执行（字段初始化）
-      if (!payload.skip_snapshot && typeof globalThis.SentinelSDK !== 'undefined' && typeof globalThis.SentinelSDK.sessionObserverToken === 'function') {
-        try { await globalThis.SentinelSDK.sessionObserverToken(_flow); } catch (e) { globalThis.__sot_err = String(e); }
+      if (!payload.skip_snapshot && typeof __ctx.SentinelSDK !== 'undefined' && typeof __ctx.SentinelSDK.sessionObserverToken === 'function') {
+        try { await __ctx.SentinelSDK.sessionObserverToken(_flow); } catch (e) { __ctx.__sot_err = String(e); }
       }
       const oai_after_snap = {};
-      for (const k of Object.keys(globalThis)) {
-        if (k.startsWith('__oai_so_')) oai_after_snap[k] = String(globalThis[k]).slice(0, 60);
+      for (const k of Object.keys(__ctx)) {
+        if (k.startsWith('__oai_so_')) oai_after_snap[k] = String(__ctx[k]).slice(0, 60);
       }
-      if (payload.skip_events) return { oai_before, oai_after: oai_after_snap, event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
-               write_test: globalThis.__write_test, oai_test: globalThis.__oai_so_test, sot_err: globalThis.__sot_err || null };
+      if (payload.skip_events) return { oai_before, oai_after: oai_after_snap, event_log: Array.isArray(__ctx.__event_log) ? __ctx.__event_log : [],
+               write_test: __ctx.__write_test, oai_test: __ctx.__oai_so_test, sot_err: __ctx.__sot_err || null };
       // 真实间隔事件：yield 让 collector 处理，事件到达已注册的监听器
-      const fire = globalThis.__fire_event;
+      const fire = __ctx.__fire_event;
       if (typeof fire === "function") {
         for (let i = 0; i < 8; i++) {
           fire("pointermove", { type: "pointermove", clientX: 200 + i * 50, clientY: 150 + i * 30, pointerType: "mouse", buttons: 0, timeStamp: performance.now() });
@@ -903,11 +885,11 @@ async function run(payload, sdkSource) {
       }
       await new Promise((r) => setTimeout(r, 300));
       const oai = {};
-      for (const k of Object.keys(globalThis)) {
-        if (k.startsWith("__oai_so_")) oai[k] = String(globalThis[k]).slice(0, 80);
+      for (const k of Object.keys(__ctx)) {
+        if (k.startsWith("__oai_so_")) oai[k] = String(__ctx[k]).slice(0, 80);
       }
-      return { oai_before, oai_after: oai, event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
-               t_last: globalThis.__T_LAST || null, t_iter: globalThis.__T_ITER || null };
+      return { oai_before, oai_after: oai, event_log: Array.isArray(__ctx.__event_log) ? __ctx.__event_log : [],
+               t_last: __ctx.__T_LAST || null, t_iter: __ctx.__T_ITER || null };
     } catch (e) {
       return { error: String(e && e.message || e) };
     }
@@ -928,12 +910,12 @@ async function run(payload, sdkSource) {
     // skip_fp=true 跳过 getEnforcementToken（纯 t 实验不需要 p，省 ~120s）
     const _t0 = Date.now();
     let finalP = "";
-    if (!payload.skip_fp) finalP = await globalThis.__debugP.getEnforcementToken(challenge);
+    if (!payload.skip_fp) finalP = await __ctx.__debugP.getEnforcementToken(challenge);
     const _t1 = Date.now();
-    globalThis.SentinelSDK.__debug_bindProof(challenge, requestP);
+    __ctx.SentinelSDK.__debug_bindProof(challenge, requestP);
     const dx = challenge && challenge.turnstile ? challenge.turnstile.dx : null;
-    if (typeof globalThis.__debug_D === "function") globalThis.__debug_D(challenge, requestP);
-    const tValue = (!payload.skip_n && dx) ? await globalThis.SentinelSDK.__debug_n(challenge, dx) : null;
+    if (typeof __ctx.__debug_D === "function") __ctx.__debug_D(challenge, requestP);
+    const tValue = (!payload.skip_n && dx) ? await __ctx.SentinelSDK.__debug_n(challenge, dx) : null;
     const _t2 = Date.now();
     // [so] se + sessionObserverToken 产真 so（getEnforcementToken 已设寄存器）
     let so = null;
@@ -944,9 +926,9 @@ async function run(payload, sdkSource) {
     } else {
     try {
       const _flow = String(payload.flow || "");
-      if (typeof globalThis.__debug_se === "function") globalThis.__debug_se(_flow, challenge);
-      globalThis.__se_log_after_se = Array.isArray(globalThis.__event_log) ? [...globalThis.__event_log] : [];
-      globalThis.__se_oai_after_se = (() => { const o = {}; for (const k of Object.keys(globalThis)) { if (k.startsWith('__oai_so_')) o[k] = String(globalThis[k]).slice(0, 40); } return o; })();
+      if (typeof __ctx.__debug_se === "function") __ctx.__debug_se(_flow, challenge);
+      __ctx.__se_log_after_se = Array.isArray(__ctx.__event_log) ? [...__ctx.__event_log] : [];
+      __ctx.__se_oai_after_se = (() => { const o = {}; for (const k of Object.keys(__ctx)) { if (k.startsWith('__oai_so_')) o[k] = String(__ctx[k]).slice(0, 40); } return o; })();
       // so_wait_collector_ms>0：se 后等 collector 完成再 snapshot（隔离共享 St 状态冲突实验）。
       // wrapper 修复后真实定时器可用，collector 死循环不再永久阻塞。
       if (payload.so_wait_collector_ms && Number(payload.so_wait_collector_ms) > 0) {
@@ -965,70 +947,70 @@ async function run(payload, sdkSource) {
                              '__oai_so_pc','__oai_so_hc','__oai_so_bc','__oai_so_bm','__oai_so_cn','__oai_so_sn',
                              '__oai_so_st','__oai_so_sw','__oai_so_ht','__oai_so_spt','__oai_so_cs','__oai_so_cs2',
                              '__oai_so_fs','__oai_so_fs2','__oai_so_ss','__oai_so_ss2','__oai_so_sp','__oai_so_wl']) {
-            if (globalThis[_k] == null) globalThis[_k] = 0;
+            if (__ctx[_k] == null) __ctx[_k] = 0;
           }
-          if (globalThis.__oai_so_t0 == null) globalThis.__oai_so_t0 = _now - 60000;
-          if (globalThis.__oai_so_s == null) globalThis.__oai_so_s = _pn;
-          if (globalThis.__oai_so_m == null) globalThis.__oai_so_m = _pn;
-          if (globalThis.__oai_so_p == null) globalThis.__oai_so_p = _pn;
-          if (globalThis.__oai_so_fs == null) globalThis.__oai_so_fs = _pn;
-          globalThis.__patch_check = String(globalThis.__oai_so_i) + '/' + String(globalThis.__oai_so_k) + '/' + String(globalThis.__oai_so_t0);
+          if (__ctx.__oai_so_t0 == null) __ctx.__oai_so_t0 = _now - 60000;
+          if (__ctx.__oai_so_s == null) __ctx.__oai_so_s = _pn;
+          if (__ctx.__oai_so_m == null) __ctx.__oai_so_m = _pn;
+          if (__ctx.__oai_so_p == null) __ctx.__oai_so_p = _pn;
+          if (__ctx.__oai_so_fs == null) __ctx.__oai_so_fs = _pn;
+          __ctx.__patch_check = String(__ctx.__oai_so_i) + '/' + String(__ctx.__oai_so_k) + '/' + String(__ctx.__oai_so_t0);
         } catch (e) { /* ignore */ }
       }
       // 黑盒探测：极端值注入，测 create 层是否校验字段值范围
       if (payload.snap_extreme) {
-        globalThis.__snap_inject = () => {
-          globalThis.__oai_so_i = 100000;
-          globalThis.__oai_so_k = 99999;
-          globalThis.__oai_so_s = 99999999;
-          globalThis.__oai_so_cs = 88888888;
-          globalThis.__oai_so_t0 = 1;
-          globalThis.__oai_so_lx = 1000000;
-          globalThis.__oai_so_ly = 1000000;
-          globalThis.__oai_so_m = 77777777;
-          globalThis.__oai_so_sp = 5000000;
+        __ctx.__snap_inject = () => {
+          __ctx.__oai_so_i = 100000;
+          __ctx.__oai_so_k = 99999;
+          __ctx.__oai_so_s = 99999999;
+          __ctx.__oai_so_cs = 88888888;
+          __ctx.__oai_so_t0 = 1;
+          __ctx.__oai_so_lx = 1000000;
+          __ctx.__oai_so_ly = 1000000;
+          __ctx.__oai_so_m = 77777777;
+          __ctx.__oai_so_sp = 5000000;
         };
       }
       // 第一性原理：绕过 collector，在 snapshot 读取点注入自然字段值(browser 分布量级+随机化)
       if (payload.snap_inject) {
-        globalThis.__snap_inject = () => {
-          globalThis.__snap_called = (globalThis.__snap_called || 0) + 1;
+        __ctx.__snap_inject = () => {
+          __ctx.__snap_called = (__ctx.__snap_called || 0) + 1;
           try {
             // 用浏览器真实分布(so_distribution.json)：i 40-60, s 4000-30000, cs 1000-1400,
             // sp 0-400, fs2=fs², ss2=ss², sx0/sy0 屏幕内起点
             const _move = 40 + Math.floor(Math.random() * 20); // i: 42-56
-            globalThis.__oai_so_i = _move;
-            globalThis.__oai_so_k = Math.floor(Math.random() * 5); // 0-4
-            globalThis.__oai_so_kp = 0;
-            globalThis.__oai_so_we = Math.random() < 0.5 ? 1 : 0;
-            globalThis.__oai_so_wb = Math.random() < 0.5 ? 1 : 0;
-            globalThis.__oai_so_s = 4000 + Math.random() * 26000; // 4000-30000
-            globalThis.__oai_so_t0 = Date.now() - (30000 + Math.random() * 120000);
-            globalThis.__oai_so_m = 5000 + Math.random() * 30000;
-            globalThis.__oai_so_p = 2000 + Math.random() * 25000;
-            globalThis.__oai_so_cs = 1000 + Math.random() * 400; // 1000-1400
-            globalThis.__oai_so_cs2 = globalThis.__oai_so_cs * (50 + Math.random() * 20); // cs2≈59*cs
-            globalThis.__oai_so_ss = 20000 + Math.random() * 280000;
-            globalThis.__oai_so_ss2 = globalThis.__oai_so_ss * globalThis.__oai_so_ss;
-            globalThis.__oai_so_lx = 300 + Math.floor(Math.random() * 500);
-            globalThis.__oai_so_ly = 200 + Math.floor(Math.random() * 200);
-            globalThis.__oai_so_sx0 = 330 + Math.floor(Math.random() * 90);
-            globalThis.__oai_so_sy0 = 280 + Math.floor(Math.random() * 90);
-            globalThis.__oai_so_sp = Math.random() * 400;
-            globalThis.__oai_so_fs = 6000 + Math.random() * 21000;
-            globalThis.__oai_so_fs2 = globalThis.__oai_so_fs * globalThis.__oai_so_fs;
-            globalThis.__oai_so_fn = 4;
-            globalThis.__oai_so_sn = 35 + Math.floor(Math.random() * 15);
-            globalThis.__oai_so_sw = 4;
-            globalThis.__oai_so_spt = 1 + Math.floor(Math.random() * 8);
-            globalThis.__oai_so_wl = 6000 + Math.random() * 34000;
-            globalThis.__oai_so_ht = Math.random() * 3;
-            globalThis.__oai_so_pc = Math.random() < 0.5 ? 1 : 0;
-            globalThis.__oai_so_hc = Math.random() < 0.8 ? 1 : 0;
-            globalThis.__oai_so_cn = 35 + Math.floor(Math.random() * 15);
-            globalThis.__oai_so_st = 0;
-            globalThis.__oai_so_bc = 0;
-            globalThis.__oai_so_bm = 0;
+            __ctx.__oai_so_i = _move;
+            __ctx.__oai_so_k = Math.floor(Math.random() * 5); // 0-4
+            __ctx.__oai_so_kp = 0;
+            __ctx.__oai_so_we = Math.random() < 0.5 ? 1 : 0;
+            __ctx.__oai_so_wb = Math.random() < 0.5 ? 1 : 0;
+            __ctx.__oai_so_s = 4000 + Math.random() * 26000; // 4000-30000
+            __ctx.__oai_so_t0 = Date.now() - (30000 + Math.random() * 120000);
+            __ctx.__oai_so_m = 5000 + Math.random() * 30000;
+            __ctx.__oai_so_p = 2000 + Math.random() * 25000;
+            __ctx.__oai_so_cs = 1000 + Math.random() * 400; // 1000-1400
+            __ctx.__oai_so_cs2 = __ctx.__oai_so_cs * (50 + Math.random() * 20); // cs2≈59*cs
+            __ctx.__oai_so_ss = 20000 + Math.random() * 280000;
+            __ctx.__oai_so_ss2 = __ctx.__oai_so_ss * __ctx.__oai_so_ss;
+            __ctx.__oai_so_lx = 300 + Math.floor(Math.random() * 500);
+            __ctx.__oai_so_ly = 200 + Math.floor(Math.random() * 200);
+            __ctx.__oai_so_sx0 = 330 + Math.floor(Math.random() * 90);
+            __ctx.__oai_so_sy0 = 280 + Math.floor(Math.random() * 90);
+            __ctx.__oai_so_sp = Math.random() * 400;
+            __ctx.__oai_so_fs = 6000 + Math.random() * 21000;
+            __ctx.__oai_so_fs2 = __ctx.__oai_so_fs * __ctx.__oai_so_fs;
+            __ctx.__oai_so_fn = 4;
+            __ctx.__oai_so_sn = 35 + Math.floor(Math.random() * 15);
+            __ctx.__oai_so_sw = 4;
+            __ctx.__oai_so_spt = 1 + Math.floor(Math.random() * 8);
+            __ctx.__oai_so_wl = 6000 + Math.random() * 34000;
+            __ctx.__oai_so_ht = Math.random() * 3;
+            __ctx.__oai_so_pc = Math.random() < 0.5 ? 1 : 0;
+            __ctx.__oai_so_hc = Math.random() < 0.8 ? 1 : 0;
+            __ctx.__oai_so_cn = 35 + Math.floor(Math.random() * 15);
+            __ctx.__oai_so_st = 0;
+            __ctx.__oai_so_bc = 0;
+            __ctx.__oai_so_bm = 0;
           } catch (e) { /* ignore */ }
         };
       }
@@ -1038,40 +1020,40 @@ async function run(payload, sdkSource) {
           const _base = _now - 90000;
           // 函数字段（collector 处理器）——浏览器里是函数，这里放无害占位
           const _noop = function () {};
-          globalThis.__oai_so_h = _noop; globalThis.__oai_so_hi = _noop;
-          globalThis.__oai_so_hp = _noop; globalThis.__oai_so_hw = _noop;
+          __ctx.__oai_so_h = _noop; __ctx.__oai_so_hi = _noop;
+          __ctx.__oai_so_hp = _noop; __ctx.__oai_so_hw = _noop;
           // 时间戳/坐标（浏览器模板）
-          globalThis.__oai_so_t0 = _base;
-          globalThis.__oai_so_lx = 700; globalThis.__oai_so_ly = 500;
-          globalThis.__oai_so_sx0 = 550; globalThis.__oai_so_sy0 = 425;
+          __ctx.__oai_so_t0 = _base;
+          __ctx.__oai_so_lx = 700; __ctx.__oai_so_ly = 500;
+          __ctx.__oai_so_sx0 = 550; __ctx.__oai_so_sy0 = 425;
           // 浮点时序累加器（浏览器模板量级）
-          globalThis.__oai_so_cs = 2055.1; globalThis.__oai_so_cs2 = 524355;
-          globalThis.__oai_so_fs = 7737.9; globalThis.__oai_so_fs2 = 59875096;
-          globalThis.__oai_so_ht = 1.6; globalThis.__oai_so_m = 8222.6;
-          globalThis.__oai_so_p = 7737.9; globalThis.__oai_so_s = 4543.9;
-          globalThis.__oai_so_ss = 184173; globalThis.__oai_so_ss2 = 626260169;
-          globalThis.__oai_so_wl = 7582.7; globalThis.__oai_so_sp = 167.7;
+          __ctx.__oai_so_cs = 2055.1; __ctx.__oai_so_cs2 = 524355;
+          __ctx.__oai_so_fs = 7737.9; __ctx.__oai_so_fs2 = 59875096;
+          __ctx.__oai_so_ht = 1.6; __ctx.__oai_so_m = 8222.6;
+          __ctx.__oai_so_p = 7737.9; __ctx.__oai_so_s = 4543.9;
+          __ctx.__oai_so_ss = 184173; __ctx.__oai_so_ss2 = 626260169;
+          __ctx.__oai_so_wl = 7582.7; __ctx.__oai_so_sp = 167.7;
           // 计数（浏览器模板）
-          globalThis.__oai_so_k = 1; globalThis.__oai_so_kp = 0;
-          globalThis.__oai_so_we = 2; globalThis.__oai_so_wb = 1;
-          globalThis.__oai_so_pc = 1; globalThis.__oai_so_hc = 1;
-          globalThis.__oai_so_fn = 1; globalThis.__oai_so_bc = 0; globalThis.__oai_so_bm = 0;
-          globalThis.__oai_so_cn = 78; globalThis.__oai_so_sn = 78;
-          globalThis.__oai_so_i = 88; globalThis.__oai_so_st = 2;
-          globalThis.__oai_so_sw = 8; globalThis.__oai_so_spt = 7;
+          __ctx.__oai_so_k = 1; __ctx.__oai_so_kp = 0;
+          __ctx.__oai_so_we = 2; __ctx.__oai_so_wb = 1;
+          __ctx.__oai_so_pc = 1; __ctx.__oai_so_hc = 1;
+          __ctx.__oai_so_fn = 1; __ctx.__oai_so_bc = 0; __ctx.__oai_so_bm = 0;
+          __ctx.__oai_so_cn = 78; __ctx.__oai_so_sn = 78;
+          __ctx.__oai_so_i = 88; __ctx.__oai_so_st = 2;
+          __ctx.__oai_so_sw = 8; __ctx.__oai_so_spt = 7;
         } catch (e) { /* ignore */ }
       }
-      if (typeof globalThis.SentinelSDK.sessionObserverToken === "function") {
-        const s = await globalThis.SentinelSDK.sessionObserverToken(_flow);
+      if (typeof __ctx.SentinelSDK.sessionObserverToken === "function") {
+        const s = await __ctx.SentinelSDK.sessionObserverToken(_flow);
         so = (typeof s === "string") ? s : JSON.stringify(s);
       }
-    } catch (e) { globalThis.__so_error = (e && e.stack) || String(e); }
+    } catch (e) { __ctx.__so_error = (e && e.stack) || String(e); }
     }
     // 调试：dump session observer 采集的 __oai_so_* 状态
     const oai_so = {};
     try {
-      for (const k of Object.keys(globalThis)) {
-        if (k.startsWith("__oai_so_")) oai_so[k] = String(globalThis[k]).slice(0, 60);
+      for (const k of Object.keys(__ctx)) {
+        if (k.startsWith("__oai_so_")) oai_so[k] = String(__ctx[k]).slice(0, 60);
       }
     } catch (e) { /* ignore */ }
     return {
@@ -1080,28 +1062,28 @@ async function run(payload, sdkSource) {
       so: so,
       ms_fp: _t1 - _t0,
       ms_n: _t2 - _t1,
-      se_log_after_se: globalThis.__se_log_after_se || null,
-      se_oai_after_se: globalThis.__se_oai_after_se || null,
-      so_error: globalThis.__so_n_err || globalThis.__so_error || null,
-      so_jt_err: globalThis.__so_jt_err || null,
-      so_rej: globalThis.__so_rej || null,
-      reflect_err: globalThis.__reflect_err || null,
-      t_err: globalThis.__T_ERR || null,
-      t_last: globalThis.__T_LAST || null,
-      patch_check: globalThis.__patch_check || null,
-      snap_called: globalThis.__snap_called || null,
-      rt_keys: globalThis.__rt_keys || null,
-      xor_full: globalThis.__xor_full || null,
-      setref_err: globalThis.__setref_err || null,
-      regs: globalThis.__St ? { i: String(globalThis.__St.get(21.49)), lx: String(globalThis.__St.get(43.41)), k: String(globalThis.__St.get(86.2)) } : null,
-      key_regs: globalThis.__St ? { k25: String(globalThis.__St.get(25.96)), k97: String(globalThis.__St.get(97.76)), k010: String(globalThis.__St.get(0.10)) } : null,
-      at_dump: globalThis.__At_dump || null,
-      patch_n: globalThis.__patch_n || null,
-      patch_jt: globalThis.__patch_jt || null,
-      trace_now: Array.isArray(globalThis.__trace_now) ? globalThis.__trace_now : [],
-      trace_rand: Array.isArray(globalThis.__trace_rand) ? globalThis.__trace_rand : [],
-      fp_reads: Array.isArray(globalThis.__debug_fp_reads) ? globalThis.__debug_fp_reads : [],
-      event_log: Array.isArray(globalThis.__event_log) ? globalThis.__event_log : [],
+      se_log_after_se: __ctx.__se_log_after_se || null,
+      se_oai_after_se: __ctx.__se_oai_after_se || null,
+      so_error: __ctx.__so_n_err || __ctx.__so_error || null,
+      so_jt_err: __ctx.__so_jt_err || null,
+      so_rej: __ctx.__so_rej || null,
+      reflect_err: __ctx.__reflect_err || null,
+      t_err: __ctx.__T_ERR || null,
+      t_last: __ctx.__T_LAST || null,
+      patch_check: __ctx.__patch_check || null,
+      snap_called: __ctx.__snap_called || null,
+      rt_keys: __ctx.__rt_keys || null,
+      xor_full: __ctx.__xor_full || null,
+      setref_err: __ctx.__setref_err || null,
+      regs: __ctx.__St ? { i: String(__ctx.__St.get(21.49)), lx: String(__ctx.__St.get(43.41)), k: String(__ctx.__St.get(86.2)) } : null,
+      key_regs: __ctx.__St ? { k25: String(__ctx.__St.get(25.96)), k97: String(__ctx.__St.get(97.76)), k010: String(__ctx.__St.get(0.10)) } : null,
+      at_dump: __ctx.__At_dump || null,
+      patch_n: __ctx.__patch_n || null,
+      patch_jt: __ctx.__patch_jt || null,
+      trace_now: Array.isArray(__ctx.__trace_now) ? __ctx.__trace_now : [],
+      trace_rand: Array.isArray(__ctx.__trace_rand) ? __ctx.__trace_rand : [],
+      fp_reads: Array.isArray(__ctx.__debug_fp_reads) ? __ctx.__debug_fp_reads : [],
+      event_log: Array.isArray(__ctx.__event_log) ? __ctx.__event_log : [],
       oai_so: oai_so,
     };
   }
