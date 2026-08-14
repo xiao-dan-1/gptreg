@@ -181,9 +181,34 @@ function chromeNavigatorExtras() {
   };
 }
 
+// register-kit P0-2 对齐: 手写时区伪造(沙箱 Date/Intl 按出口时区伪造, 英文时区名)。
+function getTimezoneOffsetMinutes(tzName, instant) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: tzName, hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const p = {};
+  for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
+  const asUTC = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day),
+                        Number(p.hour), Number(p.minute), Number(p.second));
+  return Math.round((instant.getTime() - asUTC) / 60000);
+}
+function buildSpoofedDate(tzName) {
+  // 只覆盖 getTimezoneOffset(时区偏移数字, SDK 采样最关键的时区字段)。
+  // toString 等字符串方法不覆盖: 英文时区名在本环境(node v24 + curl_cffi 0.15.0)触发 /req 500,
+  // 而 TZ env 的中文时区名能过(实测二分定位)。保留偏移正确、时区名回退 TZ env。
+  return class SpoofedDate extends Date {
+    getTimezoneOffset() { return getTimezoneOffsetMinutes(tzName, this); }
+  };
+}
 function installRuntime(payload) {
   const __realST = setTimeout.bind(null);
   const __realCST = clearTimeout.bind(null);
+  // 时区伪造(register-kit P0-2): 沙箱 Date/Intl 按出口时区伪造。宿主机 Date/Intl(裸引用)不受影响。
+  const _tzName = String(payload.timezone || "").trim() || "America/Los_Angeles";
+  __ctx.Date = buildSpoofedDate(_tzName);
+  // __ctx.Intl = buildSpoofedIntl(_tzName);  // 二分诊断: 先只加 Date
   // 我们注入的全局一律 non-enumerable：SDK 疑似对 window 键做随机采样，
   // 枚举可见的 __sentinel_*/__debug*/__vm_* 会泄漏 vm 执行痕迹进指纹（已实证捕获）。
   function defineHidden(key, value) {
