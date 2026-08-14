@@ -424,7 +424,7 @@ function installRuntime(payload) {
     language: String(payload.language || "en-US"),
     languages: Array.isArray(payload.languages) ? payload.languages : ["en-US", "en"],
     hardwareConcurrency: Number(payload.hardware_concurrency || 16),
-    platform: "Win32",
+    platform: "MacIntel",
     vendor: "Google Inc.",
     vendorSub: "",  // 真 Chrome = ''（typeof string）；缺失会让 SDK 报 undefined（A1）
     webdriver: false,
