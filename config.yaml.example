@@ -23,7 +23,7 @@ proxy:
     # 覆盖模板中的 region（US/JP/NL/HK/...）；空则保留模板原 region
     region: "US"
     # 试用资格探测 region(独立于注册 region): plus-1-month-free 是 JP 地区灰度活动,
-    # 只有 JP 出口查 eligible_promo_campaigns.plus 才非空。subscription 探测池用。
+    # 只有 JP 出口查 eligible_promo_campaigns.plus 才非空。eligibility 探测池用。
     trial_region: "JP"
     # 每次注册是否随机 sid（换 IP）
     rotate_sid: true

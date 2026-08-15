@@ -1,28 +1,31 @@
-"""subscription: 查询账号订阅/优惠资格(两步 API, 对齐 at-hub)。
+"""eligibility: 查询账号优惠资格/订阅状态(只读, 无副作用)。
 
 1. accounts/check → account_id + eligible_promo_campaigns/eligible_offers(优惠活动)
-2. subscriptions?account_id → 订阅详情(free 无订阅返回 404, at-hub 同样处理)
+2. promo_campaign/check_coupon → 优惠券资格(显式 eligible)
+3. subscriptions?account_id → 订阅详情(free 无订阅返回 404)
 """
 from __future__ import annotations
 
 import json
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 from gptreg.account_store import load_accounts
-from gptreg.commands.common import apply_region, resolve_proxy_arg
+from gptreg.commands.common import account_api_headers, apply_region, resolve_proxy_arg
 from gptreg.proxyutil import resolve_proxy
 from gptreg.session import BrowserSession
 
 ACCOUNTS_CHECK = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27"
 SUBSCRIPTIONS = "https://chatgpt.com/backend-api/subscriptions"
-CHECKOUT_URL = "https://chatgpt.com/backend-api/payments/checkout"
+OFFER_CHECK_URL = "https://chatgpt.com/backend-api/promo_campaign/check_coupon"
+OFFER_CAMPAIGN_ID = "plus-1-month-free"
 
 
 def add_parser(subparsers) -> None:
     p = subparsers.add_parser(
-        "subscription",
-        help="查询账号订阅/优惠资格(accounts/check + subscriptions 两步)",
+        "eligibility",
+        help="查询账号优惠资格/订阅状态(accounts/check + check_coupon + subscriptions)",
     )
     p.add_argument("--email", default="", help="逗号分隔指定邮箱(默认最近 N 个)")
     p.add_argument("--limit", type=int, default=5, help="查询数量(默认 5)")
@@ -30,13 +33,11 @@ def add_parser(subparsers) -> None:
     p.add_argument("--proxy", default=None, help="覆盖代理；传 empty/none/direct 表示直连")
     p.add_argument("--no-proxy", action="store_true", help="强制直连")
     p.add_argument("--workers", type=int, default=8, help="并发探测线程数(默认 8, 探测池复用)")
-    p.add_argument("--checkout", action="store_true",
-                   help="有 plus 资格时 POST checkout 真正下试用单(服务端判定层, 会创建 checkout 草稿)")
     p.set_defaults(func=run)
 
 
-def _query(sess: BrowserSession, at: str) -> dict[str, Any]:
-    """两步查询: accounts/check → subscriptions。返回聚合 dict。"""
+def _query(sess: BrowserSession, account: dict[str, Any], at: str) -> dict[str, Any]:
+    """三步查询: accounts/check → subscriptions → check_coupon。返回聚合 dict。"""
     h = sess.chatgpt_headers(referer="https://chatgpt.com/")
     h["authorization"] = f"Bearer {at}"
     h["oai-device-id"] = sess.device_id
@@ -74,46 +75,66 @@ def _query(sess: BrowserSession, at: str) -> dict[str, Any]:
             out["subscription"] = {}
     elif s.status_code != 404:
         out["subs_error"] = s.text[:150]
+    out["coupon_check"] = _check_coupon(sess, account, at, OFFER_CAMPAIGN_ID)
     return out
 
 
-def _checkout(sess: BrowserSession, at: str, promo_id: str, device_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
-    """POST payments/checkout 真正下试用单(社区 openai-promo-bypass 方法, 服务端判定层)。
+def _first_present(obj: Any, keys: tuple) -> Any:
+    """递归找第一个非空字段(移植 register-kit first_present)。"""
+    if isinstance(obj, dict):
+        for k in keys:
+            if k in obj and obj[k] not in (None, ""):
+                return obj[k]
+        for v in obj.values():
+            got = _first_present(v, keys)
+            if got not in (None, ""):
+                return got
+    elif isinstance(obj, list):
+        for v in obj:
+            got = _first_present(v, keys)
+            if got not in (None, ""):
+                return got
+    return None
 
-    静态字段 eligible_promo_campaigns.plus 只是"发现层", checkout 是否接受 promo 才是
-    真正资格(两层判定)。注意: 会创建 checkout 草稿, 有副作用。
-    """
-    from gptreg.rk_sentinel import ensure_sentinel_proxy, gen_sentinel_token
-    ensure_sentinel_proxy(exit_proxy="socks5://127.0.0.1:10808")
-    b = cfg.get("browser") or {}
-    token = gen_sentinel_token(
-        device_id, "checkout_session_approval", b.get("user_agent") or "",
-        page_url="https://chatgpt.com/checkout/openai_llc/cs_ctf",
-        language=b.get("language") or "en-US", languages=b.get("languages") or "en-US,en;q=0.9",
-        width=int(b.get("screen_width") or 1920), height=int(b.get("screen_height") or 1080),
-        cores=int(b.get("hardware_concurrency") or 16), timezone=b.get("timezone") or "America/Los_Angeles",
-    )
-    h = sess.chatgpt_headers(referer="https://chatgpt.com/")
-    h["authorization"] = f"Bearer {at}"
-    h["oai-device-id"] = device_id
-    h["openai-sentinel-token"] = token
-    h["content-type"] = "application/json"
-    body = {
-        "plan_name": "chatgptplusplan",
-        "entry_point": "all_plans_pricing_modal",
-        "checkout_ui_mode": "hosted",
-        "billing_details": {"country": "ID", "currency": "IDR"},
-        "promo_campaign": {"promo_campaign_id": promo_id, "is_coupon_from_query_param": False},
-    }
-    r = sess.post(CHECKOUT_URL, headers=h, data=json.dumps(body))
+
+def _check_coupon(sess: BrowserSession, account: dict[str, Any], at: str, promo_id: str) -> dict[str, Any]:
+    """GET promo_campaign/check_coupon 查优惠券资格(显式 eligible, register-kit 对齐头)。"""
+    h = account_api_headers(sess, account, at, "/backend-api/promo_campaign/check_coupon")
+    params = urlencode({"coupon": promo_id, "is_coupon_from_query_param": "false"})
     try:
-        j = r.json()
-    except Exception:
-        j = {}
+        r = sess.get(f"{OFFER_CHECK_URL}?{params}", headers=h)
+        status_code = r.status_code
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+    except Exception as e:
+        status_code = 0
+        body = {"error": str(e)[:200]}
+
+    state = str(_first_present(body, ("state", "status", "eligibility", "result")) or "").strip().lower()
+    explicit = _first_present(body, ("eligible", "is_eligible"))
+    request_failed = status_code in {0, 401, 403, 429}
+    eligible_states = {"eligible", "valid", "available", "ok", "success"}
+    ineligible_states = {"ineligible", "not_eligible", "redeemed", "already_redeemed",
+                         "expired", "unavailable", "invalid"}
+    if (state in eligible_states or explicit is True) and not request_failed:
+        eligible, first_month, text = True, "yes", "优惠券可用"
+    elif (state in ineligible_states or explicit is False) and not request_failed:
+        eligible, first_month, text = False, "no", "优惠券不可用"
+    else:
+        eligible, first_month = None, "unknown"
+        text = "请求失败，不能判断" if request_failed else "未检测 / 未确认"
+    msg = _first_present(body, ("message", "error", "detail", "reason"))
+    if msg:
+        text += "：" + str(msg)[:240]
     return {
-        "http": r.status_code,
-        "session_id": str(j.get("checkout_session_id") or ""),
-        "error": str(j.get("error") or ("" if r.status_code == 200 else (r.text or "")[:200])),
+        "status_code": status_code,
+        "eligible": eligible,
+        "state": state,
+        "first_month_offer": first_month,
+        "request_failed": request_failed,
+        "text": text,
     }
 
 
@@ -131,12 +152,14 @@ def _print_card(email: str, r: dict[str, Any]) -> None:
             print(f"{tag} {m.get('plan_name') or k}  {m.get('title') or ''}  id={str((v or {}).get('id'))[:40]}  discount={m.get('discount')}")
     else:
         print("  [优惠活动] 无 (无 Plus 试用资格)")
-    checkout = r.get("checkout")
-    if checkout is not None:
-        if checkout.get("session_id"):
-            print(f"  [checkout] ✅ 可下试用 session={checkout['session_id'][:40]}")
+    coupon = r.get("coupon_check")
+    if coupon:
+        if coupon.get("eligible") is True:
+            print(f"  [优惠券] ✅可用 state={coupon.get('state') or '-'} {coupon.get('text','')}")
+        elif coupon.get("eligible") is False:
+            print(f"  [优惠券] ❌不可用 state={coupon.get('state') or '-'} {coupon.get('text','')}")
         else:
-            print(f"  [checkout] ❌ 被拒 http={checkout.get('http')} {str(checkout.get('error'))[:100]}")
+            print(f"  [优惠券] ?未确认 http={coupon.get('status_code')} {coupon.get('text','')}")
     offers = r.get("eligible_offers")
     if offers:
         print(f"  [可购offer] {json.dumps(offers, ensure_ascii=False)[:120]}")
@@ -169,7 +192,7 @@ def run(cfg: dict[str, Any], args) -> int:
         emails = {e.strip() for e in args.email.split(",") if e.strip()}
         accounts = [d for d in accounts if d.get("email") in emails]
     accounts = accounts[: args.limit]
-    print(f"订阅查询 {len(accounts)} 个账号:")
+    print(f"资格查询 {len(accounts)} 个账号:")
 
     fixed = resolve_proxy_arg(args)
     if fixed:
@@ -180,7 +203,7 @@ def run(cfg: dict[str, Any], args) -> int:
             for i, d in enumerate(accounts, 1):
                 print(f"\n[{i}/{len(accounts)}] {d.get('email')}")
                 try:
-                    _print_card(d.get("email"), _query(sess, d.get("access_token")))
+                    _print_card(d.get("email"), _query(sess, d, d.get("access_token")))
                 except Exception as exc:
                     print(f"  [查询异常] {type(exc).__name__}: {str(exc)[:80]}")
                 time.sleep(0.5)
@@ -205,16 +228,8 @@ def run(cfg: dict[str, Any], args) -> int:
                 rp = pool.acquire()
                 sess = BrowserSession(cfg, proxy=rp.session_url)
                 try:
-                    r = _query(sess, d.get("access_token"))
+                    r = _query(sess, d, d.get("access_token"))
                     if r.get("accounts_http") == 200:
-                        if args.checkout:
-                            promos = r.get("eligible_promo_campaigns") or {}
-                            if "plus" in promos:
-                                promo_id = str((promos.get("plus") or {}).get("id") or "plus-1-month-free")
-                                try:
-                                    r["checkout"] = _checkout(sess, d.get("access_token"), promo_id, d.get("device_id"), cfg)
-                                except Exception as exc:
-                                    r["checkout"] = {"error": f"{type(exc).__name__}: {exc}"}
                         return d.get("email"), r
                 except Exception:
                     pass

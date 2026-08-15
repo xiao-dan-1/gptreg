@@ -26,7 +26,8 @@ COMMANDS: dict[str, str] = {
     "backfill": "gptreg.commands.backfill",
     "imap": "gptreg.commands.check_imap",
     "raw-check": "gptreg.commands.raw_check",
-    "subscription": "gptreg.commands.subscription",
+    "eligibility": "gptreg.commands.eligibility",
+    "checkout": "gptreg.commands.checkout",
     "relogin": "gptreg.commands.relogin",
 }
 

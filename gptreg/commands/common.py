@@ -116,3 +116,53 @@ def age_str(ts: str) -> str:
 def ts_str(d: dict) -> str:
     """记录时间戳: 优先 saved_at, 退化 updated_at。"""
     return str(d.get("saved_at") or d.get("updated_at") or "")
+
+
+def account_cookie_header(account: dict[str, Any]) -> str:
+    """构造账号 Cookie 头(session_token + 存好的 cookies),移植 register-kit cookie_header_from_account。"""
+    parts: list[str] = []
+    session_token = str(account.get("session_token") or "").strip()
+    if session_token:
+        parts.append("__Secure-next-auth.session-token=" + session_token)
+    cookies = account.get("cookies")
+    if isinstance(cookies, dict):
+        for k, v in cookies.items():
+            if v not in (None, "") and str(k) != "__Secure-next-auth.session-token":
+                parts.append(str(k) + "=" + str(v))
+    elif isinstance(cookies, list):
+        for c in cookies:
+            if isinstance(c, dict):
+                k, v = c.get("name"), c.get("value")
+                if k and v not in (None, "") and str(k) != "__Secure-next-auth.session-token":
+                    parts.append(str(k) + "=" + str(v))
+    return "; ".join(parts)
+
+
+def account_api_headers(sess: BrowserSession, account: dict[str, Any], token: str,
+                        target_path: str, locale: str = "en-US", tz: str = "") -> dict[str, str]:
+    """register-kit 对齐的账号请求头(在 BrowserSession 指纹之上补身份头)。
+
+    关键差异(vs 直接 chatgpt_headers):
+    - OAI-Device-Id / OpenAI-Sentinel-Device-Id / oai-device-id 用账号存的 device_id(非新随机)
+    - 注入 session_token + cookies 的 Cookie 头
+    - 补 X-OpenAI-Target-Path/Route + OAI-Language/OAI-Timezone + Origin
+    """
+    h = sess.chatgpt_headers(referer="https://chatgpt.com/")
+    h["authorization"] = f"Bearer {token}"
+    h["accept"] = "application/json, text/plain, */*"
+    h["origin"] = "https://chatgpt.com"
+    h["X-OpenAI-Target-Path"] = target_path
+    h["X-OpenAI-Target-Route"] = target_path
+    h["OAI-Language"] = locale
+    h["accept-language"] = f"{locale},en;q=0.9"
+    if tz:
+        h["OAI-Timezone"] = tz
+    device_id = str(account.get("device_id") or "").strip()
+    if device_id:
+        h["OAI-Device-Id"] = device_id
+        h["OpenAI-Sentinel-Device-Id"] = device_id
+        h["oai-device-id"] = device_id
+    ck = account_cookie_header(account)
+    if ck:
+        h["Cookie"] = ck
+    return h

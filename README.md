@@ -114,7 +114,7 @@ python main.py stats                     # 号池统计
 python main.py check-proxy --times 2     # 探测出口 IP（换 sid 验证换 IP）
 python main.py backfill --emails xxx     # 补缺失的 access_token
 python main.py imap --limit 3            # 号池 IMAP 可用性检查
-python main.py subscription              # 查订阅 / 优惠资格
+python main.py eligibility              # 查优惠资格 / 订阅状态
 echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 ```
 
@@ -251,7 +251,7 @@ signin → register(user/register 设密码, username_password_create 无 SO) �
 ```
 
 - **⭐ 纯协议正解（2026-08-13 实证）**：密码模式 + vm so（**派发行为事件 simulate_behavior，默认开**）→ **账号可长活**（实测 2/2 活，无需真浏览器）。行为字段空的 vm so（不派发事件）才会被吊销——历史"~30min 短活"是行为字段空的真相
-- **试用资格（08-14 实证）**：`plus-1-month-free` 由 **IP 地区（JP 有/US 无）× 邮箱域（iCloud 有/Outlook 无）** 决定——**iCloud 号 + JP 出口查 ≈ 76% 有资格**（35/46 大样本）。查资格用 `subscription`（探测池自动 JP，并发 + 失败重试），不需要 checkout
+- **试用资格（08-14 实证）**：`plus-1-month-free` 由 **IP 地区（JP 有/US 无）× 邮箱域（iCloud 有/Outlook 无）** 决定——**iCloud 号 + JP 出口查 ≈ 76% 有资格**（35/46 大样本）。查资格用 `eligibility`（探测池自动 JP，并发 + 失败重试），不需要 checkout
 - **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生 + TLS 指纹按 device_id 轮换（`impersonate_rotate`）+ 语言/时区随出口 IP → 防批量雷同/设备指纹矛盾
 - **效率优化**：Geo 复用隧道探活 ipinfo（省单独查询 +2s/号）；cloudmail 收码快（~3s）→ 单号 ~38s、并发 w2 稳定 2/2；Outlook 收码是瓶颈（XDAuv 服务波动，并发建议 ≤2）
 - **recovery key**：`recovery_code` 因子，30 字符 key，激活时提交整个 key；防 TOTP 锁死
@@ -321,7 +321,7 @@ output/                        成功账号(accounts.jsonl)
 - **邮箱级风控**：同一邮箱多次失败会被 OpenAI 记住，换 IP 无效（勿反复试）
 - **so 真实性**：行为字段空的 so 账号被吊销；vm so 必须**派发行为事件（simulate_behavior，默认开）**才带行为字段 ≈ 浏览器；**绝不派发 paste**（"合成输入"判别特征，register-kit 踩坑）
 - **两条路线存活**：主路线（browser 真 so）长活（实测 8h+）；**纯协议路线（密码模式 + vm so 模拟行为）实证可长活**（2026-08-13 2/2 活），无需真浏览器
-- **试用资格**：`plus-1-month-free` 由 **IP 地区（JP）× 邮箱域（iCloud）** 决定——iCloud 号 + JP 出口 ≈ 76% 有资格；查资格用 `subscription`（探测池自动 JP 住宅，勿传数据中心代理）
+- **试用资格**：`plus-1-month-free` 由 **IP 地区（JP）× 邮箱域（iCloud）** 决定——iCloud 号 + JP 出口 ≈ 76% 有资格；查资格用 `eligibility`（探测池自动 JP 住宅，勿传数据中心代理）
 - **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
 - **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才注册成功

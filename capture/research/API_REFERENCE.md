@@ -46,7 +46,8 @@
 |---|---|---|---|
 | `/me` | **存活主判定** | 200=ok；401+`code:account_deactivated`=封号；`token_invalidated`=吊销；`token_expired`=过期 | **同 IP 并发不触发 WAF**；1.2KB |
 | `/wham/usage` | plan + 限流 | 200 返回 `plan_type`+`rate_limit` | 查 plan(free/plus/expired)+ 限流信号；**已记录待用** |
-| `/accounts/check/v4-2023-04-27` | 优惠资格 | 200；含 `eligible_promo_campaigns`/`offers` | **主用途 subscription 查 promo**；同 IP 连续会 WAF 403(8KB) |
+| `/accounts/check/v4-2023-04-27` | 优惠资格 | 200；含 `eligible_promo_campaigns`/`offers` | **主用途 eligibility 查 promo**；同 IP 连续会 WAF 403(8KB) |
+| `/promo_campaign/check_coupon?coupon=...` | 优惠券资格(显式 `eligible`) | 200；`eligible`/`state` | register-kit 对齐；比 accounts/check 更直接，稳定性待 A/B 验证 |
 
 **判定优先级**：me 快判(ok/封号/吊销/过期)→ 需 promo 用 accounts/check。
 
@@ -76,6 +77,7 @@
 |---|---|
 | `chatgpt.com/backend-api/conversation/init` | 会话初始化 |
 | `chatgpt.com/backend-api/subscriptions` | 订阅详情(free 返回 404) |
+| `chatgpt.com/backend-api/payments/checkout` | 下试用单(服务端判定层) | 返回 `checkout_session_id`；前缀 `oaics_`=OAICS 真资格 / `cs_`/`cslive`=普通 Stripe |
 | `api.openai.com/v1` | OpenAI API |
 | `api.openai.com/profile` / `/auth` | 个人页/认证 |
 
@@ -93,6 +95,7 @@
 |---|---|
 | 判存活 | `/backend-api/me` |
 | 查优惠资格 | `/backend-api/accounts/check/v4-2023-04-27` |
+| 查优惠券资格(显式 eligible) | `/backend-api/promo_campaign/check_coupon?coupon=...` |
 | 查 plan/限流 | `/backend-api/wham/usage` |
 | 补设密码 | `auth.openai.com/api/accounts/password/add` |
 | 登录(token) | `oauth/authorize` → `oauth/token` |
