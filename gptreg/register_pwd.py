@@ -150,6 +150,28 @@ def _landing_diag(final: str) -> str:
     return land[:60]
 
 
+def _server_error(resp) -> str:
+    """从非 200 响应提取完整结构化错误, 原样透传(动态反馈, 不写死)。
+
+    处理 {"error": {code, message, ...}} 和 {"detail": "<json 字符串>"} 包装。
+    返回 JSON 字符串(结构化) 或原文(非 JSON), 上限 500 字符。用途: diag["server"]
+    原样展示——网站返回什么就显示什么, 硬编码只做分类决策、不做展示。
+    """
+    try:
+        body = resp.json()
+    except Exception:
+        return (resp.text or "").strip()[:500]
+    if isinstance(body, dict) and "detail" in body:
+        try:
+            body = json.loads(body["detail"])
+        except Exception:
+            pass
+    err = body.get("error") if isinstance(body, dict) else None
+    if isinstance(err, dict):
+        return json.dumps(err, ensure_ascii=False)
+    return json.dumps(body, ensure_ascii=False)[:500]
+
+
 def timing_str(diag: dict[str, Any]) -> str:
     """按 diag 字段拼耗时归因(段增量口径, 缺失段跳过)。
 
@@ -298,6 +320,7 @@ def _stage_register(
             srv_redirect = str(_err.get("redirect_uri") or "")
         except Exception:
             pass
+        srv = _server_error(resp)
         # 落 log-in = 邮箱已注册(登录流程) → 永久弃用;
         # 服务端 invalid_auth_step + redirect login_with 佐证(已注册邮箱不可再注册)
         if "log-in" in (final or "") or "/login" in (final or ""):
@@ -307,6 +330,7 @@ def _stage_register(
                 "reason": err,
                 "srv_code": srv_code,
                 "srv_redirect": srv_redirect,
+                "server": srv,
             }
             raise e
         # 邮箱状态冲突(状态机不可重入): invalid_auth_step(warm 重试后仍 400)/Invalid authorization
@@ -321,6 +345,7 @@ def _stage_register(
                 "reason": err,
                 "srv_code": srv_code,
                 "srv_redirect": srv_redirect,
+                "server": srv,
             }
             raise e
         e = _RegisterBlocked(err)
@@ -329,6 +354,7 @@ def _stage_register(
             "reason": err,
             "srv_code": srv_code,
             "srv_redirect": srv_redirect,
+            "server": srv,
         }
         raise e
     reg = resp.json()
@@ -513,7 +539,15 @@ def _stage_create(
     diag["create_http_s"] = round(time.time() - _http_t0, 1)  # create HTTP 请求本身耗时
     diag["create_s"] = round(time.time() - _t0, 1)  # 纯 create 段(t+so 并行 + create HTTP)
     if resp2 is None or resp2.status_code != 200:
-        raise _CreateFailed(f"create_account HTTP {resp2.status_code if resp2 else '?'}: {(resp2.text[:150]) if resp2 else ''}")
+        _ctxt = (resp2.text or "").lower() if resp2 else ""
+        _srv = _server_error(resp2) if resp2 else ""
+        # ⭐ "account already exists" = 主号账号数达上限(实测 ~6 个/主号): 全新 +别名也报已存在
+        # → 归 MAIL_REGISTERED(永久弃用), 而非 generic CREATE_FAILED, 避免 batch 继续开别名白烧号源
+        if "already exists" in _ctxt or "account already exists" in _ctxt:
+            e = _MailRegistered(f"create_account 已存在(主号账号数达上限): {_srv}")
+            e.diag = {"reason": str(e), "create_already_exists": True, "server": _srv}
+            raise e
+        raise _CreateFailed(f"create_account HTTP {resp2.status_code if resp2 else '?'}: {_srv}")
     cr = resp2.json()
     cu = cr.get("continue_url") or cr.get("url")
     if not cu:
@@ -715,7 +749,15 @@ def _enroll_totp(cfg: dict[str, Any], session: BrowserSession, reg: dict[str, An
                 except Exception as exc:
                     logger.warning("  [enroll] mfa_info 查询失败: %s", str(exc)[:60])
         if not activated:
-            raise _EnrollFailed("activate_enrollment 未确认 mfa_enabled=true")
+            # 把 enroll/activate 真实响应原文带出来(否则"未确认"掩盖了真正的风控原因)
+            _detail = f"enroll HTTP {resp_enroll.status_code}"
+            if resp_enroll.status_code != 200:
+                _detail += f": {resp_enroll.text[:200]}"
+            if "resp_act" in locals() and resp_act is not None:
+                _detail += f" | activate HTTP {resp_act.status_code}: {(resp_act.text or '')[:200]}"
+            if "resp_info" in locals() and resp_info is not None:
+                _detail += f" | mfa_info HTTP {resp_info.status_code}: {(resp_info.text or '')[:120]}"
+            raise _EnrollFailed(f"activate_enrollment 未确认 mfa_enabled=true | {_detail}")
         # 同步开 recovery key(防 TOTP 锁死; 需 fresh token, 刚激活 TOTP 满足)。
         # enable_recovery=false 时跳过(省 2 个 HTTP 请求 ~1-2s; 代价=失去 TOTP 锁死兜底)。
         recovery = {"recovery_key": "", "recovery_enrolled": False}

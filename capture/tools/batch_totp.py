@@ -303,6 +303,9 @@ def _run_batch(batch: list[tuple[str, dict]], proxy, cfg, pool=None, workers: in
                 print(f"  [出口] {proxy_label(pu)}", flush=True)
         else:
             d = result.diag or {}
+            # ⭐ 动态反馈: 服务器返回的完整 error 原文优先展示(网站反馈什么就显示什么, 不写死)
+            if d.get("server"):
+                print(f"  [服务器原文] {d.get('server')}", flush=True)
             # IP_BLOCKED / MAIL_CONFLICT: 落点/状态诊断(专门文案) + 服务器原始 code/reason
             if result.outcome in (RegisterOutcome.IP_BLOCKED, RegisterOutcome.MAIL_CONFLICT):
                 ld = str(d.get("landing_diag") or d.get("reason") or "")[:120]
