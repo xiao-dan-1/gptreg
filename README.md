@@ -251,7 +251,7 @@ signin → register(user/register 设密码, username_password_create 无 SO) �
 ```
 
 - **⭐ 纯协议正解（2026-08-13 实证）**：密码模式 + vm so（**派发行为事件 simulate_behavior，默认开**）→ **账号可长活**（实测 2/2 活，无需真浏览器）。行为字段空的 vm so（不派发事件）才会被吊销——历史"~30min 短活"是行为字段空的真相
-- **试用资格（08-15 实证）**：由 **邮箱域（iCloud 有/Outlook 无）× 查询出口（JP）** 决定，**与注册地（US/JP）无关**——iCloud 号 + JP 出口查 ≈ 76% 有资格；密码模式实测 **~95%**（21 号 20 有 promo，含 `plus-1-month-free` 免费 + `plus-1-month-50-pct-off` 5折）。查资格用 `eligibility`（探测池自动 JP），不需要 checkout
+- **试用资格（08-16 实证）**：由 **查询出口 IP（JP 有/US 无）× 邮箱域（iCloud 有/Outlook 无）× locale（ja-JP）** 决定，**与注册地无关**。**注册时发放**——注册前匿名查 `backend-anon/accounts/check` 是空，注册后认证查 `backend-api/accounts/check` 才有 `plus-1-month-free`。三个判据在 JP 出口下一致：`accounts/check.plus`（静态）/ `check_coupon`（优惠券）/ `checkout`（下试用单，有副作用需允许）。密码模式实测 ~95%（21 号 20 有 promo，含免费 + 5折）。查资格用 `eligibility`（探测池自动 JP）
 - **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生 + TLS 指纹按 device_id 轮换（`impersonate_rotate`）+ 语言/时区随出口 IP → 防批量雷同/设备指纹矛盾
 - **效率优化**：Geo 复用隧道探活 ipinfo（省单独查询 +2s/号）；cloudmail 收码快（~3s）→ 单号 ~38s、并发 w2 稳定 2/2；Outlook 收码是瓶颈（XDAuv 服务波动，并发建议 ≤2）
 - **recovery key**：`recovery_code` 因子，30 字符 key，激活时提交整个 key；防 TOTP 锁死
@@ -321,7 +321,7 @@ output/                        成功账号(accounts.jsonl)
 - **邮箱级风控**：同一邮箱多次失败会被 OpenAI 记住，换 IP 无效（勿反复试）
 - **so 真实性**：行为字段空的 so 账号被吊销；vm so 必须**派发行为事件（simulate_behavior，默认开）**才带行为字段 ≈ 浏览器；**绝不派发 paste**（"合成输入"判别特征，register-kit 踩坑）
 - **存活**：密码模式 + vm so 模拟行为实证可长活（2026-08-13 2/2 活），无需真浏览器
-- **试用资格**：`plus-1-month-free` 由 **IP 地区（JP）× 邮箱域（iCloud）** 决定——iCloud 号 + JP 出口 ≈ 76% 有资格；查资格用 `eligibility`（探测池自动 JP 住宅，勿传数据中心代理）
+- **试用资格**：`plus-1-month-free` 由 **查询出口（JP）× 邮箱域（iCloud）× locale（ja-JP）** 决定，**注册时发放**（注册前匿名查不到）；查资格用 `eligibility`（探测池自动 JP 住宅，勿传数据中心代理）
 - **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
 - **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才注册成功

@@ -108,8 +108,10 @@ def _jp_probe(cfg: dict, token: str, device_id: str, max_sid: int = 6) -> dict:
     """
     from gptreg.proxyutil import build_dynamic_proxy, resolve_proxy
 
+    _dyn = (cfg.get("proxy") or {}).get("dynamic") or {}
+    trial_region = str(_dyn.get("trial_region") or "JP")
     for n in range(max_sid):
-        jp_url = build_dynamic_proxy(cfg, region="JP")  # 强制 JP region 出口
+        jp_url = build_dynamic_proxy(cfg, region=trial_region)  # trial_region 出口
         resolved = resolve_proxy(cfg, override=jp_url)
         try:
             sess = BrowserSession(cfg, proxy=resolved.session_url)
@@ -121,12 +123,12 @@ def _jp_probe(cfg: dict, token: str, device_id: str, max_sid: int = 6) -> dict:
                 exit_cc = d.get("country_code", "?")
             except Exception:
                 exit_cc = "?"
-            # 非 JP 出口: 换 sid 重试
-            if exit_cc != "JP":
+            # 非 trial_region 出口: 换 sid 重试
+            if exit_cc != trial_region:
                 sess.close()
                 continue
             try:
-                out = _probe_checkout(sess, token, region="JP")
+                out = _probe_checkout(sess, token, region=trial_region)
                 out["probe_exit"] = f"{exit_cc}:{str(d.get('ip'))[:15]}"
                 return out
             finally:
@@ -164,8 +166,16 @@ def main() -> int:
     results = []
     workers = max(1, int(args.workers or 1))
     proxy = args.proxy or None
-    rp = resolve_proxy(cfg, override=proxy) if not proxy else None
-    shared_proxy = proxy or rp.session_url
+    # 统一用 config 的 trial_region(JP): 静态检查也走 JP 出口, 否则 eligible_promo_campaigns 空(US 无资格)
+    _dyn = (cfg.get("proxy") or {}).get("dynamic") or {}
+    trial_region = str(_dyn.get("trial_region") or "JP")
+    if proxy:
+        rp = None
+        shared_proxy = proxy
+    else:
+        from gptreg.proxyutil import build_dynamic_proxy
+        rp = resolve_proxy(cfg, override=build_dynamic_proxy(cfg, region=trial_region))
+        shared_proxy = rp.session_url
 
     def _process_one(d: dict) -> dict:
         """单账号检测: 第一层(独立 session 共享代理) + 可选 JP probe。"""

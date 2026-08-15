@@ -58,14 +58,14 @@ _DEFAULTS: dict[str, Any] = {
     },
     "browser": {
         "user_agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/131.0.0.0 Safari/537.36"
+            "Chrome/150.0.0.0 Safari/537.36"
         ),
-        "sec_ch_ua": '"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="99"',
-        "sec_ch_ua_platform": '"macOS"',
+        "sec_ch_ua": '"Not=A?Brand";v="99", "Google Chrome";v="150", "Chromium";v="150"',
+        "sec_ch_ua_platform": '"Windows"',
         "sec_ch_ua_mobile": "?0",
-        "impersonate": "chrome131",
+        "impersonate": "chrome_windows",
         "language": "en-US",
         "languages": "en-US,en",
         "accept_language": "en-US,en;q=0.9",

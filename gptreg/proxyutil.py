@@ -732,13 +732,20 @@ class ProxyPool:
                 info = probe_proxy(tunnel.local_url, timeout=12)
                 if info.get("status") == 200 and info.get("ip"):
                     # 地区校验: 非目标 region 的出口 IP 丢弃(如 US region 混入 VE 出口, 连接不稳 + 风控)
+                    # 盲点修复: ipinfo 探测不到 country 也丢弃, 不能盲放(否则地区校验形同虚设)
                     ipinfo = info.get("ipinfo") or {}
                     cc = str(ipinfo.get("country") or "").upper()
-                    if want_cc and cc and cc != want_cc:
-                        last = f"出口地区不符 want={want_cc} got={cc} ip={info.get('ip')}"
-                        tunnel.close()
-                        time.sleep(1.0)
-                        continue
+                    if want_cc:
+                        if not cc:
+                            last = f"出口 country 探测失败(ipinfo 空) want={want_cc} ip={info.get('ip')}"
+                            tunnel.close()
+                            time.sleep(1.0)
+                            continue
+                        if cc != want_cc:
+                            last = f"出口地区不符 want={want_cc} got={cc} ip={info.get('ip')}"
+                            tunnel.close()
+                            time.sleep(1.0)
+                            continue
                     region, sid = _extract_region_sid(upstream)
                     rp = ResolvedProxy(
                         session_url=tunnel.local_url, upstream_url=upstream,

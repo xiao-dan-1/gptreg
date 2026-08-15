@@ -48,6 +48,11 @@
 | `/wham/usage` | plan + 限流 | 200 返回 `plan_type`+`rate_limit` | 查 plan(free/plus/expired)+ 限流信号；**已记录待用** |
 | `/accounts/check/v4-2023-04-27` | 优惠资格 | 200；含 `eligible_promo_campaigns`/`offers` | **主用途 eligibility 查 promo**；同 IP 连续会 WAF 403(8KB) |
 | `/promo_campaign/check_coupon?coupon=...` | 优惠券资格(显式 `eligible`) | 200；`eligible`/`state` | register-kit 对齐；比 accounts/check 更直接，稳定性待 A/B 验证 |
+| `/backend-anon/accounts/check/v4-2023-04-27` | 匿名资格检查(注册前) | 200；`eligible_promo_campaigns` 恒空 | **注册前查不到资格**；资格注册时发放 |
+| `/checkout_pricing_config/configs/{CC}` | 地区促销配置 | 200；`promos`(地区可用促销)+币种/税 | JP 返回 JPY+jct；匿名/认证各一次 |
+| `/backend-api/aip/first-party/eligibility` | AI 插件资格 | 200；`health`/`finances` | 跟 Plus 试用无关(排除) |
+
+**资格机制（08-16 实证）**：`plus-1-month-free` 由 **查询出口 IP(JP 有/US 无) × 邮箱域(iCloud 有/Outlook 无) × locale(ja-JP)** 决定，**注册时发放**（注册前匿名查不到）；三个判据在 JP 出口下一致：`accounts/check.plus` / `check_coupon` / `checkout`(有副作用需允许)。
 
 **判定优先级**：me 快判(ok/封号/吊销/过期)→ 需 promo 用 accounts/check。
 

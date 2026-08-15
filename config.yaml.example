@@ -70,12 +70,13 @@ mail:
     domains: []
 
 browser:
-  # UA 与 impersonate 主版本必须对齐; 平台必须跟 curl_cffi 指纹的真实 JA3 一致(Macintosh)。
-  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-  sec_ch_ua: '"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="99"'
-  sec_ch_ua_platform: '"macOS"'
+  # UA 与 impersonate 主版本必须对齐; 平台必须跟 curl_cffi 指纹的真实 JA3 一致(Windows)。
+  # 依赖 curl-cffi-fingerprints(fork)才支持 Windows JA3; 上游 curl-cffi 只有 Macintosh。
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+  sec_ch_ua: '"Not=A?Brand";v="99", "Google Chrome";v="150", "Chromium";v="150"'
+  sec_ch_ua_platform: '"Windows"'
   sec_ch_ua_mobile: "?0"
-  impersonate: "chrome131"
+  impersonate: "chrome_windows"
   language: "en-US"
   languages: "en-US,en"
   accept_language: "en-US,en;q=0.9"
