@@ -642,6 +642,20 @@ def geo_profile_for_proxy(proxy_url: str, ipinfo: dict | None = None, timeout: i
     return out
 
 
+# 移动运营商 NAT 出口(register-kit is_mobile_carrier_ip 对齐): 同一公网 IP 被海量
+# 真实用户+滥用流量共享, 账号几十分钟内被回收; 固定宽带住宅存活率明显更高。
+MOBILE_CARRIER_HINTS = (
+    "verizon", "t-mobile", "tmobile", "myvzw", "sprint", "cricket",
+    "metro", "boost", "cellco", "at&t mobility", "att wireless",
+)
+
+
+def _is_mobile_carrier_ip(ipinfo: dict) -> bool:
+    """出口 IP 的 org/hostname 命中移动运营商 NAT(低存活率) → True。"""
+    text = ((ipinfo.get("org") or "") + " " + (ipinfo.get("hostname") or "")).lower()
+    return any(h in text for h in MOBILE_CARRIER_HINTS)
+
+
 def probe_proxy(session_url: str, timeout: int = 20) -> dict[str, Any]:
     """探测出口 IP。"""
     from curl_cffi.requests import Session
@@ -705,6 +719,7 @@ class ProxyPool:
         # 2026-08-14: 代理源质量下降(US region 混入 VE 出口), 加地区校验 + 重试 5 次 + 间隔 1s。
         last = ""
         want_cc = (self.region or "").upper()
+        last_mobile: ResolvedProxy | None = None  # 最后一条移动运营商(5次筛不到时"将就"用)
         for attempt in range(1, 6):
             upstream = build_dynamic_proxy(self.cfg, region=self.region)
             if not upstream:
@@ -725,17 +740,33 @@ class ProxyPool:
                         time.sleep(1.0)
                         continue
                     region, sid = _extract_region_sid(upstream)
-                    return ResolvedProxy(
+                    rp = ResolvedProxy(
                         session_url=tunnel.local_url, upstream_url=upstream,
                         chain=tunnel, region=region, sid=sid,
                         ipinfo=info.get("ipinfo") or {},  # Geo 对齐复用探活 ipinfo
                     )
+                    # 移动运营商筛选(register-kit is_mobile_carrier_ip 对齐): 移动 NAT 出口存活率低, 换 sid 重抽;
+                    # 5 次都筛不到固定宽带时, 用最后一条移动运营商"将就"(register-kit find_residential_sid 同款兜底)
+                    if _is_mobile_carrier_ip(ipinfo):
+                        if last_mobile is not None:
+                            last_mobile.close()
+                        last_mobile = rp
+                        last = f"移动运营商出口 org={ipinfo.get('org')} ip={info.get('ip')}"
+                        time.sleep(1.0)
+                        continue
+                    if last_mobile is not None:
+                        last_mobile.close()
+                    return rp
                 last = f"探活 status={info.get('status')} ip={info.get('ip')}"
             except Exception as exc:
                 last = str(exc)[:80]
             tunnel.close()
             if attempt < 5:
                 time.sleep(1.0)
+        if last_mobile is not None:
+            logger.warning("[Proxy] 5 次都没筛到固定宽带, 用最后一条移动运营商(%s)将就",
+                           last_mobile.ipinfo.get("org") or "?")
+            return last_mobile
         raise RuntimeError(f"隧道建失败(5次换sid重试): {last}")
 
     def _build(self, size: int) -> None:

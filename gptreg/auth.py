@@ -90,14 +90,14 @@ def signin_flow(
     follow_sleep: float = 0.4,
     authorize_attempts: int = 1,
 ) -> str:
-    """统一 signin 序列: get_providers → CSRF → signin → authorize。
+    """统一 signin 序列: warmup → CSRF → signin → authorize。
 
     协议步骤间的节奏(sleep)内聚在此, 调用方(register_pwd/register_otp)不再散落
     time.sleep——消除两条注册路径对协议时序的重复硬编码。
+    (get_providers 已由 _warmup 替代: 其返回值无依赖, warmup 已建立 session, register-kit 亦然)
     返回 authorize 落点 URL。
     """
     _warmup(session)
-    get_providers(session)
     time.sleep(0.2)
     csrf = get_csrf_token(session)
     time.sleep(0.2)
