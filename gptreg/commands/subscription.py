@@ -16,6 +16,7 @@ from gptreg.session import BrowserSession
 
 ACCOUNTS_CHECK = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27"
 SUBSCRIPTIONS = "https://chatgpt.com/backend-api/subscriptions"
+CHECKOUT_URL = "https://chatgpt.com/backend-api/payments/checkout"
 
 
 def add_parser(subparsers) -> None:
@@ -29,6 +30,8 @@ def add_parser(subparsers) -> None:
     p.add_argument("--proxy", default=None, help="覆盖代理；传 empty/none/direct 表示直连")
     p.add_argument("--no-proxy", action="store_true", help="强制直连")
     p.add_argument("--workers", type=int, default=8, help="并发探测线程数(默认 8, 探测池复用)")
+    p.add_argument("--checkout", action="store_true",
+                   help="有 plus 资格时 POST checkout 真正下试用单(服务端判定层, 会创建 checkout 草稿)")
     p.set_defaults(func=run)
 
 
@@ -74,6 +77,45 @@ def _query(sess: BrowserSession, at: str) -> dict[str, Any]:
     return out
 
 
+def _checkout(sess: BrowserSession, at: str, promo_id: str, device_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    """POST payments/checkout 真正下试用单(社区 openai-promo-bypass 方法, 服务端判定层)。
+
+    静态字段 eligible_promo_campaigns.plus 只是"发现层", checkout 是否接受 promo 才是
+    真正资格(两层判定)。注意: 会创建 checkout 草稿, 有副作用。
+    """
+    from gptreg.rk_sentinel import ensure_sentinel_proxy, gen_sentinel_token
+    ensure_sentinel_proxy(exit_proxy="socks5://127.0.0.1:10808")
+    b = cfg.get("browser") or {}
+    token = gen_sentinel_token(
+        device_id, "checkout_session_approval", b.get("user_agent") or "",
+        language=b.get("language") or "en-US", languages=b.get("languages") or "en-US,en;q=0.9",
+        width=int(b.get("screen_width") or 1920), height=int(b.get("screen_height") or 1080),
+        cores=int(b.get("hardware_concurrency") or 16), timezone=b.get("timezone") or "America/Los_Angeles",
+    )
+    h = sess.chatgpt_headers(referer="https://chatgpt.com/")
+    h["authorization"] = f"Bearer {at}"
+    h["oai-device-id"] = device_id
+    h["openai-sentinel-token"] = token
+    h["content-type"] = "application/json"
+    body = {
+        "plan_name": "chatgptplusplan",
+        "entry_point": "all_plans_pricing_modal",
+        "checkout_ui_mode": "hosted",
+        "billing_details": {"country": "ID", "currency": "IDR"},
+        "promo_campaign": {"promo_campaign_id": promo_id, "is_coupon_from_query_param": False},
+    }
+    r = sess.post(CHECKOUT_URL, headers=h, data=json.dumps(body))
+    try:
+        j = r.json()
+    except Exception:
+        j = {}
+    return {
+        "http": r.status_code,
+        "session_id": str(j.get("checkout_session_id") or ""),
+        "error": str(j.get("error") or ("" if r.status_code == 200 else (r.text or "")[:200])),
+    }
+
+
 def _print_card(email: str, r: dict[str, Any]) -> None:
     acct = r.get("account") or {}
     sub = r.get("subscription") or {}
@@ -88,6 +130,12 @@ def _print_card(email: str, r: dict[str, Any]) -> None:
             print(f"{tag} {m.get('plan_name') or k}  {m.get('title') or ''}  id={str((v or {}).get('id'))[:40]}  discount={m.get('discount')}")
     else:
         print("  [优惠活动] 无 (无 Plus 试用资格)")
+    checkout = r.get("checkout")
+    if checkout is not None:
+        if checkout.get("session_id"):
+            print(f"  [checkout] ✅ 可下试用 session={checkout['session_id'][:40]}")
+        else:
+            print(f"  [checkout] ❌ 被拒 http={checkout.get('http')} {str(checkout.get('error'))[:100]}")
     offers = r.get("eligible_offers")
     if offers:
         print(f"  [可购offer] {json.dumps(offers, ensure_ascii=False)[:120]}")
@@ -158,6 +206,14 @@ def run(cfg: dict[str, Any], args) -> int:
                 try:
                     r = _query(sess, d.get("access_token"))
                     if r.get("accounts_http") == 200:
+                        if args.checkout:
+                            promos = r.get("eligible_promo_campaigns") or {}
+                            if "plus" in promos:
+                                promo_id = str((promos.get("plus") or {}).get("id") or "plus-1-month-free")
+                                try:
+                                    r["checkout"] = _checkout(sess, d.get("access_token"), promo_id, d.get("device_id"), cfg)
+                                except Exception as exc:
+                                    r["checkout"] = {"error": f"{type(exc).__name__}: {exc}"}
                         return d.get("email"), r
                 except Exception:
                     pass
