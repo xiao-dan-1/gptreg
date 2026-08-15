@@ -37,7 +37,7 @@ FLOW_PWD = "username_password_create"
 FLOW_OAUTH = "oauth_create_account"
 
 
-def _rk_sentinel(session, device_id, flow, cfg, with_so=True):
+def _rk_sentinel(session, device_id, email, flow, cfg, with_so=True):
     """register-kit token(flow) 完整流程替代手动 requirements/solve(英文时区名对齐)。
 
     设密码(FLOW_PWD)用 with_so=False; create(FLOW_OAUTH)用 with_so=True。
@@ -49,13 +49,13 @@ def _rk_sentinel(session, device_id, flow, cfg, with_so=True):
     user_agent = b.get("user_agent") or ""
     language = b.get("language") or "en-US"
     languages = b.get("languages") or "en-US,en;q=0.9"
-    # fingerprint 确定性派生(register-kit FingerprintProfile 借鉴): 按 device_id 从池派生
-    # screen/cores, 同账号稳定、异账号各异(防批量雷同)。cfg 显式指定优先。
+    # fingerprint 确定性派生(register-kit FingerprintProfile 对齐): 按 email 从池派生
+    # screen/cores, 同邮箱重试指纹稳定、异邮箱各异(防批量雷同)。cfg 显式指定优先。
     import hashlib
     import random
     _SCREENS = [(1920, 1080), (1536, 864), (1366, 768), (1600, 900), (2560, 1440), (1440, 900)]
     _CORES = [4, 6, 8, 12, 16]
-    _seed = int(hashlib.md5(str(device_id or "").lower().encode()).hexdigest()[:8], 16)
+    _seed = int(hashlib.md5(str(email or "").lower().strip().encode()).hexdigest()[:8], 16)
     _rng = random.Random(_seed)
     if b.get("screen_width") and b.get("screen_height"):
         width = int(b["screen_width"])
@@ -232,7 +232,7 @@ def _stage_register(
     """
     _t0 = time.time()
     # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
-    token, _ = _rk_sentinel(session, session.device_id, FLOW_PWD, cfg, with_so=False)
+    token, _ = _rk_sentinel(session, session.device_id, email, FLOW_PWD, cfg, with_so=False)
     logger.info("  [quickjs/t] register 真 t 就绪 t_len=%s (so: 密码 register 无 so)", len(token))
     headers = session.auth_api_headers(referer=PASSWORD_REFERER)
     headers["openai-sentinel-token"] = token
@@ -378,6 +378,7 @@ def _stage_wait_otp(
 def _stage_create(
     session: BrowserSession,
     cfg: dict[str, Any],
+    email: str,
     name: str,
     bday: str,
     proxy_url: str,
@@ -393,8 +394,8 @@ def _stage_create(
     holder: dict[str, Any] = {}
     _proto = cfg.get("protocol") or {}
     # so 来源(browser/quickjs/none): 密码模式 so 对照实验(2026-08-12)。
-    # none=不发 so 头; quickjs=vm so; browser(默认)=真浏览器 so。
-    so_source = str(_proto.get("sentinel_so_source") or "browser").strip().lower()
+    # none=不发 so 头; quickjs(默认)=vm so 模拟行为(register-kit 对齐, 零浏览器); browser=真浏览器 so。
+    so_source = str(_proto.get("sentinel_so_source") or "quickjs").strip().lower()
     holder["so_source"] = so_source
 
     _ct0 = time.time()
@@ -405,7 +406,7 @@ def _stage_create(
         # none 模式同样单次(只要 t, so 丢弃)。
         _ct = time.time()
         try:
-            tok, so_vm = _rk_sentinel(session, session.device_id, FLOW_OAUTH, cfg, with_so=True)
+            tok, so_vm = _rk_sentinel(session, session.device_id, email, FLOW_OAUTH, cfg, with_so=True)
             holder["tok2"] = tok
             holder["so_b"] = so_vm if so_source == "quickjs" else None
             logger.info("  [quickjs] create 真 t+so 一次产出 t_len=%s so_len=%s (%.1fs)",
@@ -418,7 +419,7 @@ def _stage_create(
             _ct = time.time()
             try:
                 # 静默 quickjs 默认 log(so_len 是 vm so, 会被忽略); so 由 browser 采集
-                tok, _ = _rk_sentinel(session, session.device_id, FLOW_OAUTH, cfg, with_so=False)
+                tok, _ = _rk_sentinel(session, session.device_id, email, FLOW_OAUTH, cfg, with_so=False)
                 holder["tok2"] = tok
                 logger.info("  [quickjs/t] create 真 t 就绪 t_len=%s (%.1fs, so 由 browser 采集)", len(tok), time.time() - _ct)
             except Exception as exc:
@@ -601,7 +602,7 @@ def _register_chain(
         reg, send_url = _stage_register(session, cfg, account, email, password, final, st, diag)
         otp = _stage_wait_otp(session, cfg, account, email, send_url, resolved.session_url or None,
                               st, diag)
-        tok2, so_b, cu = _stage_create(session, cfg, name, bday, resolved.session_url or None, st, diag)
+        tok2, so_b, cu = _stage_create(session, cfg, email, name, bday, resolved.session_url or None, st, diag)
         at, session_token, refresh_token, cookies = _stage_session(session, cu, st, diag)
         return {
             "at": at,

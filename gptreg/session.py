@@ -135,7 +135,7 @@ class BrowserSession:
         )
         return h
 
-    def auth_api_headers(self, referer: str) -> dict[str, str]:
+    def auth_api_headers(self, referer: str, flow_invocation: bool = False) -> dict[str, str]:
         h = self._common()
         h.update(
             {
@@ -154,6 +154,9 @@ class BrowserSession:
         )
         # 每次请求新 trace（对齐 starmiaoa json_headers）
         h.update(_datadog_rum_headers())
+        # 状态推进类端点带每请求全新 invocation-id(register-kit _common_headers 对齐)
+        if flow_invocation:
+            h["x-access-flow-invocation-id"] = str(uuid.uuid4())
         return h
 
     def auth_navigate_headers(self, referer: str = "https://chatgpt.com/") -> dict[str, str]:

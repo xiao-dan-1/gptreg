@@ -23,6 +23,18 @@ def _is_transient(exc: Exception) -> bool:
     return any(k in name for k in keys) or any(k in msg for k in keys)
 
 
+def _warmup(session: BrowserSession) -> None:
+    """warmup chatgpt.com + auth.openai.com, CF 挑战提前探测(register-kit init_page_email 对齐)。
+
+    CF 挑战(cf-mitigated: challenge)时 raise 带 "403" 的异常 → _is_transient 判真,
+    register_account 自动换 sid 重试(在 signin 之前换 IP, 省浪费 signin 尝试)。
+    """
+    for url in ("https://chatgpt.com/", "https://auth.openai.com/"):
+        resp = session.get(url, headers=session.auth_navigate_headers(referer="https://chatgpt.com/"))
+        if resp.status_code == 403 and str(resp.headers.get("cf-mitigated", "")).strip().lower() == "challenge":
+            raise RuntimeError(f"CF 挑战 403: {url}")
+
+
 def get_providers(session: BrowserSession) -> dict:
     url = "https://chatgpt.com/api/auth/providers"
     logger.info("[Auth] 获取 providers")
@@ -84,6 +96,7 @@ def signin_flow(
     time.sleep——消除两条注册路径对协议时序的重复硬编码。
     返回 authorize 落点 URL。
     """
+    _warmup(session)
     get_providers(session)
     time.sleep(0.2)
     csrf = get_csrf_token(session)
@@ -181,7 +194,7 @@ def make_sentinel_headers(
 
 def validate_email_otp(session: BrowserSession, code: str, sentinel_header: str | None = None) -> dict:
     url = "https://auth.openai.com/api/accounts/email-otp/validate"
-    headers = session.auth_api_headers(referer="https://auth.openai.com/email-verification")
+    headers = session.auth_api_headers(referer="https://auth.openai.com/email-verification", flow_invocation=True)
     if sentinel_header:
         headers["openai-sentinel-token"] = sentinel_header
     body = json.dumps({"code": code})
