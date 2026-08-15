@@ -153,7 +153,7 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 - **来源识别**：4 段 → `ms_oauth`；2 段+URL(@icloud.com/@me.com) → `icloud`；2 段非 URL → `api`；单段邮箱 → `cloudmail`
 - **号池状态**（`.state.json`）：失败/弃用带 TTL 自动回退（基建 30min、弃用 24h），代理恢复即复活
 - 主号需**未注册过 OpenAI**（已用会走邮箱级风控，换 IP 无效）
-- **iCloud 别名复用**：主号已注册仍可 +1 个别名（`主号+tag@icloud.com`，plus 别名邮件投递主邮箱收件箱，接码 URL 能收），每主号最多 1 别名（accounts.jsonl 追踪）
+- **iCloud 别名复用**：主号可开多个 `+别名`（`主号+tag@icloud.com`，plus 别名投递主邮箱收件箱，接码 URL 能收）。**实测单主号上限 ~6 个账号**（第 7 个起 `create_account` 返回 `user_already_exists`，自动永久弃用该主号、不再开别名）
 - **示例**：`icloud_pool.txt.example`（iCloud 池）/ `mail_pool.txt.example`（Outlook 池）
 
 ---
@@ -325,5 +325,6 @@ output/                        成功账号(accounts.jsonl)
 - **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
 - **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
 - **代理通道**：cliproxy 池混合住宅/数据中心，命中住宅 IP 才注册成功
+- **动态错误反馈**：失败时输出 `[服务器原文]`——完整透传服务器返回的 error 对象（code/message/redirect），网站返回什么就显示什么；硬编码文案只用于分类决策（换 IP/弃用），不用于展示
 
 仅供协议研究与学习。请遵守目标服务条款与当地法律。
