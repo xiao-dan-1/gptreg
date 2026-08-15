@@ -2,7 +2,7 @@
 
 > **纯协议实现**的 ChatGPT / OpenAI 账号自动注册工具——产出带 `totp_secret` 的**真 2FA 账号**（`mfa_enabled: true`），可用密码 + TOTP 正常登录。
 > **纯协议最终正解**（2026-08-13 实证）：**密码模式(user/register 设密码) + vm so(模拟行为 simulate_behavior) + TOTP + recovery key + relogin 续命**——全程零浏览器、账号可长活，无需真浏览器采集 so。
-> **纯协议组存活验证中**：2/2 号持续活（>3.4h 观察中，目标跨 7.9h 长活判定点）；browser 真 so 对照已 9.1h+ 长活确认。
+> **主流程 = batch_totp 密码模式**（2026-08-15 实证）：产试用资格号 **~95%**（21 号 20 有 Plus promo；iCloud 号 + JP 出口查）；`main.py register` 是 OTP-only + 补密码，资格归零（0/2），勿用。
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue)
@@ -20,7 +20,7 @@
 ### 1️⃣ 准备环境
 
 - **Python 3.11+**
-- **Chrome**（so 采集用）+ **Node.js 18+**（token 生成用）
+- **Node.js 18+**（token 生成用）；**Chrome 可选**（仅 `sentinel_so_source=browser` 真 so 时用，默认 vm so 不需要）
 - **一个能上外网的住宅代理**（数据中心 IP 会被 OpenAI 风控，注册必失败）
 
 ### 2️⃣ 安装依赖
@@ -87,9 +87,9 @@ python main.py export       # 导出 email----password----2fa 交付
 
 ```bash
 # ① 注册：批量注册，--workers 并发线程（建议 ≤ 可用代理数）
-#   主路线(batch_totp)：密码模式 + browser 真 so + TOTP，账号长活（推荐生产）
+#   主流程(batch_totp)：密码模式(user/register 设密码) + vm so(模拟行为) + TOTP，零浏览器、产资格号(~95%)
 python capture/tools/batch_totp.py --pool icloud --limit N --workers M
-#   纯协议路线(main.py register)：密码模式 + quickjs vm so(模拟行为)，零浏览器、可长活
+#   (旧)OTP-only + 补密码(main.py register)：先无密码建号再 password/add，token 作废、资格归零——不推荐
 python main.py register -n N --sentinel-source quickjs --pool icloud
 
 # ② 测活：批量测活，回写 health_status，每 8 个换出口 IP
@@ -128,8 +128,8 @@ echo "<jwt>" | python main.py raw-check  # 直接喂 JWT 测活
 | `proxy.dynamic.chain_via` | 本地代理第一跳（如 127.0.0.1:7890） |
 | `mail.use_alias` | 用 plus 别名注册（解决主号已注册的 400），默认 true |
 | `register.default_password` | **统一密码**（推荐填）：所有账号同一密码，半注册邮箱可找回；不填则随机（密码会随进程丢失） |
-| `register.enable_totp` | **纯协议路线**：注册后自动开 TOTP（无密码 + TOTP 交付），默认 false |
-| `register.enable_password` | **纯协议路线**：注册后 reauth 补设密码，产出 `email----password----2fa` 全凭据，默认 false |
+| `register.enable_totp` | **main.py register（OTP-only 路径）**：注册后自动开 TOTP，默认 false |
+| `register.enable_password` | **main.py register（OTP-only 路径）**：注册后 reauth 补设密码，产出 `email----password----2fa`，默认 false |
 | `mail.otp_wait` | 收码超时（秒），需覆盖发码延迟 |
 | `proxy.dynamic.trial_region` | **试用资格探测 region**（默认 JP）：`plus-1-month-free` 是 JP 灰度活动，只有 JP 出口能查到；独立于注册 region |
 | `browser.impersonate_rotate` | TLS 指纹差异化：按 device_id 派生 chrome 版本（打破 JA3 雷同），默认 true |
@@ -216,28 +216,28 @@ python main.py export --source icloud --filter alive --with-at --out deliver_icl
 - 共享收码源（CloudMail admin）并发 ≤2，独立收码（iCloud URL/Outlook IMAP）可高并发
 
 **Q6. ⚡ 为什么有两个注册入口（batch_totp / main.py register）？**
-- `batch_totp.py`（主路线）：密码模式 + browser 真 so + TOTP，账号**长活**（实测 8h+），推荐生产
-- `main.py register --sentinel-source quickjs`（纯协议路线）：**零浏览器**，密码模式 + quickjs vm so（**默认派发模拟行为事件 simulate_behavior**，so 带行为字段 ≈ 浏览器）→ **账号可长活**（2026-08-13 实证 2/2 活，无需真浏览器）；配 `enable_totp`/`enable_password` 可产出 `email----password----2fa` 全凭据
+- `batch_totp.py`（**主流程，推荐**）：密码模式（user/register 设密码）+ vm so（simulate_behavior）+ TOTP，**零浏览器**；产资格号 **~95%**（2026-08-15 实证 21 号 20 有 promo），token 不失效
+- `main.py register`（旧，不推荐）：**OTP-only + 补密码**（先无密码建号，再 `password/add` 补）——补密码 reauth 会作废 token，且资格归零（0/2）。仅留作 OTP-only 对照实验
 - **纯协议正解关键**：vm so 必须**派发行为事件**（`simulate_behavior`，默认开）才带行为字段；且**绝不派发 paste**（"合成输入"判别特征）。行为字段空的 vm so 账号会被吊销（历史"~30min 死"的真相）
-- 补充：纯协议补密码走 `auth.openai.com/api/accounts/password/add`，signin 须带 `post_login_add_password=true`
 
 ---
 
 ## 🧠 进阶：架构与协议（可跳读）
 
-### 主路线注册链
+### 主流程注册链（batch_totp / register_pwd，密码模式 + vm so）
 
 ```
 号源(Outlook/iCloud/CloudMail) ──动态链式代理──> OpenAI 注册
-  ├─ signin → authorize → register(设密码)   [400: 状态冲突弃用 / IP 类换 sid 重试 1 次]
+  ├─ warmup(chatgpt.com + auth.openai.com, CF 挑战探测) → signin → authorize
+  ├─ register(设密码, username_password_create 无 SO)   [400: 状态冲突弃用 / IP 类换 sid 重试]
   ├─ send_otp → 收码 → validate
-  ├─ create_account(quickjs 真 t + browser 真 so 并行)
+  ├─ create_account(quickjs 真 t + vm so[simulate_behavior])
   ├─ callback → session(access_token + session_token) → 健康检查(秒封检测)
   ├─ mfa/enroll → activate_enrollment  ← 2FA 真激活
   └─ save_account → accounts.jsonl
 ```
 
-### 纯协议路线（main.py register / batch_totp，零浏览器）
+### 纯协议正解（batch_totp / register_pwd，零浏览器）
 
 > 研究验证（2026-08）：**密码模式(user/register 设密码) + vm so(模拟行为) + TOTP + recovery + relogin**，全程纯 HTTP 零浏览器。
 
@@ -251,7 +251,7 @@ signin → register(user/register 设密码, username_password_create 无 SO) �
 ```
 
 - **⭐ 纯协议正解（2026-08-13 实证）**：密码模式 + vm so（**派发行为事件 simulate_behavior，默认开**）→ **账号可长活**（实测 2/2 活，无需真浏览器）。行为字段空的 vm so（不派发事件）才会被吊销——历史"~30min 短活"是行为字段空的真相
-- **试用资格（08-14 实证）**：`plus-1-month-free` 由 **IP 地区（JP 有/US 无）× 邮箱域（iCloud 有/Outlook 无）** 决定——**iCloud 号 + JP 出口查 ≈ 76% 有资格**（35/46 大样本）。查资格用 `eligibility`（探测池自动 JP，并发 + 失败重试），不需要 checkout
+- **试用资格（08-15 实证）**：由 **邮箱域（iCloud 有/Outlook 无）× 查询出口（JP）** 决定，**与注册地（US/JP）无关**——iCloud 号 + JP 出口查 ≈ 76% 有资格；密码模式实测 **~95%**（21 号 20 有 promo，含 `plus-1-month-free` 免费 + `plus-1-month-50-pct-off` 5折）。查资格用 `eligibility`（探测池自动 JP），不需要 checkout
 - **指纹差异化 + Geo 对齐**（register-kit 借鉴）：screen/cores/memory 按账号确定性派生 + TLS 指纹按 device_id 轮换（`impersonate_rotate`）+ 语言/时区随出口 IP → 防批量雷同/设备指纹矛盾
 - **效率优化**：Geo 复用隧道探活 ipinfo（省单独查询 +2s/号）；cloudmail 收码快（~3s）→ 单号 ~38s、并发 w2 稳定 2/2；Outlook 收码是瓶颈（XDAuv 服务波动，并发建议 ≤2）
 - **recovery key**：`recovery_code` 因子，30 字符 key，激活时提交整个 key；防 TOTP 锁死
@@ -264,7 +264,7 @@ signin → register(user/register 设密码, username_password_create 无 SO) �
 | 环节 | 引擎 | 说明 |
 |---|---|---|
 | register(设密码) | quickjs_pwd_v3 | Node VM 跑官方 sdk.js 产真 t |
-| create_account | quickjs 真 t + **browser 真 so** | so 走真 Chrome `sessionObserverToken` |
+| create_account | quickjs 真 t + **vm so** | so 走 vm `sessionObserverToken` + simulate_behavior（默认）；browser 真 so 可选 |
 | 登录/OTP | pow | 纯 Python PoW |
 
 **硬约束**：禁止假 so / 假 finalize。假 t ~6h 被吊销；真 t + 真 so 才能长期存活。
@@ -294,7 +294,7 @@ main.py                        统一 CLI 入口(子命令式)
 gptreg/
   cli.py                       CLI 路由器
   commands/                    子命令实现(register/check-proxy/stats/overview/export/
-                                survival/refresh/backfill/imap/raw-check/subscription)
+                                survival/refresh/backfill/imap/raw-check/eligibility/checkout)
   register_pwd.py              主路线核心: register_account(注册+TOTP 2FA)
   register_otp.py              OTP-only 并行路径
   auth.py                      协议请求
@@ -320,7 +320,7 @@ output/                        成功账号(accounts.jsonl)
 - **已推进邮箱不可重跑**：register/OTP 之后的失败（so/create/session/enroll）= 已推进，批量下弃用
 - **邮箱级风控**：同一邮箱多次失败会被 OpenAI 记住，换 IP 无效（勿反复试）
 - **so 真实性**：行为字段空的 so 账号被吊销；vm so 必须**派发行为事件（simulate_behavior，默认开）**才带行为字段 ≈ 浏览器；**绝不派发 paste**（"合成输入"判别特征，register-kit 踩坑）
-- **两条路线存活**：主路线（browser 真 so）长活（实测 8h+）；**纯协议路线（密码模式 + vm so 模拟行为）实证可长活**（2026-08-13 2/2 活），无需真浏览器
+- **存活**：密码模式 + vm so 模拟行为实证可长活（2026-08-13 2/2 活），无需真浏览器
 - **试用资格**：`plus-1-month-free` 由 **IP 地区（JP）× 邮箱域（iCloud）** 决定——iCloud 号 + JP 出口 ≈ 76% 有资格；查资格用 `eligibility`（探测池自动 JP 住宅，勿传数据中心代理）
 - **access_token ~6h 过期**（实测，非 10 天）：测活 `token_expired` = 过期可续期（独立状态），续期机制见 FAQ
 - **统一密码（推荐）**：`register.default_password` 填统一密码，半注册邮箱可找回；不填则随机密码随进程丢失
