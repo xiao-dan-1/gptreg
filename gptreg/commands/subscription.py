@@ -88,6 +88,7 @@ def _checkout(sess: BrowserSession, at: str, promo_id: str, device_id: str, cfg:
     b = cfg.get("browser") or {}
     token = gen_sentinel_token(
         device_id, "checkout_session_approval", b.get("user_agent") or "",
+        page_url="https://chatgpt.com/checkout/openai_llc/cs_ctf",
         language=b.get("language") or "en-US", languages=b.get("languages") or "en-US,en;q=0.9",
         width=int(b.get("screen_width") or 1920), height=int(b.get("screen_height") or 1080),
         cores=int(b.get("hardware_concurrency") or 16), timezone=b.get("timezone") or "America/Los_Angeles",
