@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 logging.basicConfig(level=logging.ERROR)
 
 from gptreg.config import load_config
+from gptreg.health import _timezone_offset_min
 from gptreg.session import BrowserSession
 from gptreg.proxyutil import resolve_proxy
 
@@ -43,7 +44,10 @@ def _scan_account(sess: BrowserSession, d: dict, region: str = "US") -> dict:
 
     # 第一层: 静态资格
     h2 = dict(h); h2.pop("content-type", None)
-    resp = sess.get("https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27", headers=h2, timeout=10)
+    tz_min = _timezone_offset_min(sess)
+    resp = sess.get(
+        f"https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min={tz_min}",
+        headers=h2, timeout=10)
     out["http"] = resp.status_code
     if resp.status_code == 200:
         accs = resp.json().get("accounts") or {}
@@ -169,6 +173,7 @@ def main() -> int:
     # 统一用 config 的 trial_region(JP): 静态检查也走 JP 出口, 否则 eligible_promo_campaigns 空(US 无资格)
     _dyn = (cfg.get("proxy") or {}).get("dynamic") or {}
     trial_region = str(_dyn.get("trial_region") or "JP")
+    shared_tz = ""
     if proxy:
         rp = None
         shared_proxy = proxy
@@ -176,10 +181,13 @@ def main() -> int:
         from gptreg.proxyutil import build_dynamic_proxy
         rp = resolve_proxy(cfg, override=build_dynamic_proxy(cfg, region=trial_region))
         shared_proxy = rp.session_url
+        shared_tz = str((rp.ipinfo or {}).get("timezone") or "")
 
     def _process_one(d: dict) -> dict:
         """单账号检测: 第一层(独立 session 共享代理) + 可选 JP probe。"""
         sess = BrowserSession(cfg, proxy=shared_proxy)
+        if shared_tz:
+            sess.timezone = shared_tz
         try:
             r = _scan_account(sess, d, region=args.region)
         finally:

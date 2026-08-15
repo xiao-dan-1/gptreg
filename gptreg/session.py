@@ -65,6 +65,9 @@ class BrowserSession:
         self.accept_language = browser.get(
             "accept_language", "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"
         )
+        # Geo 时区(注册时按出口 IP 设置 IANA 名, 如 Asia/Tokyo), 供 timezone_offset_min
+        # 派生; 空 = 未对齐(回退机器本地)。与 accept_language 同源, 保证指纹时区一致。
+        self.timezone = browser.get("timezone", "")
         # TLS 指纹差异化(2026-08-13): impersonate_rotate=true 时按 device_id 派生
         # chrome 版本, UA/sec-ch-ua 与 impersonate 主版本对齐(避免 UA 与 TLS 指纹矛盾)。
         impersonate = browser.get("impersonate", "chrome_windows")

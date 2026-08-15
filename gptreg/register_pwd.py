@@ -236,6 +236,33 @@ def _stage_signin(session: BrowserSession, email: str, diag: dict[str, Any]) -> 
     return final
 
 
+def _prefetch_register_sentinel(session: BrowserSession, cfg: dict[str, Any], email: str) -> dict[str, Any]:
+    """提速: register 的 sentinel t(FLOW_PWD ~1.2s + 首次起 :1789 中转 ~1-2s) 与 signin 并行。
+
+    signin 是 ~7s 网络 I/O(纯空闲), 把 register 的 sentinel solve + 中转冷启动藏进去。
+    失败回退 _stage_register 现场重算。
+    """
+    holder: dict[str, Any] = {"tok": "", "err": "", "t_s": 0.0, "done": threading.Event()}
+
+    def _run() -> None:
+        _pt0 = time.time()
+        try:
+            tok, _ = _rk_sentinel(session, session.device_id, email, FLOW_PWD, cfg, with_so=False)
+            holder["tok"] = tok
+            holder["t_s"] = round(time.time() - _pt0, 1)
+            logger.info("  [quickjs/t] register t 预取完成(与signin并行) t_len=%s (%.1fs)", len(tok), holder["t_s"])
+        except Exception as exc:
+            holder["err"] = f"{type(exc).__name__}: {exc}"
+            holder["t_s"] = round(time.time() - _pt0, 1)
+        finally:
+            holder["done"].set()
+
+    _ctx = contextvars.copy_context()
+    holder["thread"] = threading.Thread(target=lambda: _ctx.run(_run), daemon=True)
+    holder["thread"].start()
+    return holder
+
+
 def _stage_register(
     session: BrowserSession,
     cfg: dict[str, Any],
@@ -245,6 +272,7 @@ def _stage_register(
     final: str,
     st: dict[str, float],
     diag: dict[str, Any],
+    prefetch: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Stage 2: register(设密码) + send_otp。返回 (reg, send_url)。
 
@@ -254,8 +282,16 @@ def _stage_register(
     """
     _t0 = time.time()
     # 静默 quickjs 默认 log(其 so_len 是 vm so, 密码 register 无 so), 自行明确打印
-    token, _ = _rk_sentinel(session, session.device_id, email, FLOW_PWD, cfg, with_so=False)
-    logger.info("  [quickjs/t] register 真 t 就绪 t_len=%s (so: 密码 register 无 so)", len(token))
+    token = ""
+    if prefetch is not None:
+        prefetch["done"].wait(timeout=90)
+        if prefetch.get("tok") and not prefetch.get("err"):
+            token = prefetch["tok"]
+            diag["register_t_prefetch"] = True
+            logger.info("  [quickjs/t] register t 用预取(与signin并行), 现场等待 %.1fs", time.time() - _t0)
+    if not token:
+        token, _ = _rk_sentinel(session, session.device_id, email, FLOW_PWD, cfg, with_so=False)
+        logger.info("  [quickjs/t] register 真 t 就绪 t_len=%s (so: 密码 register 无 so)", len(token))
     headers = session.auth_api_headers(referer=PASSWORD_REFERER)
     headers["openai-sentinel-token"] = token
     resp = session.post(REGISTER_URL, headers=headers,
@@ -297,7 +333,7 @@ def _stage_register(
                     cfg, account, email=email, after_ts=st["start"],
                     proxy_url=None, session=session,
                     max_attempts=1, timeout=min(int(_mc.get("otp_wait", 150) or 150), 20),
-                    interval=3, settle_seconds=5,
+                    interval=3, settle_seconds=0,
                 )
                 if _otp:
                     auth.validate_email_otp(session, _otp, None)
@@ -388,7 +424,7 @@ def _stage_wait_otp(
         after_ts=st["start"], proxy_url=proxy_url,
         send_url=send_url, session=session,
         max_attempts=otp_max_attempts, timeout=otp_timeout,
-        interval=3, settle_seconds=5,
+        interval=3, settle_seconds=0,  # 到件后白睡 5s(icloud 无"等更新码"逻辑)已移除
     )
     diag["otp"] = otp
     diag["otp_s"] = round(time.time() - _t0, 1)  # 纯 OTP 段(收码+重发)
@@ -401,6 +437,41 @@ def _stage_wait_otp(
     return otp
 
 
+def _prefetch_create_sentinel(session: BrowserSession, cfg: dict[str, Any], email: str) -> dict[str, Any] | None:
+    """提速: create 的 sentinel t+so(quickjs ~3s) 在等 OTP 邮件投递的空闲里预计算。
+
+    OTP 段有 3-8s 纯网络空闲(等邮件), 把 create 的 sentinel solve 藏进去, 净省 ~3s/号。
+    仅 quickjs/none 模式适用(browser 模式 so 需真浏览器采集, 不能预取)。
+    返回 holder(done Event + thread + tok2/so_b/err); 失败时 _stage_create 回退现场重算。
+    """
+    _proto = cfg.get("protocol") or {}
+    so_source = str(_proto.get("sentinel_so_source") or "quickjs").strip().lower()
+    if so_source not in ("quickjs", "none"):
+        return None
+    holder: dict[str, Any] = {"so_source": so_source, "tok2": "", "so_b": None,
+                              "err": "", "t_s": 0.0, "done": threading.Event()}
+
+    def _run() -> None:
+        _pt0 = time.time()
+        try:
+            tok, so_vm = _rk_sentinel(session, session.device_id, email, FLOW_OAUTH, cfg, with_so=True)
+            holder["tok2"] = tok
+            holder["so_b"] = so_vm if so_source == "quickjs" else None
+            holder["t_s"] = round(time.time() - _pt0, 1)
+            logger.info("  [quickjs] create t+so 预取完成(等OTP并行) t_len=%s so_len=%s (%.1fs)",
+                        len(tok), len(so_vm) if so_vm else 0, holder["t_s"])
+        except Exception as exc:
+            holder["err"] = f"{type(exc).__name__}: {exc}"
+            holder["t_s"] = round(time.time() - _pt0, 1)
+        finally:
+            holder["done"].set()
+
+    _ctx = contextvars.copy_context()
+    holder["thread"] = threading.Thread(target=lambda: _ctx.run(_run), daemon=True)
+    holder["thread"].start()
+    return holder
+
+
 def _stage_create(
     session: BrowserSession,
     cfg: dict[str, Any],
@@ -410,6 +481,7 @@ def _stage_create(
     proxy_url: str,
     st: dict[str, float],
     diag: dict[str, Any],
+    prefetch: dict[str, Any] | None = None,
 ) -> tuple[str, str, str]:
     """Stage 4: create_account —— quickjs 真 t 与 browser 真 so 并行(独立资源)。
 
@@ -430,16 +502,30 @@ def _stage_create(
         # (同一 fp/challenge), 单次调用同时拿到两者 —— 旧实现按 t/so 各调一次完整
         # solve(重复计算 ~5s/号); 合并后 t/so 同源(同 c/device_id)反而更保真。
         # none 模式同样单次(只要 t, so 丢弃)。
+        # 2026-08-16 再加一层: t+so 在等 OTP 时预取(prefetch), 此处只用结果, 现场近 0s。
         _ct = time.time()
-        try:
-            tok, so_vm = _rk_sentinel(session, session.device_id, email, FLOW_OAUTH, cfg, with_so=True)
-            holder["tok2"] = tok
-            holder["so_b"] = so_vm if so_source == "quickjs" else None
-            logger.info("  [quickjs] create 真 t+so 一次产出 t_len=%s so_len=%s (%.1fs)",
-                        len(tok), len(so_vm) if so_vm else 0, time.time() - _ct)
-        except Exception as exc:
-            holder["t_err"] = f"{type(exc).__name__}: {exc}"
-        holder["t_s"] = holder["so_s"] = time.time() - _ct
+        tok = so_vm = None
+        if prefetch is not None:
+            prefetch["done"].wait(timeout=90)
+            if prefetch.get("tok2") and not prefetch.get("err"):
+                tok, so_vm = prefetch["tok2"], prefetch["so_b"]
+                holder["prefetch"] = True
+                logger.info("  [quickjs] create t+so 用预取(等OTP并行), 现场等待 %.1fs",
+                            time.time() - _ct)
+        if tok is None:
+            # 预取失败/未预取: 现场重算
+            try:
+                tok, so_vm = _rk_sentinel(session, session.device_id, email, FLOW_OAUTH, cfg, with_so=True)
+                logger.info("  [quickjs] create 真 t+so 现场产出 t_len=%s so_len=%s (%.1fs)",
+                            len(tok), len(so_vm) if so_vm else 0, time.time() - _ct)
+            except Exception as exc:
+                holder["t_err"] = f"{type(exc).__name__}: {exc}"
+        holder["tok2"] = tok if tok else ""
+        holder["so_b"] = so_vm if so_source == "quickjs" else None
+        if holder.get("prefetch"):
+            holder["t_s"] = holder["so_s"] = float(prefetch.get("t_s", 0) or 0)
+        else:
+            holder["t_s"] = holder["so_s"] = time.time() - _ct
     else:
         def _gen_t() -> None:
             _ct = time.time()
@@ -621,6 +707,7 @@ def _register_chain(
             _geo = geo_profile_for_proxy(resolved.session_url or "", ipinfo=resolved.ipinfo)
             if _geo:
                 session.accept_language = _geo["languages"]
+                session.timezone = _geo["timezone"]  # timezone_offset_min 派生用
                 _b = cfg.setdefault("browser", {})
                 _geo_saved = (_b.get("timezone"), _b.get("language"), _b.get("languages"))
                 _b["timezone"] = _geo["timezone"]
@@ -632,11 +719,19 @@ def _register_chain(
     except Exception:
         pass
     try:
+        # ⭐ 提速: register 的 sentinel t(FLOW_PWD ~1.2s + 首次起 :1789 ~1-2s) 与 signin 并行
+        # (signin ~7s 网络 I/O 空闲), 失败回退 _stage_register 现场重算。
+        register_prefetch = _prefetch_register_sentinel(session, cfg, email)
         final = _stage_signin(session, email, diag)
-        reg, send_url = _stage_register(session, cfg, account, email, password, final, st, diag)
+        reg, send_url = _stage_register(session, cfg, account, email, password, final, st, diag,
+                                        prefetch=register_prefetch)
+        # ⭐ 提速: create 的 sentinel t+so(quickjs ~3s) 在等 OTP 邮件投递的空闲里预计算
+        # (OTP 段 3-8s 纯网络等待), 净省 ~3s/号; 失败回退 _stage_create 现场重算。
+        create_prefetch = _prefetch_create_sentinel(session, cfg, email)
         otp = _stage_wait_otp(session, cfg, account, email, send_url, resolved.session_url or None,
                               st, diag)
-        tok2, so_b, cu = _stage_create(session, cfg, email, name, bday, resolved.session_url or None, st, diag)
+        tok2, so_b, cu = _stage_create(session, cfg, email, name, bday, resolved.session_url or None, st, diag,
+                                       prefetch=create_prefetch)
         at, session_token, refresh_token, cookies = _stage_session(session, cu, st, diag)
         return {
             "at": at,

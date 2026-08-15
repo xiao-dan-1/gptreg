@@ -74,7 +74,7 @@ def post_login_warmup(
         payload = {
             "requested_default_model": None,
             "conversation_id": None,
-            "timezone_offset_min": _timezone_offset_min(),
+            "timezone_offset_min": _timezone_offset_min(session),
         }
         logger.info(
             "[PostLogin] conversation/init tz_offset=%s account_id=%s",

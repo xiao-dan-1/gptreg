@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 
 from gptreg.account_store import load_accounts
 from gptreg.commands.common import account_api_headers, apply_region, resolve_proxy_arg
+from gptreg.health import _timezone_offset_min
 from gptreg.proxyutil import resolve_proxy
 from gptreg.session import BrowserSession
 
@@ -44,7 +45,9 @@ def _query(sess: BrowserSession, account: dict[str, Any], at: str) -> dict[str, 
     h.pop("content-type", None)
 
     out: dict[str, Any] = {}
-    a = sess.get(ACCOUNTS_CHECK, headers=h)
+    # 真实浏览器 accounts/check 必带 timezone_offset_min(JP=-540), 对齐后避免
+    # "时区与出口地理位置对不上"被风控判矛盾(缺省或机器本地都会露注册地点)。
+    a = sess.get(f"{ACCOUNTS_CHECK}?timezone_offset_min={_timezone_offset_min(sess)}", headers=h)
     out["accounts_http"] = a.status_code
     if a.status_code != 200:
         out["accounts_error"] = a.text[:150]
@@ -199,6 +202,7 @@ def run(cfg: dict[str, Any], args) -> int:
         # 显式 --proxy: 兼容旧路径(注意: 数据中心代理查不到 promo, 应传住宅代理)
         resolved = resolve_proxy(cfg, override=fixed)
         sess = BrowserSession(cfg, proxy=resolved.session_url)
+        sess.timezone = str((resolved.ipinfo or {}).get("timezone") or "")
         try:
             for i, d in enumerate(accounts, 1):
                 print(f"\n[{i}/{len(accounts)}] {d.get('email')}")
@@ -227,6 +231,7 @@ def run(cfg: dict[str, Any], args) -> int:
             for _ in range(4):
                 rp = pool.acquire()
                 sess = BrowserSession(cfg, proxy=rp.session_url)
+                sess.timezone = str((rp.ipinfo or {}).get("timezone") or "")
                 try:
                     r = _query(sess, d, d.get("access_token"))
                     if r.get("accounts_http") == 200:

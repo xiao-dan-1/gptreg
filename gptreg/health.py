@@ -12,8 +12,26 @@ from gptreg.session import BrowserSession
 logger = logging.getLogger(__name__)
 
 
-def _timezone_offset_min() -> int:
-    """对齐 JS getTimezoneOffset（UTC+8 → -480）。"""
+def _timezone_offset_min(session=None) -> int:
+    """对齐 JS getTimezoneOffset（UTC+9 → -540）。
+
+    优先 session 的 Geo 时区(注册时按出口 IP 设置 IANA 名, 如 Asia/Tokyo),
+    否则回退机器本地时区。这样 timezone_offset_min 与 sentinel 指纹里的时区
+    (GMT+0900) 及出口 IP 地理位置三者一致, 避免"时区与出口对不上"被风控判矛盾。
+    """
+    tz = ""
+    if session is not None:
+        tz = str(getattr(session, "timezone", "") or "").strip()
+    if tz:
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            off = datetime.now(ZoneInfo(tz)).utcoffset()
+            if off is not None:
+                return -int(off.total_seconds() // 60)
+        except Exception:
+            pass
     try:
         from datetime import datetime
 
@@ -147,7 +165,7 @@ def _check_accounts_check(
     headers.pop("content-type", None)
 
     try:
-        url = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27"
+        url = f"https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min={_timezone_offset_min(session)}"
         resp = session.get(url, headers=headers, timeout=timeout)
         resp_text = resp.text or ""
         text = resp_text[:500]  # 截断仅用于关键词匹配(account_deactivated 等在响应开头)
